@@ -1,0 +1,65 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [main]
+
+env:
+  GCP_PROJECT: club-galaxy0000
+  REGION: asia-northeast1
+
+jobs:
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and push frontend image
+        run: |
+          gcloud builds submit ./frontend \
+            --tag gcr.io/${{ env.GCP_PROJECT }}/club-galaxy-frontend \
+            --project ${{ env.GCP_PROJECT }}
+
+      - name: Deploy frontend to Cloud Run
+        run: |
+          gcloud run deploy club-galaxy-frontend \
+            --image gcr.io/${{ env.GCP_PROJECT }}/club-galaxy-frontend \
+            --platform managed \
+            --region ${{ env.REGION }} \
+            --port 8080 \
+            --allow-unauthenticated \
+            --project ${{ env.GCP_PROJECT }}
+
+  deploy-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and push backend image
+        run: |
+          gcloud builds submit ./backend \
+            --tag gcr.io/${{ env.GCP_PROJECT }}/club-galaxy-backend \
+            --project ${{ env.GCP_PROJECT }}
+
+      - name: Deploy backend to Cloud Run
+        run: |
+          gcloud run deploy club-galaxy-backend \
+            --image gcr.io/${{ env.GCP_PROJECT }}/club-galaxy-backend \
+            --platform managed \
+            --region ${{ env.REGION }} \
+            --port 3001 \
+            --allow-unauthenticated \
+            --set-env-vars "DATABASE_URL=${{ secrets.DATABASE_URL }}" \
+            --project ${{ env.GCP_PROJECT }}
