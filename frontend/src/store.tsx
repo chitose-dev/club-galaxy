@@ -6,12 +6,17 @@ import {
   castMenuItems as initialCastMenu,
   setPrices as initialSetPrices,
   chargeItems as initialChargeItems,
+  initialBillingRecords,
+  initialDailyPayRequests,
   type Table,
   type Cast,
   type GuestMenuItem,
   type CastMenuItem,
   type SetPrice,
   type OrderItem,
+  type DiscountLog,
+  type BillingRecord,
+  type DailyPayRequest,
 } from './data/mock'
 
 interface Store {
@@ -21,10 +26,16 @@ interface Store {
   castMenu: CastMenuItem[]
   setPrices: SetPrice[]
   chargeItems: SetPrice[]
+  discountLogs: DiscountLog[]
+  billingRecords: BillingRecord[]
+  dailyPayRequests: DailyPayRequest[]
   updateTable: (id: number, patch: Partial<Table>) => void
   addOrderToTable: (tableId: number, order: OrderItem) => void
   removeOrderFromTable: (tableId: number, menuItemId: number) => void
   resetTable: (id: number) => void
+  addDiscountLog: (log: DiscountLog) => void
+  addBillingRecord: (record: BillingRecord) => void
+  addDailyPayRequest: (req: DailyPayRequest) => void
   setCasts: React.Dispatch<React.SetStateAction<Cast[]>>
   setGuestMenu: React.Dispatch<React.SetStateAction<GuestMenuItem[]>>
   setCastMenu: React.Dispatch<React.SetStateAction<CastMenuItem[]>>
@@ -41,6 +52,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [castMenu, setCastMenu] = useState<CastMenuItem[]>(initialCastMenu)
   const [setPricesState, setSetPrices] = useState<SetPrice[]>(initialSetPrices)
   const [chargeItemsState, setChargeItems] = useState<SetPrice[]>(initialChargeItems)
+  const [discountLogs, setDiscountLogs] = useState<DiscountLog[]>([])
+  const [billingRecords, setBillingRecords] = useState<BillingRecord[]>(initialBillingRecords)
+  const [dailyPayRequests, setDailyPayRequests] = useState<DailyPayRequest[]>(initialDailyPayRequests)
 
   const updateTable = useCallback((id: number, patch: Partial<Table>) => {
     setTables((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)))
@@ -92,6 +106,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     )
   }, [])
 
+  const addDiscountLog = useCallback((log: DiscountLog) => {
+    setDiscountLogs((prev) => [...prev, log])
+  }, [])
+
+  const addBillingRecord = useCallback((record: BillingRecord) => {
+    setBillingRecords((prev) => [...prev, record])
+  }, [])
+
+  const addDailyPayRequest = useCallback((req: DailyPayRequest) => {
+    setDailyPayRequests((prev) => [...prev, req])
+  }, [])
+
   return (
     <StoreContext.Provider
       value={{
@@ -101,10 +127,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         castMenu,
         setPrices: setPricesState,
         chargeItems: chargeItemsState,
+        discountLogs,
+        billingRecords,
+        dailyPayRequests,
         updateTable,
         addOrderToTable,
         removeOrderFromTable,
         resetTable,
+        addDiscountLog,
+        addBillingRecord,
+        addDailyPayRequest,
         setCasts,
         setGuestMenu,
         setCastMenu,

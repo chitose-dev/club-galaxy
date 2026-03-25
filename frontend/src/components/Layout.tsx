@@ -4,6 +4,8 @@ const tabs = [
   { to: '/floor', label: 'フロア', icon: '🏠' },
   { to: '/order', label: '注文', icon: '🍸' },
   { to: '/billing', label: '会計', icon: '💰' },
+  { to: '/salary', label: '給与', icon: '💵' },
+  { to: '/register', label: 'レジ', icon: '🧾' },
   { to: '/admin', label: '管理', icon: '⚙️' },
 ]
 
@@ -23,18 +25,18 @@ export default function Layout() {
         <Outlet />
       </main>
 
-      <nav className="bg-[#16213e] border-t border-gray-700 grid grid-cols-4 safe-bottom">
+      <nav className="bg-[#16213e] border-t border-gray-700 grid grid-cols-6 safe-bottom">
         {tabs.map((tab) => (
           <NavLink
             key={tab.to}
             to={tab.to}
             className={({ isActive }) =>
-              `flex flex-col items-center py-2 text-xs transition-colors ${
+              `flex flex-col items-center py-2 text-[10px] transition-colors ${
                 isActive ? 'text-[#d4af37]' : 'text-gray-400'
               }`
             }
           >
-            <span className="text-xl mb-0.5">{tab.icon}</span>
+            <span className="text-lg mb-0.5">{tab.icon}</span>
             {tab.label}
           </NavLink>
         ))}

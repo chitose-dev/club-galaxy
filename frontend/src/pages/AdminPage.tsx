@@ -123,7 +123,7 @@ function CastManager({ casts, setCasts }: { casts: Cast[]; setCasts: React.Dispa
     const maxId = Math.max(...casts.map((c) => c.id), 0)
     const defaultBackRates: Partial<Record<BackType, number>> = {}
     backTypes.forEach((bt) => { defaultBackRates[bt] = 0 })
-    setCasts((prev) => [...prev, { id: maxId + 1, name: newName, hourlyRate: Number(newRate), backRates: defaultBackRates, active: true }])
+    setCasts((prev) => [...prev, { id: maxId + 1, name: newName, hourlyRate: Number(newRate), backRates: defaultBackRates, guaranteeRate: 0.45, active: true }])
     setNewName('')
     setNewRate('2000')
     setShowAdd(false)

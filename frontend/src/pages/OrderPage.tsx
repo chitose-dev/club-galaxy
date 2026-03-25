@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useStore } from '../store'
 import type { MenuItem, CastMenuItem, BackType } from '../data/mock'
 
@@ -9,9 +10,11 @@ const drinkTabs = [
 
 export default function OrderPage() {
   const { tables, guestMenu, castMenu, addOrderToTable, removeOrderFromTable } = useStore()
+  const [searchParams] = useSearchParams()
 
   const occupiedTables = tables.filter((t) => t.status !== 'empty')
-  const [selectedTableId, setSelectedTableId] = useState<number>(occupiedTables[0]?.id ?? 0)
+  const initialTableId = Number(searchParams.get('table')) || occupiedTables[0]?.id || 0
+  const [selectedTableId, setSelectedTableId] = useState<number>(initialTableId)
   const [activeTab, setActiveTab] = useState<'guest' | 'cast'>('guest')
 
   const selectedTable = tables.find((t) => t.id === selectedTableId)
@@ -29,8 +32,19 @@ export default function OrderPage() {
     removeOrderFromTable(selectedTableId, itemId)
   }
 
+  const handleDelete = (itemId: number) => {
+    if (!selectedTableId || !selectedTable) return
+    // Remove all quantity of item at once
+    const order = orders.find((o) => o.menuItem.id === itemId)
+    if (!order) return
+    for (let i = 0; i < order.quantity; i++) {
+      removeOrderFromTable(selectedTableId, itemId)
+    }
+  }
+
   const total = orders.reduce((sum, o) => sum + o.menuItem.price * o.quantity, 0)
 
+  // バック自動集計: FD/本D/Fカク/本カク/本カクW/同伴/場内指名
   const backSummary = useMemo(() => {
     const summary: Partial<Record<BackType, number>> = {}
     for (const order of orders) {
@@ -39,11 +53,20 @@ export default function OrderPage() {
         summary[castItem.backType] = (summary[castItem.backType] ?? 0) + order.quantity
       }
     }
+    // 指名タイプからも集計
+    if (selectedTable?.nomination === 'douhan') {
+      summary['同伴'] = (summary['同伴'] ?? 0) + 1
+    } else if (selectedTable?.nomination === 'shimei') {
+      summary['本指名'] = (summary['本指名'] ?? 0) + 1
+    } else if (selectedTable?.nomination === 'banai') {
+      summary['場内指名'] = (summary['場内指名'] ?? 0) + 1
+    }
     return summary
-  }, [orders])
+  }, [orders, selectedTable?.nomination])
 
   return (
     <div className="flex flex-col h-full">
+      {/* 卓選択 */}
       <div className="px-4 pt-3 pb-2 flex items-center gap-2">
         <span className="text-sm text-gray-400">卓:</span>
         <select
@@ -60,6 +83,7 @@ export default function OrderPage() {
         </select>
       </div>
 
+      {/* タブ */}
       <div className="flex border-b border-gray-700">
         {drinkTabs.map((tab) => (
           <button
@@ -76,6 +100,7 @@ export default function OrderPage() {
         ))}
       </div>
 
+      {/* メニューグリッド - タップで注文追加 */}
       <div className="flex-1 overflow-y-auto p-3 grid grid-cols-2 gap-2 content-start">
         {menuItems.map((item) => {
           const ordered = orders.find((o) => o.menuItem.id === item.id)
@@ -102,35 +127,41 @@ export default function OrderPage() {
         })}
       </div>
 
+      {/* バック集計 */}
       {Object.keys(backSummary).length > 0 && (
         <div className="bg-purple-900/30 border-t border-purple-700 px-4 py-2">
           <div className="text-xs text-purple-300 mb-1">バック集計</div>
           <div className="flex flex-wrap gap-2">
             {(Object.entries(backSummary) as [BackType, number][]).map(([type, count]) => (
               <span key={type} className="bg-purple-800/50 text-purple-200 text-xs px-2 py-0.5 rounded">
-                {type}: {count}杯
+                {type}: {count}
               </span>
             ))}
           </div>
         </div>
       )}
 
+      {/* 注文リスト: 品目・数量・小計・削除 */}
       {orders.length > 0 && (
         <div className="bg-[#16213e] border-t border-gray-700 p-4">
-          <div className="max-h-32 overflow-y-auto mb-3 space-y-1">
+          <div className="max-h-40 overflow-y-auto mb-3 space-y-1">
             {orders.map((o) => (
               <div key={o.menuItem.id} className="flex items-center justify-between text-sm">
-                <span>{o.menuItem.name} x{o.quantity}</span>
+                <span className="flex-1 truncate">{o.menuItem.name}</span>
                 <div className="flex items-center gap-2">
-                  <span>{o.menuItem.price === 0 ? 'セット内' : `¥${(o.menuItem.price * o.quantity).toLocaleString()}`}</span>
-                  <button onClick={() => handleRemove(o.menuItem.id)} className="text-red-400 text-xs bg-white/10 rounded px-1.5 py-0.5">-1</button>
+                  <button onClick={() => handleRemove(o.menuItem.id)} className="text-gray-300 bg-white/10 rounded w-7 h-7 flex items-center justify-center text-lg leading-none">-</button>
+                  <span className="w-6 text-center font-bold">{o.quantity}</span>
+                  <button onClick={() => handleAdd(o.menuItem)} className="text-gray-300 bg-white/10 rounded w-7 h-7 flex items-center justify-center text-lg leading-none">+</button>
+                  <span className="w-20 text-right text-gray-300">
+                    {o.menuItem.price === 0 ? 'セット内' : `¥${(o.menuItem.price * o.quantity).toLocaleString()}`}
+                  </span>
+                  <button onClick={() => handleDelete(o.menuItem.id)} className="text-red-400 bg-red-900/30 rounded px-2 py-1 text-xs ml-1">削除</button>
                 </div>
               </div>
             ))}
           </div>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between border-t border-gray-600 pt-3">
             <span className="text-lg font-bold">合計: ¥{total.toLocaleString()}</span>
-            <button className="bg-[#e94560] px-6 py-2.5 rounded-lg font-bold">注文確定</button>
           </div>
         </div>
       )}

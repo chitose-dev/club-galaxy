@@ -46,6 +46,7 @@ export interface Cast {
   name: string
   hourlyRate: number
   backRates: Partial<Record<BackType, number>>
+  guaranteeRate: number // 売上保証率 (0.0〜1.0)
   active: boolean
 }
 
@@ -53,6 +54,43 @@ export interface SetPrice {
   id: string
   label: string
   price: number
+}
+
+// ─── 会計関連 ───
+
+export interface DiscountLog {
+  id: number
+  tableNumber: string
+  originalTotal: number
+  discountAmount: number
+  reason: string
+  operator: string
+  timestamp: string
+}
+
+export interface BillingRecord {
+  id: number
+  tableNumber: string
+  total: number
+  paymentMethod: 'cash' | 'card'
+  timestamp: string
+}
+
+// ─── 給与関連 ───
+
+export interface DailyWork {
+  date: string
+  hours: number
+  backs: Partial<Record<BackType, number>>
+  sales: number // その日の個人売上小計
+}
+
+export interface DailyPayRequest {
+  id: number
+  castId: number
+  castName: string
+  amount: number
+  date: string
 }
 
 // ─── セット料金（時間帯別） ───
@@ -103,23 +141,23 @@ export const allMenuItems: MenuItem[] = [...guestMenuItems, ...castMenuItems]
 
 export const casts: Cast[] = [
   {
-    id: 1, name: 'あいり', hourlyRate: 2500, active: true,
+    id: 1, name: 'あいり', hourlyRate: 2500, guaranteeRate: 0.5, active: true,
     backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000 },
   },
   {
-    id: 2, name: 'みく', hourlyRate: 2000, active: true,
+    id: 2, name: 'みく', hourlyRate: 2000, guaranteeRate: 0.45, active: true,
     backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000 },
   },
   {
-    id: 3, name: 'れな', hourlyRate: 2500, active: true,
+    id: 3, name: 'れな', hourlyRate: 2500, guaranteeRate: 0.5, active: true,
     backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000 },
   },
   {
-    id: 4, name: 'ゆい', hourlyRate: 2000, active: true,
+    id: 4, name: 'ゆい', hourlyRate: 2000, guaranteeRate: 0.4, active: true,
     backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000 },
   },
   {
-    id: 5, name: 'りさ', hourlyRate: 3000, active: true,
+    id: 5, name: 'りさ', hourlyRate: 3000, guaranteeRate: 0.55, active: true,
     backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000 },
   },
 ]
@@ -143,13 +181,27 @@ export function getSetPriceLabel(startTime: string): string {
 // ─── 卓データ（デモ用10卓） ───
 
 export const initialTables: Table[] = [
-  { id: 1, number: '1', status: 'occupied', guestCount: 3, startTime: '21:00', castNames: ['あいり'], nomination: 'shimei', setCount: 1, orders: [] },
-  { id: 2, number: '2', status: 'occupied', guestCount: 2, startTime: '21:30', castNames: ['みく'], nomination: 'free', setCount: 1, orders: [] },
-  { id: 3, number: '3', status: 'ending', guestCount: 4, startTime: '20:15', castNames: ['れな'], nomination: 'shimei', setCount: 2, orders: [] },
+  { id: 1, number: '1', status: 'occupied', guestCount: 3, startTime: '21:00', castNames: ['あいり'], nomination: 'shimei', setCount: 1, orders: [
+    { menuItem: castMenuItems[0], quantity: 2 },
+    { menuItem: guestMenuItems[4], quantity: 1 },
+  ] },
+  { id: 2, number: '2', status: 'occupied', guestCount: 2, startTime: '21:30', castNames: ['みく'], nomination: 'free', setCount: 1, orders: [
+    { menuItem: castMenuItems[1], quantity: 1 },
+    { menuItem: guestMenuItems[7], quantity: 3 },
+  ] },
+  { id: 3, number: '3', status: 'ending', guestCount: 4, startTime: '20:15', castNames: ['れな'], nomination: 'shimei', setCount: 2, orders: [
+    { menuItem: castMenuItems[0], quantity: 3 },
+    { menuItem: castMenuItems[2], quantity: 1 },
+    { menuItem: guestMenuItems[5], quantity: 2 },
+  ] },
   { id: 4, number: '4', status: 'empty', guestCount: 0, startTime: null, castNames: [], nomination: null, setCount: 0, orders: [] },
   { id: 5, number: '5', status: 'occupied', guestCount: 2, startTime: '22:00', castNames: ['ゆい'], nomination: 'free', setCount: 1, orders: [] },
   { id: 6, number: '6', status: 'empty', guestCount: 0, startTime: null, castNames: [], nomination: null, setCount: 0, orders: [] },
-  { id: 7, number: '7', status: 'alert', guestCount: 5, startTime: '20:30', castNames: ['りさ', 'あいり'], nomination: 'douhan', setCount: 1, orders: [] },
+  { id: 7, number: '7', status: 'alert', guestCount: 5, startTime: '20:30', castNames: ['りさ', 'あいり'], nomination: 'douhan', setCount: 1, orders: [
+    { menuItem: castMenuItems[0], quantity: 4 },
+    { menuItem: castMenuItems[1], quantity: 2 },
+    { menuItem: guestMenuItems[6], quantity: 3 },
+  ] },
   { id: 8, number: '8', status: 'empty', guestCount: 0, startTime: null, castNames: [], nomination: null, setCount: 0, orders: [] },
   { id: 9, number: 'VIP1', status: 'occupied', guestCount: 3, startTime: '22:30', castNames: ['みく', 'ゆい'], nomination: 'shimei', setCount: 1, orders: [] },
   { id: 10, number: 'VIP2', status: 'empty', guestCount: 0, startTime: null, castNames: [], nomination: null, setCount: 0, orders: [] },
@@ -161,3 +213,111 @@ export const nominationLabels: Record<string, string> = {
   free: 'フリー',
   douhan: '同伴',
 }
+
+// ─── 給与計算用ダミーデータ ───
+
+export const sampleDailyWork: Record<number, DailyWork[]> = {
+  // あいり (id:1) - 前半15日分
+  1: [
+    { date: '3/1', hours: 5, backs: { FD: 3, '本カク': 2, '本指名': 1 }, sales: 42000 },
+    { date: '3/2', hours: 6, backs: { FD: 4, '本D': 1, '場内指名': 2 }, sales: 55000 },
+    { date: '3/3', hours: 0, backs: {}, sales: 0 },
+    { date: '3/4', hours: 5, backs: { FD: 2, '本カク': 1, '同伴': 1 }, sales: 48000 },
+    { date: '3/5', hours: 6, backs: { FD: 5, '本D': 2, '本指名': 1 }, sales: 62000 },
+    { date: '3/6', hours: 5, backs: { FD: 3, '本カクW': 1 }, sales: 38000 },
+    { date: '3/7', hours: 6, backs: { FD: 4, '本カク': 3, '本指名': 2 }, sales: 71000 },
+    { date: '3/8', hours: 5, backs: { FD: 2, '場内指名': 1 }, sales: 35000 },
+    { date: '3/9', hours: 0, backs: {}, sales: 0 },
+    { date: '3/10', hours: 6, backs: { FD: 6, '本D': 1, '同伴': 1, '本指名': 1 }, sales: 78000 },
+    { date: '3/11', hours: 5, backs: { FD: 3, '本カク': 2 }, sales: 44000 },
+    { date: '3/12', hours: 6, backs: { FD: 4, '本カクW': 1, '場内指名': 1 }, sales: 52000 },
+    { date: '3/13', hours: 5, backs: { FD: 2, '本D': 1 }, sales: 39000 },
+    { date: '3/14', hours: 6, backs: { FD: 5, '本カク': 2, '本指名': 1, '同伴': 1 }, sales: 85000 },
+    { date: '3/15', hours: 5, backs: { FD: 3, '場内指名': 2 }, sales: 41000 },
+  ],
+  // みく (id:2)
+  2: [
+    { date: '3/1', hours: 5, backs: { FD: 2, '本カク': 1 }, sales: 32000 },
+    { date: '3/2', hours: 0, backs: {}, sales: 0 },
+    { date: '3/3', hours: 6, backs: { FD: 3, '場内指名': 1 }, sales: 38000 },
+    { date: '3/4', hours: 5, backs: { FD: 2, '本D': 1 }, sales: 35000 },
+    { date: '3/5', hours: 6, backs: { FD: 4, '本カク': 2, '本指名': 1 }, sales: 56000 },
+    { date: '3/6', hours: 0, backs: {}, sales: 0 },
+    { date: '3/7', hours: 5, backs: { FD: 3, '本カクW': 1 }, sales: 42000 },
+    { date: '3/8', hours: 6, backs: { FD: 4, '場内指名': 2 }, sales: 48000 },
+    { date: '3/9', hours: 5, backs: { FD: 2, '本カク': 1 }, sales: 33000 },
+    { date: '3/10', hours: 0, backs: {}, sales: 0 },
+    { date: '3/11', hours: 6, backs: { FD: 5, '本D': 2, '同伴': 1 }, sales: 65000 },
+    { date: '3/12', hours: 5, backs: { FD: 3, '本指名': 1 }, sales: 44000 },
+    { date: '3/13', hours: 6, backs: { FD: 4, '本カク': 1 }, sales: 41000 },
+    { date: '3/14', hours: 0, backs: {}, sales: 0 },
+    { date: '3/15', hours: 5, backs: { FD: 2, '場内指名': 1 }, sales: 30000 },
+  ],
+  // れな (id:3)
+  3: [
+    { date: '3/1', hours: 6, backs: { FD: 4, '本カク': 2, '本指名': 1 }, sales: 58000 },
+    { date: '3/2', hours: 5, backs: { FD: 3, '同伴': 1 }, sales: 52000 },
+    { date: '3/3', hours: 6, backs: { FD: 5, '本D': 1, '場内指名': 1 }, sales: 61000 },
+    { date: '3/4', hours: 0, backs: {}, sales: 0 },
+    { date: '3/5', hours: 5, backs: { FD: 3, '本カクW': 1 }, sales: 45000 },
+    { date: '3/6', hours: 6, backs: { FD: 4, '本カク': 3 }, sales: 55000 },
+    { date: '3/7', hours: 0, backs: {}, sales: 0 },
+    { date: '3/8', hours: 6, backs: { FD: 5, '本D': 2, '本指名': 2 }, sales: 74000 },
+    { date: '3/9', hours: 5, backs: { FD: 3, '場内指名': 1 }, sales: 40000 },
+    { date: '3/10', hours: 6, backs: { FD: 4, '本カク': 1, '同伴': 1 }, sales: 63000 },
+    { date: '3/11', hours: 0, backs: {}, sales: 0 },
+    { date: '3/12', hours: 5, backs: { FD: 2, '本カクW': 1 }, sales: 38000 },
+    { date: '3/13', hours: 6, backs: { FD: 4, '本D': 1, '本指名': 1 }, sales: 57000 },
+    { date: '3/14', hours: 5, backs: { FD: 3, '場内指名': 2 }, sales: 43000 },
+    { date: '3/15', hours: 6, backs: { FD: 5, '本カク': 2, '同伴': 1 }, sales: 68000 },
+  ],
+  4: [
+    { date: '3/1', hours: 5, backs: { FD: 2, '場内指名': 1 }, sales: 28000 },
+    { date: '3/2', hours: 6, backs: { FD: 3, '本カク': 1 }, sales: 35000 },
+    { date: '3/3', hours: 0, backs: {}, sales: 0 },
+    { date: '3/4', hours: 5, backs: { FD: 2 }, sales: 25000 },
+    { date: '3/5', hours: 0, backs: {}, sales: 0 },
+    { date: '3/6', hours: 6, backs: { FD: 3, '本D': 1, '場内指名': 1 }, sales: 40000 },
+    { date: '3/7', hours: 5, backs: { FD: 2, '本カク': 1 }, sales: 32000 },
+    { date: '3/8', hours: 0, backs: {}, sales: 0 },
+    { date: '3/9', hours: 6, backs: { FD: 4, '本指名': 1 }, sales: 45000 },
+    { date: '3/10', hours: 5, backs: { FD: 2, '場内指名': 1 }, sales: 30000 },
+    { date: '3/11', hours: 6, backs: { FD: 3, '本カク': 2 }, sales: 42000 },
+    { date: '3/12', hours: 0, backs: {}, sales: 0 },
+    { date: '3/13', hours: 5, backs: { FD: 2, '本D': 1 }, sales: 33000 },
+    { date: '3/14', hours: 6, backs: { FD: 4, '同伴': 1 }, sales: 50000 },
+    { date: '3/15', hours: 5, backs: { FD: 3 }, sales: 28000 },
+  ],
+  5: [
+    { date: '3/1', hours: 6, backs: { FD: 5, '本カク': 3, '本指名': 2, '同伴': 1 }, sales: 92000 },
+    { date: '3/2', hours: 6, backs: { FD: 4, '本D': 2, '場内指名': 1 }, sales: 68000 },
+    { date: '3/3', hours: 0, backs: {}, sales: 0 },
+    { date: '3/4', hours: 6, backs: { FD: 6, '本カク': 2, '本カクW': 1, '本指名': 1 }, sales: 85000 },
+    { date: '3/5', hours: 6, backs: { FD: 4, '本D': 1, '同伴': 1 }, sales: 72000 },
+    { date: '3/6', hours: 0, backs: {}, sales: 0 },
+    { date: '3/7', hours: 6, backs: { FD: 5, '本カク': 3, '場内指名': 2 }, sales: 78000 },
+    { date: '3/8', hours: 6, backs: { FD: 3, '本D': 1 }, sales: 55000 },
+    { date: '3/9', hours: 6, backs: { FD: 6, '本カクW': 2, '本指名': 2 }, sales: 95000 },
+    { date: '3/10', hours: 0, backs: {}, sales: 0 },
+    { date: '3/11', hours: 6, backs: { FD: 4, '本カク': 2, '同伴': 1 }, sales: 75000 },
+    { date: '3/12', hours: 6, backs: { FD: 5, '本D': 2, '本指名': 1 }, sales: 82000 },
+    { date: '3/13', hours: 6, backs: { FD: 4, '場内指名': 1 }, sales: 60000 },
+    { date: '3/14', hours: 0, backs: {}, sales: 0 },
+    { date: '3/15', hours: 6, backs: { FD: 6, '本カク': 3, '本カクW': 1, '同伴': 1, '本指名': 1 }, sales: 98000 },
+  ],
+}
+
+// ─── 日払い申請ダミーデータ ───
+
+export const initialDailyPayRequests: DailyPayRequest[] = [
+  { id: 1, castId: 1, castName: 'あいり', amount: 10000, date: '3/5' },
+  { id: 2, castId: 5, castName: 'りさ', amount: 15000, date: '3/9' },
+]
+
+// ─── 会計済みデータ（レジ締め用ダミー） ───
+
+export const initialBillingRecords: BillingRecord[] = [
+  { id: 1, tableNumber: '4', total: 52800, paymentMethod: 'cash', timestamp: '21:30' },
+  { id: 2, tableNumber: '6', total: 38500, paymentMethod: 'card', timestamp: '22:15' },
+  { id: 3, tableNumber: '8', total: 66000, paymentMethod: 'cash', timestamp: '23:00' },
+]
