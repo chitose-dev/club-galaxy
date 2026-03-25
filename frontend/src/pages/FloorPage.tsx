@@ -9,6 +9,7 @@ import {
   nominationLabels,
   EXTENSION_OPTIONS,
   SET_DURATION_MINUTES,
+  chargeItems,
 } from '../data/mock'
 
 const statusColor: Record<TableStatus, string> = {
@@ -111,6 +112,13 @@ export default function FloorPage() {
 
   const confirmCheckIn = () => {
     if (!selected) return
+    // Auto-add single charge (¥1,000 × guests)
+    const singleChargeItem = chargeItems.find((c) => c.id === 'single-charge')
+    const singleChargeOrder = singleChargeItem ? [{
+      menuItem: { id: 900, name: `シングルチャージ（¥${singleChargeItem.price.toLocaleString()} × ${ciGuests}名）`, price: singleChargeItem.price * ciGuests, category: 'guest' as const, subcategory: 'warimono' as const },
+      quantity: 1,
+    }] : []
+
     updateTable(selected.id, {
       status: 'occupied',
       guestCount: ciGuests,
@@ -118,6 +126,7 @@ export default function FloorPage() {
       castNames: ciCastNames.length > 0 ? ciCastNames : [activeCasts[0]?.name ?? ''],
       nomination: ciNomination,
       setCount: 1,
+      orders: singleChargeOrder,
     })
     setShowCheckIn(false)
     setSelected(null)

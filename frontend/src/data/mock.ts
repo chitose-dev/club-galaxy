@@ -33,7 +33,7 @@ export interface CastMenuItem {
 
 export type MenuItem = GuestMenuItem | CastMenuItem
 
-export type BackType = 'FD' | '本D' | 'Fカク' | '本カク' | '本カクW' | '同伴' | '本指名' | '場内指名' | 'ボトルバック' | 'その他'
+export type BackType = 'FD' | '本D' | 'Fカク' | '本カク' | '本カクW' | '同伴' | '本指名' | '場内指名' | 'ボトルバック' | 'ヘルプ' | 'その他'
 
 export interface OrderItem {
   menuItem: MenuItem
@@ -139,7 +139,6 @@ export const chargeItems: SetPrice[] = [
   { id: 'douhan', label: '同伴', price: 4000 },
   { id: 'shimei', label: '指名料', price: 2000 },
   { id: 'banai', label: '場内指名', price: 1000 },
-  { id: 'help', label: 'ヘルプ', price: 4000 },
 ]
 
 export const SET_DURATION_MINUTES = 60
@@ -175,23 +174,23 @@ export const allMenuItems: MenuItem[] = [...guestMenuItems, ...castMenuItems]
 export const casts: Cast[] = [
   {
     id: 1, name: 'あいり', hourlyRate: 2500, guaranteeRate: 0.5, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000 },
+    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
   },
   {
     id: 2, name: 'みく', hourlyRate: 2000, guaranteeRate: 0.45, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000 },
+    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
   },
   {
     id: 3, name: 'れな', hourlyRate: 2500, guaranteeRate: 0.5, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000 },
+    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
   },
   {
     id: 4, name: 'ゆい', hourlyRate: 2000, guaranteeRate: 0.4, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000 },
+    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
   },
   {
     id: 5, name: 'りさ', hourlyRate: 3000, guaranteeRate: 0.55, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000 },
+    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
   },
 ]
 

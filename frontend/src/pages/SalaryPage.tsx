@@ -5,19 +5,22 @@ import { sampleDailyWork, type BackType, type DailyWork } from '../data/mock'
 
 type Period = 'first' | 'second'
 
+const backTypeOrder: BackType[] = ['FD', '本D', 'Fカク', '本カク', '本カクW', '同伴', '本指名', '場内指名', 'ボトルバック', 'ヘルプ', 'その他']
+
 export default function SalaryPage() {
   const { casts, dailyPayRequests, addDailyPayRequest, deductions, setDeductions } = useStore()
   const { user } = useAuth()
   const activeCasts = casts.filter((c) => c.active)
 
-  // If cast role, only show own data
   const availableCasts = user?.role === 'cast'
     ? activeCasts.filter((c) => c.id === user.castId)
     : activeCasts
 
   const [selectedCastId, setSelectedCastId] = useState<number>(availableCasts[0]?.id ?? 0)
   const [period, setPeriod] = useState<Period>('first')
-  const [showDailyPay, setShowDailyPay] = useState(false)
+
+  // Daily pay recording (not request)
+  const [showDailyPayRecord, setShowDailyPayRecord] = useState(false)
   const [dailyPayAmount, setDailyPayAmount] = useState('')
 
   // Deduction inputs
@@ -65,16 +68,35 @@ export default function SalaryPage() {
       .reduce((s, r) => s + r.amount, 0)
   }, [dailyPayRequests, selectedCastId])
 
-  // Deductions for this cast
   const castDeductions = deductions.filter((d) => d.castId === selectedCastId)
   const deductionTotal = castDeductions.reduce((s, d) => s + d.amount, 0)
 
   const hourlyBase = cast ? cast.hourlyRate * totalHours + totalBackAmount : 0
   const guaranteeBase = cast ? Math.floor(totalSales * cast.guaranteeRate) : 0
   const grossSalary = Math.max(hourlyBase, guaranteeBase)
-  const netSalary = grossSalary - dailyPayTotal - deductionTotal
+  const hostessTax = Math.floor(grossSalary * 0.1)
+  const netSalary = grossSalary - hostessTax - dailyPayTotal - deductionTotal
 
-  const handleDailyPay = () => {
+  // Per-day calculations
+  const getDayBackAmount = (w: DailyWork): number => {
+    if (!cast) return 0
+    let total = 0
+    for (const [type, count] of Object.entries(w.backs) as [BackType, number][]) {
+      total += (cast.backRates[type] ?? 0) * count
+    }
+    return total
+  }
+
+  const getDayPTotal = (w: DailyWork): number => {
+    return Object.values(w.backs).reduce((s, c) => s + c, 0)
+  }
+
+  const getDayNikkei = (w: DailyWork): number => {
+    if (!cast) return 0
+    return cast.hourlyRate * w.hours + getDayBackAmount(w)
+  }
+
+  const handleDailyPayRecord = () => {
     const amount = Number(dailyPayAmount)
     if (!amount || amount <= 0 || !cast) return
     addDailyPayRequest({
@@ -85,7 +107,7 @@ export default function SalaryPage() {
       date: new Date().toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' }),
     })
     setDailyPayAmount('')
-    setShowDailyPay(false)
+    setShowDailyPayRecord(false)
   }
 
   const handleAddDeduction = () => {
@@ -105,8 +127,6 @@ export default function SalaryPage() {
   const handleRemoveDeduction = (id: number) => {
     setDeductions((prev) => prev.filter((d) => d.id !== id))
   }
-
-  const dailyPayNet = Number(dailyPayAmount) > 0 ? Math.floor(Number(dailyPayAmount) * 0.9) : 0
 
   return (
     <div className="flex flex-col h-full">
@@ -141,7 +161,7 @@ export default function SalaryPage() {
             <span className="font-bold">{cast.name}</span>
             <span className="text-xs text-gray-400">時給¥{cast.hourlyRate.toLocaleString()} / 保証{(cast.guaranteeRate * 100).toFixed(0)}%</span>
           </div>
-          <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="grid grid-cols-4 gap-2 text-center">
             <div className="bg-white/5 rounded-lg py-2 px-1">
               <div className="text-[10px] text-gray-400">時給ベース</div>
               <div className={`text-sm font-bold ${hourlyBase >= guaranteeBase ? 'text-[#d4af37]' : 'text-gray-300'}`}>¥{hourlyBase.toLocaleString()}</div>
@@ -149,6 +169,10 @@ export default function SalaryPage() {
             <div className="bg-white/5 rounded-lg py-2 px-1">
               <div className="text-[10px] text-gray-400">保証ベース</div>
               <div className={`text-sm font-bold ${guaranteeBase > hourlyBase ? 'text-[#d4af37]' : 'text-gray-300'}`}>¥{guaranteeBase.toLocaleString()}</div>
+            </div>
+            <div className="bg-white/5 rounded-lg py-2 px-1">
+              <div className="text-[10px] text-red-400">ホステス税</div>
+              <div className="text-sm font-bold text-red-400">-¥{hostessTax.toLocaleString()}</div>
             </div>
             <div className="bg-[#d4af37]/20 rounded-lg py-2 px-1">
               <div className="text-[10px] text-[#d4af37]">差引支給額</div>
@@ -159,39 +183,56 @@ export default function SalaryPage() {
       )}
 
       <div className="flex-1 overflow-y-auto px-4 pb-6 pt-3">
-        {/* 勤務実績一覧 */}
+        {/* 勤務実績一覧（詳細テーブル） */}
         <div className="bg-white/5 rounded-xl p-4 mb-4">
           <h3 className="text-sm font-bold mb-3 text-gray-300">勤務実績</h3>
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+            <table className="w-full text-[10px] whitespace-nowrap">
               <thead>
                 <tr className="text-gray-400 border-b border-gray-700">
-                  <th className="py-1 text-left">日付</th>
-                  <th className="py-1 text-right">時間</th>
-                  <th className="py-1 text-right">バック</th>
-                  <th className="py-1 text-right">売上</th>
+                  <th className="py-1 text-left px-1">日付</th>
+                  <th className="py-1 text-right px-1">時間</th>
+                  <th className="py-1 text-right px-1">日給</th>
+                  {backTypeOrder.map((bt) => (
+                    <th key={bt} className="py-1 text-right px-1">{bt}</th>
+                  ))}
+                  <th className="py-1 text-right px-1 text-blue-300">P合計</th>
+                  <th className="py-1 text-right px-1 text-[#d4af37]">日経合計</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredWork.map((w) => (
-                  <tr key={w.date} className={`border-b border-gray-800 ${w.hours === 0 ? 'text-gray-600' : ''}`}>
-                    <td className="py-1.5">{w.date}</td>
-                    <td className="py-1.5 text-right">{w.hours > 0 ? `${w.hours}h` : '休'}</td>
-                    <td className="py-1.5 text-right">
-                      {Object.entries(w.backs).length > 0
-                        ? Object.entries(w.backs).map(([t, c]) => `${t}:${c}`).join(' ')
-                        : '-'}
-                    </td>
-                    <td className="py-1.5 text-right">{w.sales > 0 ? `¥${w.sales.toLocaleString()}` : '-'}</td>
-                  </tr>
-                ))}
+                {filteredWork.map((w) => {
+                  const dailyPay = cast ? cast.hourlyRate * w.hours : 0
+                  const pTotal = getDayPTotal(w)
+                  const nikkei = getDayNikkei(w)
+                  return (
+                    <tr key={w.date} className={`border-b border-gray-800 ${w.hours === 0 ? 'text-gray-600' : ''}`}>
+                      <td className="py-1 px-1">{w.date}</td>
+                      <td className="py-1 px-1 text-right">{w.hours > 0 ? `${w.hours}h` : '休'}</td>
+                      <td className="py-1 px-1 text-right">{dailyPay > 0 ? `¥${dailyPay.toLocaleString()}` : '-'}</td>
+                      {backTypeOrder.map((bt) => (
+                        <td key={bt} className="py-1 px-1 text-right">{w.backs[bt] ?? '-'}</td>
+                      ))}
+                      <td className="py-1 px-1 text-right text-blue-300 font-bold">{pTotal > 0 ? pTotal : '-'}</td>
+                      <td className="py-1 px-1 text-right text-[#d4af37] font-bold">{nikkei > 0 ? `¥${nikkei.toLocaleString()}` : '-'}</td>
+                    </tr>
+                  )
+                })}
               </tbody>
               <tfoot>
                 <tr className="font-bold border-t border-gray-600">
-                  <td className="py-2">合計</td>
-                  <td className="py-2 text-right">{totalHours}h</td>
-                  <td className="py-2 text-right"></td>
-                  <td className="py-2 text-right">¥{totalSales.toLocaleString()}</td>
+                  <td className="py-2 px-1">合計</td>
+                  <td className="py-2 px-1 text-right">{totalHours}h</td>
+                  <td className="py-2 px-1 text-right">¥{(cast ? cast.hourlyRate * totalHours : 0).toLocaleString()}</td>
+                  {backTypeOrder.map((bt) => (
+                    <td key={bt} className="py-2 px-1 text-right">{backTotals[bt] ?? '-'}</td>
+                  ))}
+                  <td className="py-2 px-1 text-right text-blue-300">
+                    {Object.values(backTotals).reduce((s, c) => s + c, 0)}
+                  </td>
+                  <td className="py-2 px-1 text-right text-[#d4af37]">
+                    ¥{(cast ? cast.hourlyRate * totalHours + totalBackAmount : 0).toLocaleString()}
+                  </td>
                 </tr>
               </tfoot>
             </table>
@@ -241,6 +282,10 @@ export default function SalaryPage() {
             </div>
             <div className="text-xs text-gray-500 ml-2">= MAX(時給ベース, 売上保証ベース)</div>
           </div>
+          <div className="flex justify-between text-sm text-red-400">
+            <span>ホステス税 (-10%)</span>
+            <span>-¥{hostessTax.toLocaleString()}</span>
+          </div>
           {dailyPayTotal > 0 && (
             <div className="flex justify-between text-sm text-red-400">
               <span>日払い済</span>
@@ -257,7 +302,7 @@ export default function SalaryPage() {
             <span className="font-bold text-lg">差引支給額</span>
             <span className="font-bold text-2xl text-[#d4af37]">¥{netSalary.toLocaleString()}</span>
           </div>
-          <div className="text-xs text-gray-500">= MAX(時給, 保証) - 日払い - 天引き</div>
+          <div className="text-xs text-gray-500">= 総支給額 - ホステス税 - 日払い - 天引き</div>
         </div>
 
         {/* 天引き管理 */}
@@ -293,8 +338,10 @@ export default function SalaryPage() {
           )}
         </div>
 
-        {/* 日払い申請 */}
-        <button onClick={() => setShowDailyPay(true)} className="w-full bg-blue-600 py-3 rounded-xl font-bold mb-4">日払い申請</button>
+        {/* 日払い記録（口頭申請受付後に入力） */}
+        {user?.role !== 'cast' && (
+          <button onClick={() => setShowDailyPayRecord(true)} className="w-full bg-blue-600 py-3 rounded-xl font-bold mb-4">日払い記録（口頭申請受付後に入力）</button>
+        )}
 
         {/* 日払い履歴 */}
         {dailyPayRequests.filter((r) => r.castId === selectedCastId).length > 0 && (
@@ -312,13 +359,14 @@ export default function SalaryPage() {
         )}
       </div>
 
-      {/* 日払い申請モーダル */}
-      {showDailyPay && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setShowDailyPay(false)}>
+      {/* 日払い記録モーダル */}
+      {showDailyPayRecord && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setShowDailyPayRecord(false)}>
           <div className="bg-[#16213e] rounded-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-bold mb-4">日払い申請</h2>
+            <h2 className="text-lg font-bold mb-4">日払い記録</h2>
+            <p className="text-xs text-gray-400 mb-3">口頭申請を受けた日払い金額を記録します</p>
             <div className="mb-4">
-              <label className="text-xs text-gray-400 block mb-1">申請額</label>
+              <label className="text-xs text-gray-400 block mb-1">支給額</label>
               <input
                 type="number"
                 value={dailyPayAmount}
@@ -327,25 +375,9 @@ export default function SalaryPage() {
                 className="w-full bg-white/10 border border-gray-600 rounded-lg px-3 py-2 text-sm"
               />
             </div>
-            {Number(dailyPayAmount) > 0 && (
-              <div className="bg-white/5 rounded-lg p-3 mb-4">
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-gray-400">申請額</span>
-                  <span>¥{Number(dailyPayAmount).toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-gray-400">控除 (10%)</span>
-                  <span className="text-red-400">-¥{(Number(dailyPayAmount) - dailyPayNet).toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between text-sm font-bold border-t border-gray-600 pt-1">
-                  <span>手渡し額</span>
-                  <span className="text-[#d4af37]">¥{dailyPayNet.toLocaleString()}</span>
-                </div>
-              </div>
-            )}
             <div className="flex gap-2">
-              <button onClick={() => setShowDailyPay(false)} className="flex-1 bg-white/10 py-3 rounded-lg font-bold text-gray-400">キャンセル</button>
-              <button onClick={handleDailyPay} disabled={!dailyPayAmount || Number(dailyPayAmount) <= 0} className="flex-1 bg-[#e94560] py-3 rounded-lg font-bold disabled:opacity-50">申請確定</button>
+              <button onClick={() => setShowDailyPayRecord(false)} className="flex-1 bg-white/10 py-3 rounded-lg font-bold text-gray-400">キャンセル</button>
+              <button onClick={handleDailyPayRecord} disabled={!dailyPayAmount || Number(dailyPayAmount) <= 0} className="flex-1 bg-[#e94560] py-3 rounded-lg font-bold disabled:opacity-50">記録</button>
             </div>
           </div>
         </div>

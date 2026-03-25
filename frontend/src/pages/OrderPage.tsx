@@ -3,6 +3,15 @@ import { useSearchParams } from 'react-router-dom'
 import { useStore } from '../store'
 import type { MenuItem, CastMenuItem, BackType } from '../data/mock'
 
+const HELP_BACK_ITEM: CastMenuItem = {
+  id: 999,
+  name: 'ヘルプ',
+  price: 0,
+  category: 'cast',
+  subcategory: 'fd',
+  backType: 'ヘルプ',
+}
+
 const drinkTabs = [
   { key: 'guest' as const, label: 'ゲスト用' },
   { key: 'cast' as const, label: 'キャスト用' },
@@ -251,6 +260,24 @@ export default function OrderPage() {
                 </button>
               )
             })}
+            {activeTab === 'cast' && (() => {
+              const helpOrdered = orders.find((o) => o.menuItem.id === HELP_BACK_ITEM.id)
+              return (
+                <button
+                  onClick={() => handleAdd(HELP_BACK_ITEM)}
+                  className="bg-orange-900/30 border border-orange-700 rounded-lg p-3 text-left active:bg-orange-900/50 transition-colors relative"
+                >
+                  <div className="text-sm font-bold mb-1">ヘルプ</div>
+                  <div className="text-orange-300 text-sm">バック記録</div>
+                  <div className="text-xs text-gray-500 mt-0.5">Back: ヘルプ</div>
+                  {helpOrdered && (
+                    <span className="absolute -top-2 -right-2 bg-[#e94560] text-white text-xs w-6 h-6 rounded-full flex items-center justify-center font-bold">
+                      {helpOrdered.quantity}
+                    </span>
+                  )}
+                </button>
+              )
+            })()}
           </div>
 
           {/* バック集計 */}
