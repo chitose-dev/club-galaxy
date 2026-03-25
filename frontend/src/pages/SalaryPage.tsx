@@ -108,17 +108,31 @@ export default function SalaryPage() {
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 pb-6">
-        {/* キャスト情報 */}
-        {cast && (
-          <div className="bg-white/5 rounded-xl p-4 mb-4">
-            <div className="flex justify-between text-sm mb-1">
-              <span className="font-bold text-lg">{cast.name}</span>
-              <span className="text-gray-400">時給 ¥{cast.hourlyRate.toLocaleString()}</span>
-            </div>
-            <div className="text-xs text-gray-500">保証率: {(cast.guaranteeRate * 100).toFixed(0)}%</div>
+      {/* 給与サマリー（固定表示） */}
+      {cast && (
+        <div className="px-4 py-3 bg-[#16213e] border-b border-gray-700">
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-bold">{cast.name}</span>
+            <span className="text-xs text-gray-400">時給¥{cast.hourlyRate.toLocaleString()} / 保証{(cast.guaranteeRate * 100).toFixed(0)}%</span>
           </div>
-        )}
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="bg-white/5 rounded-lg py-2 px-1">
+              <div className="text-[10px] text-gray-400">時給ベース</div>
+              <div className={`text-sm font-bold ${hourlyBase >= guaranteeBase ? 'text-[#d4af37]' : 'text-gray-300'}`}>¥{hourlyBase.toLocaleString()}</div>
+            </div>
+            <div className="bg-white/5 rounded-lg py-2 px-1">
+              <div className="text-[10px] text-gray-400">保証ベース</div>
+              <div className={`text-sm font-bold ${guaranteeBase > hourlyBase ? 'text-[#d4af37]' : 'text-gray-300'}`}>¥{guaranteeBase.toLocaleString()}</div>
+            </div>
+            <div className="bg-[#d4af37]/20 rounded-lg py-2 px-1">
+              <div className="text-[10px] text-[#d4af37]">差引支給額</div>
+              <div className="text-sm font-bold text-[#d4af37]">¥{netSalary.toLocaleString()}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="flex-1 overflow-y-auto px-4 pb-6 pt-3">
 
         {/* 勤務実績一覧 */}
         <div className="bg-white/5 rounded-xl p-4 mb-4">

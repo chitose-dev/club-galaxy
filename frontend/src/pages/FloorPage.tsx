@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store'
 import {
@@ -8,6 +8,7 @@ import {
   getSetPriceLabel,
   nominationLabels,
   EXTENSION_OPTIONS,
+  SET_DURATION_MINUTES,
 } from '../data/mock'
 
 const statusColor: Record<TableStatus, string> = {
@@ -29,6 +30,33 @@ const defaultStartTime = () => {
   return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
 }
 
+/** startTime (HH:MM) + setCount から残り分数を計算 */
+function calcRemainingMinutes(startTime: string, setCount: number): number {
+  const [h, m] = startTime.split(':').map(Number)
+  const now = new Date()
+  const startDate = new Date()
+  startDate.setHours(h, m, 0, 0)
+  // 深夜帯対応: startが未来なら前日扱い
+  if (startDate.getTime() > now.getTime() + 60 * 60 * 1000) {
+    startDate.setDate(startDate.getDate() - 1)
+  }
+  const totalSetMinutes = setCount * SET_DURATION_MINUTES
+  const endTime = new Date(startDate.getTime() + totalSetMinutes * 60 * 1000)
+  return Math.ceil((endTime.getTime() - now.getTime()) / (60 * 1000))
+}
+
+/** 経過分数を計算 */
+function calcElapsedMinutes(startTime: string): number {
+  const [h, m] = startTime.split(':').map(Number)
+  const now = new Date()
+  const startDate = new Date()
+  startDate.setHours(h, m, 0, 0)
+  if (startDate.getTime() > now.getTime() + 60 * 60 * 1000) {
+    startDate.setDate(startDate.getDate() - 1)
+  }
+  return Math.floor((now.getTime() - startDate.getTime()) / (60 * 1000))
+}
+
 export default function FloorPage() {
   const { tables, casts, updateTable } = useStore()
   const navigate = useNavigate()
@@ -41,8 +69,33 @@ export default function FloorPage() {
   const [ciNomination, setCiNomination] = useState<Table['nomination']>('free')
 
   const [showExtend, setShowExtend] = useState(false)
+  const [, setTick] = useState(0) // force re-render every minute
 
   const activeCasts = casts.filter((c) => c.active)
+
+  // 1分ごとにリレンダー & ステータス自動更新
+  const checkStatuses = useCallback(() => {
+    for (const table of tables) {
+      if (table.status === 'empty' || !table.startTime) continue
+      const remaining = calcRemainingMinutes(table.startTime, table.setCount)
+      const elapsed = calcElapsedMinutes(table.startTime)
+
+      if (remaining <= 5 && table.status !== 'ending') {
+        updateTable(table.id, { status: 'ending' })
+      } else if (elapsed >= 50 && remaining > 5 && table.status !== 'alert') {
+        updateTable(table.id, { status: 'alert' })
+      }
+    }
+  }, [tables, updateTable])
+
+  useEffect(() => {
+    checkStatuses()
+    const id = setInterval(() => {
+      setTick((t) => t + 1)
+      checkStatuses()
+    }, 60_000)
+    return () => clearInterval(id)
+  }, [checkStatuses])
 
   const openCheckIn = (table: Table) => {
     setSelected(table)
@@ -95,42 +148,45 @@ export default function FloorPage() {
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-        {tables.map((table) => (
-          <button
-            key={table.id}
-            onClick={() => {
-              if (table.status === 'empty') {
-                openCheckIn(table)
-              } else {
-                setSelected(table)
-              }
-            }}
-            className={`${statusColor[table.status]} rounded-xl p-4 text-left transition-transform active:scale-95`}
-          >
-            <div className="flex justify-between items-start">
-              <span className="text-2xl font-bold">{table.number}</span>
-              <span className="text-[10px] bg-black/20 rounded px-1.5 py-0.5">
-                {statusLabel[table.status]}
-              </span>
-            </div>
-            {table.status !== 'empty' && (
-              <div className="mt-3 space-y-1 text-sm">
-                <div className="font-medium">{table.castNames.join(', ')}</div>
-                <div className="text-white/70 text-xs">
-                  {table.guestCount}名 / {table.startTime}〜
-                </div>
-                {table.nomination && (
-                  <div className="text-white/70 text-xs">{nominationLabels[table.nomination]}</div>
-                )}
-                {table.startTime && (
-                  <div className="text-white/70 text-xs">
-                    ¥{getSetPriceForTime(table.startTime).toLocaleString()}/set
-                  </div>
-                )}
+        {tables.map((table) => {
+          const remaining = table.startTime ? calcRemainingMinutes(table.startTime, table.setCount) : null
+          return (
+            <button
+              key={table.id}
+              onClick={() => {
+                if (table.status === 'empty') {
+                  openCheckIn(table)
+                } else {
+                  setSelected(table)
+                }
+              }}
+              className={`${statusColor[table.status]} rounded-xl p-4 text-left transition-transform active:scale-95`}
+            >
+              <div className="flex justify-between items-start">
+                <span className="text-2xl font-bold">{table.number}</span>
+                <span className="text-[10px] bg-black/20 rounded px-1.5 py-0.5">
+                  {statusLabel[table.status]}
+                </span>
               </div>
-            )}
-          </button>
-        ))}
+              {table.status !== 'empty' && (
+                <div className="mt-3 space-y-1 text-sm">
+                  <div className="font-medium">{table.castNames.join(', ')}</div>
+                  <div className="text-white/70 text-xs">
+                    {table.guestCount}名 / {table.startTime}〜
+                  </div>
+                  {table.nomination && (
+                    <div className="text-white/70 text-xs">{nominationLabels[table.nomination]}</div>
+                  )}
+                  {remaining !== null && (
+                    <div className={`text-xs font-bold ${remaining <= 5 ? 'text-red-200 animate-pulse' : remaining <= 10 ? 'text-yellow-200' : 'text-white/90'}`}>
+                      残り {remaining > 0 ? `${remaining}分` : '終了'}
+                    </div>
+                  )}
+                </div>
+              )}
+            </button>
+          )
+        })}
       </div>
 
       {/* 使用中卓 詳細モーダル */}
@@ -141,6 +197,17 @@ export default function FloorPage() {
               <h2 className="text-xl font-bold">卓 {selected.number}</h2>
               <button onClick={() => setSelected(null)} className="text-gray-400 text-2xl leading-none">&times;</button>
             </div>
+
+            {/* 残り時間表示 */}
+            {selected.startTime && (() => {
+              const rem = calcRemainingMinutes(selected.startTime, selected.setCount)
+              return (
+                <div className={`text-center py-3 rounded-lg mb-4 font-bold text-lg ${rem <= 5 ? 'bg-red-600/30 text-red-300' : rem <= 10 ? 'bg-yellow-600/30 text-yellow-300' : 'bg-blue-600/30 text-blue-300'}`}>
+                  残り {rem > 0 ? `${rem}分` : '終了'}
+                </div>
+              )
+            })()}
+
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="bg-white/5 rounded-lg p-3">
                 <div className="text-gray-400 text-xs mb-1">担当</div>
@@ -184,8 +251,15 @@ export default function FloorPage() {
                 )}
               </div>
             )}
+
+            {/* 延長ボタン（直接表示） */}
             <div className="flex gap-2 mt-4">
-              <button onClick={() => setShowExtend(true)} className="flex-1 bg-blue-600 py-3 rounded-lg font-bold">延長</button>
+              {EXTENSION_OPTIONS.map((min) => (
+                <button key={min} onClick={() => confirmExtend(min)} className="flex-1 bg-blue-600 py-3 rounded-lg font-bold">+{min}分延長</button>
+              ))}
+            </div>
+
+            <div className="flex gap-2 mt-2">
               <button onClick={() => { setSelected(null); navigate(`/order?table=${selected.id}`) }} className="flex-1 bg-purple-600 py-3 rounded-lg font-bold">注文</button>
               <button onClick={() => { setSelected(null); navigate(`/billing?table=${selected.id}`) }} className="flex-1 bg-[#d4af37] text-black py-3 rounded-lg font-bold">会計</button>
             </div>
