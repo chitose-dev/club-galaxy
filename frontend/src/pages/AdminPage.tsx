@@ -1,33 +1,40 @@
 import { useState } from 'react'
 import { useStore } from '../store'
-import type { Cast, BackType, GuestMenuItem, CastMenuItem } from '../data/mock'
+import { sampleDailyWork } from '../data/mock'
+import type { Cast, BackType, GuestMenuItem, CastMenuItem, Table, StoreSettings, DailyWork } from '../data/mock'
 
-type AdminTab = 'menu' | 'cast' | 'price'
+type AdminTab = 'menu' | 'cast' | 'price' | 'tables' | 'settings' | 'export'
 
 const backTypes: BackType[] = ['FD', '本D', 'Fカク', '本カク', '本カクW', '同伴', '本指名', '場内指名', 'ボトルバック', 'その他']
 
 export default function AdminPage() {
   const {
-    guestMenu, castMenu, casts, setPrices, chargeItems,
-    setGuestMenu, setCastMenu, setCasts, setSetPrices, setChargeItems,
+    guestMenu, castMenu, casts, setPrices, chargeItems, tables, storeSettings,
+    billingRecords, dailyPayRequests, discountLogs,
+    setGuestMenu, setCastMenu, setCasts, setSetPrices, setChargeItems, setTables, setStoreSettings,
   } = useStore()
 
   const [activeTab, setActiveTab] = useState<AdminTab>('menu')
+
+  const tabs: { key: AdminTab; label: string }[] = [
+    { key: 'menu', label: 'メニュー' },
+    { key: 'cast', label: 'キャスト' },
+    { key: 'price', label: '料金' },
+    { key: 'tables', label: '卓管理' },
+    { key: 'settings', label: '設定' },
+    { key: 'export', label: '出力' },
+  ]
 
   return (
     <div className="p-4">
       <h2 className="text-lg font-bold mb-4 text-[#d4af37]">管理メニュー</h2>
 
-      <div className="flex border-b border-gray-700 mb-4">
-        {([
-          { key: 'menu' as const, label: 'ドリンクメニュー' },
-          { key: 'cast' as const, label: 'キャスト管理' },
-          { key: 'price' as const, label: 'セット料金' },
-        ]).map((tab) => (
+      <div className="flex border-b border-gray-700 mb-4 overflow-x-auto">
+        {tabs.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`flex-1 py-3 text-sm font-bold transition-colors ${
+            className={`flex-shrink-0 px-3 py-3 text-sm font-bold transition-colors ${
               activeTab === tab.key ? 'text-[#d4af37] border-b-2 border-[#d4af37]' : 'text-gray-400'
             }`}
           >
@@ -39,6 +46,9 @@ export default function AdminPage() {
       {activeTab === 'menu' && <MenuManager guestMenu={guestMenu} castMenu={castMenu} setGuestMenu={setGuestMenu} setCastMenu={setCastMenu} />}
       {activeTab === 'cast' && <CastManager casts={casts} setCasts={setCasts} />}
       {activeTab === 'price' && <PriceManager setPrices={setPrices} chargeItems={chargeItems} setSetPrices={setSetPrices} setChargeItems={setChargeItems} />}
+      {activeTab === 'tables' && <TableManager tables={tables} setTables={setTables} />}
+      {activeTab === 'settings' && <SettingsManager storeSettings={storeSettings} setStoreSettings={setStoreSettings} />}
+      {activeTab === 'export' && <DataExport billingRecords={billingRecords} casts={casts} dailyPayRequests={dailyPayRequests} discountLogs={discountLogs} />}
     </div>
   )
 }
@@ -217,14 +227,227 @@ function PriceManager({ setPrices, chargeItems, setSetPrices, setChargeItems }: 
         <h3 className="text-sm font-bold text-gray-300 mb-2">チャージ・指名料</h3>
         <div className="space-y-1">{chargeItems.map((item) => renderRow(item, true))}</div>
       </div>
-      <div className="bg-white/5 rounded-lg p-3">
-        <div className="text-xs text-gray-500 space-y-1">
-          <div>セット時間: 60分</div>
-          <div>延長: 30分 or 60分</div>
-          <div>中間チェック: 50分で自動表示</div>
-          <div>カード決済: 外部端末(S1EP)使用、金額手入力</div>
+    </div>
+  )
+}
+
+function TableManager({ tables, setTables }: {
+  tables: Table[]
+  setTables: React.Dispatch<React.SetStateAction<Table[]>>
+}) {
+  const [showAdd, setShowAdd] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newIsVip, setNewIsVip] = useState(false)
+
+  const handleAdd = () => {
+    if (!newName) return
+    const maxId = Math.max(...tables.map((t) => t.id), 0)
+    setTables((prev) => [...prev, {
+      id: maxId + 1,
+      number: newIsVip ? `VIP${newName}` : newName,
+      status: 'empty' as const,
+      guestCount: 0,
+      startTime: null,
+      castNames: [],
+      nomination: null,
+      setCount: 0,
+      orders: [],
+    }])
+    setNewName('')
+    setNewIsVip(false)
+    setShowAdd(false)
+  }
+
+  const handleDelete = (id: number) => {
+    const table = tables.find((t) => t.id === id)
+    if (table && table.status !== 'empty') return // Can't delete occupied table
+    setTables((prev) => prev.filter((t) => t.id !== id))
+  }
+
+  return (
+    <div className="space-y-3">
+      <h3 className="text-sm font-bold text-gray-300 mb-2">卓一覧</h3>
+      {tables.map((table) => (
+        <div key={table.id} className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2">
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-sm">{table.number}</span>
+            {table.number.includes('VIP') && <span className="text-xs bg-[#d4af37]/20 text-[#d4af37] px-1.5 py-0.5 rounded">VIP</span>}
+            <span className={`text-xs ${table.status === 'empty' ? 'text-green-400' : 'text-yellow-400'}`}>
+              ({table.status === 'empty' ? '空き' : '使用中'})
+            </span>
+          </div>
+          <button
+            onClick={() => handleDelete(table.id)}
+            disabled={table.status !== 'empty'}
+            className="text-xs bg-red-900/50 px-2 py-1 rounded text-red-400 disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            削除
+          </button>
         </div>
+      ))}
+
+      {showAdd ? (
+        <div className="bg-white/5 rounded-lg p-3 space-y-2">
+          <input value={newName} onChange={(e) => setNewName(e.target.value)} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm" placeholder="卓番号 (例: 11)" />
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={newIsVip} onChange={(e) => setNewIsVip(e.target.checked)} className="rounded" />
+            VIP卓
+          </label>
+          <div className="flex gap-2">
+            <button onClick={handleAdd} className="flex-1 bg-[#d4af37] text-black py-2 rounded-lg text-sm font-bold">追加</button>
+            <button onClick={() => setShowAdd(false)} className="flex-1 bg-white/10 py-2 rounded-lg text-sm text-gray-400">キャンセル</button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => setShowAdd(true)} className="w-full bg-white/5 border border-dashed border-gray-600 rounded-lg py-3 text-sm text-gray-400">+ 卓追加</button>
+      )}
+    </div>
+  )
+}
+
+function SettingsManager({ storeSettings, setStoreSettings }: {
+  storeSettings: StoreSettings
+  setStoreSettings: React.Dispatch<React.SetStateAction<StoreSettings>>
+}) {
+  const [taxRate, setTaxRate] = useState(String(storeSettings.taxRate * 100))
+  const [cardFeeRate, setCardFeeRate] = useState(String(storeSettings.cardFeeRate * 100))
+  const [initialCash, setInitialCash] = useState(String(storeSettings.initialCash))
+  const [closingDay, setClosingDay] = useState(String(storeSettings.closingDay))
+  const [saved, setSaved] = useState(false)
+
+  const handleSave = () => {
+    setStoreSettings({
+      taxRate: Number(taxRate) / 100,
+      cardFeeRate: Number(cardFeeRate) / 100,
+      initialCash: Number(initialCash),
+      closingDay: Number(closingDay),
+    })
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
+  return (
+    <div className="space-y-4">
+      <h3 className="text-sm font-bold text-gray-300 mb-2">店舗設定</h3>
+
+      <div className="bg-white/5 rounded-lg p-3">
+        <label className="text-xs text-gray-400 block mb-1">TAX率 (%)</label>
+        <input type="number" value={taxRate} onChange={(e) => setTaxRate(e.target.value)} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm" />
+        <p className="text-xs text-gray-500 mt-1">デフォルト: 20%</p>
       </div>
+
+      <div className="bg-white/5 rounded-lg p-3">
+        <label className="text-xs text-gray-400 block mb-1">カード手数料率 (%)</label>
+        <input type="number" value={cardFeeRate} onChange={(e) => setCardFeeRate(e.target.value)} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm" />
+        <p className="text-xs text-gray-500 mt-1">デフォルト: 10%</p>
+      </div>
+
+      <div className="bg-white/5 rounded-lg p-3">
+        <label className="text-xs text-gray-400 block mb-1">レジ初期金額 (¥)</label>
+        <input type="number" value={initialCash} onChange={(e) => setInitialCash(e.target.value)} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm" />
+        <p className="text-xs text-gray-500 mt-1">デフォルト: ¥100,000</p>
+      </div>
+
+      <div className="bg-white/5 rounded-lg p-3">
+        <label className="text-xs text-gray-400 block mb-1">給与締め日</label>
+        <input type="number" value={closingDay} onChange={(e) => setClosingDay(e.target.value)} min="1" max="31" className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm" />
+        <p className="text-xs text-gray-500 mt-1">デフォルト: 15日</p>
+      </div>
+
+      <button onClick={handleSave} className="w-full bg-[#d4af37] text-black py-3 rounded-lg font-bold">
+        {saved ? '保存しました' : '設定を保存'}
+      </button>
+    </div>
+  )
+}
+
+function DataExport({ billingRecords, casts, dailyPayRequests, discountLogs }: {
+  billingRecords: import('../data/mock').BillingRecord[]
+  casts: Cast[]
+  dailyPayRequests: import('../data/mock').DailyPayRequest[]
+  discountLogs: import('../data/mock').DiscountLog[]
+}) {
+  const downloadCSV = (filename: string, headers: string[], rows: string[][]) => {
+    const BOM = '\uFEFF'
+    const csv = BOM + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleSalesReport = () => {
+    const headers = ['日時', '卓番号', '合計金額', '支払方法', '現金', 'カード', 'カード手数料']
+    const rows = billingRecords.map((r) => [
+      r.timestamp,
+      r.tableNumber,
+      String(r.total),
+      r.paymentMethod === 'cash' ? '現金' : r.paymentMethod === 'card' ? 'カード' : '現金+カード',
+      String(r.cashAmount ?? ''),
+      String(r.cardAmount ?? ''),
+      String(r.cardFee ?? ''),
+    ])
+    downloadCSV(`売上日報_${new Date().toISOString().split('T')[0]}.csv`, headers, rows)
+  }
+
+  const handleSalaryReport = () => {
+    const headers = ['キャスト名', '時給', '保証率', '勤務時間合計', 'バック合計', '売上合計', '日払い合計']
+    const rows = casts.filter((c) => c.active).map((c) => {
+      const work: DailyWork[] = sampleDailyWork[c.id] ?? []
+      const totalHours = work.reduce((s, w) => s + w.hours, 0)
+      const totalSales = work.reduce((s, w) => s + w.sales, 0)
+      const dailyPayTotal = dailyPayRequests.filter((r) => r.castId === c.id).reduce((s, r) => s + r.amount, 0)
+      return [
+        c.name,
+        String(c.hourlyRate),
+        `${(c.guaranteeRate * 100).toFixed(0)}%`,
+        `${totalHours}h`,
+        '', // Would need complex calculation
+        String(totalSales),
+        String(dailyPayTotal),
+      ]
+    })
+    downloadCSV(`キャスト給与一覧_${new Date().toISOString().split('T')[0]}.csv`, headers, rows)
+  }
+
+  const handleDiscountReport = () => {
+    const headers = ['日時', '卓番号', '正規料金', '値引き額', '理由', '操作者']
+    const rows = discountLogs.map((l) => [
+      l.timestamp,
+      l.tableNumber,
+      String(l.originalTotal),
+      String(l.discountAmount),
+      `"${l.reason}"`,
+      l.operator,
+    ])
+    downloadCSV(`値引き監査ログ_${new Date().toISOString().split('T')[0]}.csv`, headers, rows)
+  }
+
+  return (
+    <div className="space-y-4">
+      <h3 className="text-sm font-bold text-gray-300 mb-2">データ出力 (CSV)</h3>
+      <p className="text-xs text-gray-500">UTF-8 BOM付きCSV（Excelで文字化けしません）</p>
+
+      <button onClick={handleSalesReport} className="w-full bg-white/5 border border-gray-600 rounded-lg p-4 text-left hover:bg-white/10 transition-colors">
+        <div className="font-bold text-sm mb-1">売上日報</div>
+        <div className="text-xs text-gray-400">日付・卓・合計・支払方法</div>
+        <div className="text-xs text-gray-500 mt-1">{billingRecords.length}件</div>
+      </button>
+
+      <button onClick={handleSalaryReport} className="w-full bg-white/5 border border-gray-600 rounded-lg p-4 text-left hover:bg-white/10 transition-colors">
+        <div className="font-bold text-sm mb-1">キャスト給与一覧</div>
+        <div className="text-xs text-gray-400">名前・勤務時間・バック合計・給与</div>
+        <div className="text-xs text-gray-500 mt-1">{casts.filter((c) => c.active).length}名</div>
+      </button>
+
+      <button onClick={handleDiscountReport} className="w-full bg-white/5 border border-gray-600 rounded-lg p-4 text-left hover:bg-white/10 transition-colors">
+        <div className="font-bold text-sm mb-1">値引き監査ログ</div>
+        <div className="text-xs text-gray-400">正規料金・値引き額・理由・操作者</div>
+        <div className="text-xs text-gray-500 mt-1">{discountLogs.length}件</div>
+      </button>
     </div>
   )
 }

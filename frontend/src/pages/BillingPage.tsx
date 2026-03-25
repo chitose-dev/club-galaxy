@@ -1,25 +1,38 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useStore } from '../store'
-import { getSetPriceForTime, getSetPriceLabel, chargeItems, nominationLabels } from '../data/mock'
+import { useAuth } from '../auth'
+import { getSetPriceForTime, getSetPriceLabel, nominationLabels } from '../data/mock'
+import type { DiscountLog } from '../data/mock'
 
-type PaymentMethod = 'cash' | 'card'
+type PaymentMethod = 'cash' | 'card' | 'mixed'
 type BillingTab = 'total' | 'individual' | 'audit'
 
 export default function BillingPage() {
-  const { tables, resetTable, discountLogs, addDiscountLog, addBillingRecord } = useStore()
+  const { tables, resetTable, discountLogs, addDiscountLog, addBillingRecord, chargeItems, storeSettings } = useStore()
+  const { user } = useAuth()
   const [searchParams] = useSearchParams()
 
   const occupiedTables = tables.filter((t) => t.status !== 'empty')
   const initialTableId = Number(searchParams.get('table')) || occupiedTables[0]?.id || 0
   const [selectedTableId, setSelectedTableId] = useState<number>(initialTableId)
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash')
-  const [cardAmount, setCardAmount] = useState('')
+  const [cardInputAmount, setCardInputAmount] = useState('')
   const [discount, setDiscount] = useState(0)
   const [discountReason, setDiscountReason] = useState('')
   const [showConfirm, setShowConfirm] = useState(false)
   const [billingTab, setBillingTab] = useState<BillingTab>('total')
   const [splitCount, setSplitCount] = useState(0)
+  const [showReceipt, setShowReceipt] = useState(false)
+  const [lastBillingData, setLastBillingData] = useState<{
+    tableNumber: string; castNames: string[]; total: number; paymentMethod: PaymentMethod;
+    subtotal: number; setFee: number; tax: number; consumptionTax: number; cardFee: number;
+    discount: number; orders: { menuItem: { id: number; name: string; price: number }; quantity: number }[];
+    nominationLabel: string; startTime: string | null;
+    cashAmount: number; cardAmount: number;
+  } | null>(null)
+
+  const receiptRef = useRef<HTMLDivElement>(null)
 
   const table = tables.find((t) => t.id === selectedTableId)
 
@@ -30,7 +43,6 @@ export default function BillingPage() {
           <p className="text-lg mb-2">会計対象の卓がありません</p>
           <p className="text-sm">フロアから卓を選択してください</p>
         </div>
-        {/* 監査ログタブは常に見える */}
         <div className="p-4">
           <button onClick={() => setBillingTab('audit')} className="w-full bg-white/5 py-3 rounded-lg text-sm text-gray-400 font-bold">値引き履歴を表示</button>
         </div>
@@ -49,16 +61,36 @@ export default function BillingPage() {
   })()
 
   const drinkTotal = table.orders.reduce((sum, o) => sum + o.menuItem.price * o.quantity, 0)
-  const subtotal = drinkTotal + nominationCharge // 小計 = ドリンク合計 + 指名料
-  const setFee = setPriceTotal // セット料金
-  const tax = Math.floor(subtotal * 0.2) // TAX = 小計×20%
-  const consumptionTax = Math.floor((subtotal + setFee + tax) * 0.1) // 消費税 = (小計+セット料金+TAX)×10%
-  const total = subtotal + setFee + tax + consumptionTax - discount
+  const subtotal = drinkTotal + nominationCharge
+  const setFee = setPriceTotal
+  const taxRate = storeSettings.taxRate
+  const cardFeeRate = storeSettings.cardFeeRate
+  const tax = Math.floor(subtotal * taxRate)
+  const consumptionTax = Math.floor((subtotal + setFee + tax) * 0.1)
+  const preCardTotal = subtotal + setFee + tax + consumptionTax - discount
 
-  const perPerson = splitCount > 0 ? Math.ceil(total / splitCount) : 0
+  // Card fee calculation
+  const cardFee = paymentMethod === 'card'
+    ? Math.floor(preCardTotal * cardFeeRate)
+    : paymentMethod === 'mixed'
+    ? (() => {
+        const cardAmt = Number(cardInputAmount) || 0
+        return cardAmt > 0 ? Math.floor(cardAmt * cardFeeRate) : 0
+      })()
+    : 0
+
+  const total = preCardTotal + cardFee
+
+  // Mixed payment calculations
+  const mixedCardAmount = paymentMethod === 'mixed' ? (Number(cardInputAmount) || 0) : 0
+  const mixedCardFee = paymentMethod === 'mixed' && mixedCardAmount > 0 ? Math.floor(mixedCardAmount * cardFeeRate) : 0
+  const mixedTotalWithFee = paymentMethod === 'mixed' ? preCardTotal + mixedCardFee : total
+  const mixedCashAmount = paymentMethod === 'mixed' ? Math.max(0, mixedTotalWithFee - mixedCardAmount) : 0
+
+  const finalTotal = paymentMethod === 'mixed' ? mixedTotalWithFee : total
+  const perPerson = splitCount > 0 ? Math.ceil(finalTotal / splitCount) : 0
 
   const handleComplete = () => {
-    // 値引きがある場合は監査ログに追加
     if (discount > 0) {
       addDiscountLog({
         id: Date.now(),
@@ -66,24 +98,120 @@ export default function BillingPage() {
         originalTotal: subtotal + setFee + tax + consumptionTax,
         discountAmount: discount,
         reason: discountReason,
-        operator: 'スタッフ',
+        operator: user?.displayName ?? 'スタッフ',
         timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
       })
     }
-    // 会計記録追加
+
     addBillingRecord({
       id: Date.now(),
       tableNumber: table.number,
-      total,
+      total: finalTotal,
       paymentMethod,
+      cashAmount: paymentMethod === 'cash' ? finalTotal : paymentMethod === 'mixed' ? mixedCashAmount : 0,
+      cardAmount: paymentMethod === 'card' ? finalTotal : paymentMethod === 'mixed' ? mixedCardAmount : 0,
+      cardFee: cardFee > 0 || mixedCardFee > 0 ? (paymentMethod === 'mixed' ? mixedCardFee : cardFee) : undefined,
       timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
     })
+
+    setLastBillingData({
+      tableNumber: table.number,
+      castNames: [...table.castNames],
+      total: finalTotal,
+      paymentMethod,
+      subtotal,
+      setFee,
+      tax,
+      consumptionTax,
+      cardFee: paymentMethod === 'mixed' ? mixedCardFee : cardFee,
+      discount,
+      orders: table.orders.map((o) => ({ menuItem: { id: o.menuItem.id, name: o.menuItem.name, price: o.menuItem.price }, quantity: o.quantity })),
+      nominationLabel: table.nomination ? nominationLabels[table.nomination] : '',
+      startTime: table.startTime,
+      cashAmount: paymentMethod === 'cash' ? finalTotal : paymentMethod === 'mixed' ? mixedCashAmount : 0,
+      cardAmount: paymentMethod === 'card' ? finalTotal : paymentMethod === 'mixed' ? mixedCardAmount : 0,
+    })
+
     resetTable(table.id)
     setShowConfirm(false)
+    setShowReceipt(true)
     setDiscount(0)
     setDiscountReason('')
     setSplitCount(0)
-    setSelectedTableId(occupiedTables.find((t) => t.id !== table.id)?.id ?? 0)
+  }
+
+  const handlePrintReceipt = () => {
+    window.print()
+  }
+
+  const paymentLabel = (m: PaymentMethod) => m === 'cash' ? '現金' : m === 'card' ? 'カード' : '現金+カード'
+
+  // Receipt view after billing complete
+  if (showReceipt && lastBillingData) {
+    const d = lastBillingData
+    return (
+      <div className="flex flex-col h-full">
+        <div className="flex-1 overflow-y-auto p-4">
+          <div className="bg-green-900/30 border border-green-700 rounded-xl p-4 mb-4 text-center">
+            <p className="text-green-300 font-bold text-lg mb-1">会計完了</p>
+            <p className="text-2xl font-bold text-[#d4af37]">¥{d.total.toLocaleString()}</p>
+          </div>
+
+          {/* Printable receipt */}
+          <div ref={receiptRef} className="bg-white text-black rounded-xl p-6 mb-4 print-receipt">
+            <div className="text-center mb-4">
+              <h2 className="text-xl font-bold">CLUB GALAXY</h2>
+              <p className="text-sm text-gray-500">領収書</p>
+            </div>
+            <div className="text-sm space-y-1 mb-3 border-b border-gray-300 pb-3">
+              <div className="flex justify-between"><span>卓番号:</span><span>{d.tableNumber}</span></div>
+              <div className="flex justify-between"><span>担当:</span><span>{d.castNames.join(', ')}</span></div>
+              <div className="flex justify-between"><span>日時:</span><span>{new Date().toLocaleString('ja-JP')}</span></div>
+            </div>
+            <div className="text-sm space-y-1 mb-3 border-b border-gray-300 pb-3">
+              <div className="font-bold mb-1">明細</div>
+              <div className="flex justify-between"><span>セット料金</span><span>¥{d.setFee.toLocaleString()}</span></div>
+              {d.nominationLabel && <div className="flex justify-between"><span>{d.nominationLabel}</span><span>(指名料込)</span></div>}
+              {d.orders.map((o) => (
+                <div key={o.menuItem.id} className="flex justify-between">
+                  <span>{o.menuItem.name} x{o.quantity}</span>
+                  <span>{o.menuItem.price === 0 ? 'セット内' : `¥${(o.menuItem.price * o.quantity).toLocaleString()}`}</span>
+                </div>
+              ))}
+            </div>
+            <div className="text-sm space-y-1 mb-3 border-b border-gray-300 pb-3">
+              <div className="flex justify-between"><span>小計</span><span>¥{d.subtotal.toLocaleString()}</span></div>
+              <div className="flex justify-between"><span>セット料金</span><span>¥{d.setFee.toLocaleString()}</span></div>
+              <div className="flex justify-between"><span>TAX ({(taxRate * 100).toFixed(0)}%)</span><span>¥{d.tax.toLocaleString()}</span></div>
+              <div className="flex justify-between"><span>消費税 (10%)</span><span>¥{d.consumptionTax.toLocaleString()}</span></div>
+              {d.cardFee > 0 && <div className="flex justify-between"><span>カード手数料 (+{(cardFeeRate * 100).toFixed(0)}%)</span><span>¥{d.cardFee.toLocaleString()}</span></div>}
+              {d.discount > 0 && <div className="flex justify-between text-red-600"><span>値引き</span><span>-¥{d.discount.toLocaleString()}</span></div>}
+            </div>
+            <div className="font-bold text-lg flex justify-between border-b border-gray-300 pb-3 mb-3">
+              <span>合計</span>
+              <span>¥{d.total.toLocaleString()}</span>
+            </div>
+            <div className="text-sm">
+              <div className="flex justify-between"><span>支払方法:</span><span>{paymentLabel(d.paymentMethod)}</span></div>
+              {d.paymentMethod === 'mixed' && (
+                <>
+                  <div className="flex justify-between"><span>現金:</span><span>¥{d.cashAmount.toLocaleString()}</span></div>
+                  <div className="flex justify-between"><span>カード:</span><span>¥{d.cardAmount.toLocaleString()}</span></div>
+                </>
+              )}
+            </div>
+            <p className="text-center text-xs text-gray-400 mt-4">ありがとうございました</p>
+          </div>
+
+          <button onClick={handlePrintReceipt} className="w-full bg-[#d4af37] text-black py-4 rounded-xl text-lg font-bold mb-3">領収書印刷</button>
+          <button onClick={() => {
+            setShowReceipt(false)
+            setLastBillingData(null)
+            setSelectedTableId(occupiedTables.find((t) => t.id !== table.id)?.id ?? 0)
+          }} className="w-full bg-white/10 py-3 rounded-xl text-sm text-gray-300 font-bold">閉じる</button>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -91,14 +219,14 @@ export default function BillingPage() {
       {/* 卓選択 */}
       <div className="flex items-center gap-2 px-4 pt-3 pb-2">
         <span className="text-sm text-gray-400">卓:</span>
-        <select value={selectedTableId} onChange={(e) => { setSelectedTableId(Number(e.target.value)); setDiscount(0); setDiscountReason(''); setSplitCount(0) }} className="bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm">
+        <select value={selectedTableId} onChange={(e) => { setSelectedTableId(Number(e.target.value)); setDiscount(0); setDiscountReason(''); setSplitCount(0); setPaymentMethod('cash'); setCardInputAmount('') }} className="bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm">
           {occupiedTables.map((t) => (
             <option key={t.id} value={t.id}>{t.number} ({t.castNames.join(',')})</option>
           ))}
         </select>
       </div>
 
-      {/* タブ: 合計/個別/監査ログ */}
+      {/* タブ */}
       <div className="flex border-b border-gray-700">
         {[
           { key: 'total' as const, label: '合計' },
@@ -120,7 +248,6 @@ export default function BillingPage() {
       {billingTab === 'audit' ? (
         <AuditLogView logs={discountLogs} />
       ) : billingTab === 'individual' ? (
-        /* 個別会計（卓内訳） */
         <div className="flex-1 overflow-y-auto p-4">
           <div className="bg-white/5 rounded-xl p-4 mb-4">
             <div className="flex justify-between text-sm mb-3">
@@ -156,10 +283,12 @@ export default function BillingPage() {
               <div className="border-t border-gray-700 pt-2 mt-2 space-y-1">
                 <div className="flex justify-between text-sm"><span className="text-gray-400">小計（ドリンク+指名料）</span><span>¥{subtotal.toLocaleString()}</span></div>
                 <div className="flex justify-between text-sm"><span className="text-gray-400">セット料金</span><span>¥{setFee.toLocaleString()}</span></div>
-                <div className="flex justify-between text-sm"><span className="text-gray-400">TAX（小計×20%）</span><span>¥{tax.toLocaleString()}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-gray-400">TAX（小計×{(taxRate * 100).toFixed(0)}%）</span><span>¥{tax.toLocaleString()}</span></div>
                 <div className="flex justify-between text-sm"><span className="text-gray-400">消費税（(小計+セット+TAX)×10%）</span><span>¥{consumptionTax.toLocaleString()}</span></div>
+                {(paymentMethod === 'card' && cardFee > 0) && <div className="flex justify-between text-sm text-blue-400"><span>カード手数料（+{(cardFeeRate * 100).toFixed(0)}%）</span><span>¥{cardFee.toLocaleString()}</span></div>}
+                {(paymentMethod === 'mixed' && mixedCardFee > 0) && <div className="flex justify-between text-sm text-blue-400"><span>カード手数料（+{(cardFeeRate * 100).toFixed(0)}%）</span><span>¥{mixedCardFee.toLocaleString()}</span></div>}
                 {discount > 0 && <div className="flex justify-between text-sm text-red-400"><span>値引き</span><span>-¥{discount.toLocaleString()}</span></div>}
-                <div className="flex justify-between font-bold text-lg pt-1"><span>合計</span><span className="text-[#d4af37]">¥{total.toLocaleString()}</span></div>
+                <div className="flex justify-between font-bold text-lg pt-1"><span>合計</span><span className="text-[#d4af37]">¥{finalTotal.toLocaleString()}</span></div>
               </div>
             </div>
           </div>
@@ -198,35 +327,59 @@ export default function BillingPage() {
                   <span>{o.menuItem.price === 0 ? 'セット内' : `¥${(o.menuItem.price * o.quantity).toLocaleString()}`}</span>
                 </div>
               ))}
-              {/* 合計内訳 */}
               <div className="border-t border-gray-700 pt-2 mt-2 space-y-1">
                 <div className="flex justify-between text-sm"><span className="text-gray-400">小計（ドリンク+指名料）</span><span>¥{subtotal.toLocaleString()}</span></div>
                 <div className="flex justify-between text-sm"><span className="text-gray-400">セット料金</span><span>¥{setFee.toLocaleString()}</span></div>
-                <div className="flex justify-between text-sm"><span className="text-gray-400">TAX（小計×20%）</span><span>¥{tax.toLocaleString()}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-gray-400">TAX（小計×{(taxRate * 100).toFixed(0)}%）</span><span>¥{tax.toLocaleString()}</span></div>
                 <div className="flex justify-between text-sm"><span className="text-gray-400">税抜合計</span><span>¥{(subtotal + setFee + tax).toLocaleString()}</span></div>
                 <div className="flex justify-between text-sm"><span className="text-gray-400">消費税（税抜合計×10%）</span><span>¥{consumptionTax.toLocaleString()}</span></div>
-                <div className="border-t border-gray-600 pt-1 flex justify-between font-bold"><span>合計</span><span className="text-[#d4af37]">¥{(total + discount).toLocaleString()}</span></div>
+                {(paymentMethod === 'card' && cardFee > 0) && (
+                  <div className="flex justify-between text-sm text-blue-400"><span>カード手数料（+{(cardFeeRate * 100).toFixed(0)}%）</span><span>¥{cardFee.toLocaleString()}</span></div>
+                )}
+                {(paymentMethod === 'mixed' && mixedCardFee > 0) && (
+                  <div className="flex justify-between text-sm text-blue-400"><span>カード手数料（+{(cardFeeRate * 100).toFixed(0)}%）</span><span>¥{mixedCardFee.toLocaleString()}</span></div>
+                )}
+                <div className="border-t border-gray-600 pt-1 flex justify-between font-bold"><span>合計</span><span className="text-[#d4af37]">¥{(finalTotal + discount).toLocaleString()}</span></div>
                 {discount > 0 && (
                   <>
                     <div className="flex justify-between text-sm text-red-400"><span>値引き</span><span>-¥{discount.toLocaleString()}</span></div>
-                    <div className="flex justify-between font-bold text-red-400"><span>値引き後合計</span><span>¥{total.toLocaleString()}</span></div>
+                    <div className="flex justify-between font-bold text-red-400"><span>値引き後合計</span><span>¥{finalTotal.toLocaleString()}</span></div>
                   </>
                 )}
               </div>
             </div>
           </div>
 
-          {/* 支払方法 */}
+          {/* 支払方法（3択） */}
           <div className="flex gap-2 mb-4">
-            <button onClick={() => setPaymentMethod('cash')} className={`flex-1 py-3 rounded-lg font-bold text-sm border-2 transition-colors ${paymentMethod === 'cash' ? 'border-[#d4af37] text-[#d4af37] bg-[#d4af37]/10' : 'border-gray-600 text-gray-400'}`}>現金</button>
-            <button onClick={() => setPaymentMethod('card')} className={`flex-1 py-3 rounded-lg font-bold text-sm border-2 transition-colors ${paymentMethod === 'card' ? 'border-[#d4af37] text-[#d4af37] bg-[#d4af37]/10' : 'border-gray-600 text-gray-400'}`}>カード (S1EP)</button>
+            {(['cash', 'card', 'mixed'] as const).map((m) => (
+              <button key={m} onClick={() => { setPaymentMethod(m); setCardInputAmount('') }} className={`flex-1 py-3 rounded-lg font-bold text-sm border-2 transition-colors ${paymentMethod === m ? 'border-[#d4af37] text-[#d4af37] bg-[#d4af37]/10' : 'border-gray-600 text-gray-400'}`}>
+                {m === 'cash' ? '現金' : m === 'card' ? 'カード' : '現金+カード'}
+              </button>
+            ))}
           </div>
 
+          {/* Card fee notice */}
           {paymentMethod === 'card' && (
+            <div className="bg-blue-900/30 border border-blue-700 rounded-xl p-4 mb-4">
+              <p className="text-sm text-blue-300 font-bold mb-1">カード手数料（+{(cardFeeRate * 100).toFixed(0)}%）: ¥{cardFee.toLocaleString()}</p>
+              <p className="text-xs text-gray-400">※外部端末(S1EP)に ¥{finalTotal.toLocaleString()} を手入力してください</p>
+            </div>
+          )}
+
+          {/* Mixed payment input */}
+          {paymentMethod === 'mixed' && (
             <div className="bg-white/5 rounded-xl p-4 mb-4">
-              <label className="text-xs text-gray-400 block mb-1">カード決済金額（端末に手入力）</label>
-              <input type="number" value={cardAmount} onChange={(e) => setCardAmount(e.target.value)} placeholder={`¥${total.toLocaleString()}`} className="w-full bg-white/10 border border-gray-600 rounded-lg px-3 py-2 text-sm" />
-              <p className="text-xs text-gray-500 mt-1">※外部端末(S1EP)に上記金額を手入力してください</p>
+              <label className="text-xs text-gray-400 block mb-1">カード決済金額</label>
+              <input type="number" value={cardInputAmount} onChange={(e) => setCardInputAmount(e.target.value)} placeholder="カード金額を入力" className="w-full bg-white/10 border border-gray-600 rounded-lg px-3 py-2 text-sm mb-2" />
+              {mixedCardAmount > 0 && (
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between text-blue-400"><span>カード手数料（+{(cardFeeRate * 100).toFixed(0)}%）</span><span>¥{mixedCardFee.toLocaleString()}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-400">手数料込合計</span><span>¥{mixedTotalWithFee.toLocaleString()}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-400">カード支払</span><span>¥{mixedCardAmount.toLocaleString()}</span></div>
+                  <div className="flex justify-between font-bold"><span>現金支払</span><span className="text-[#d4af37]">¥{mixedCashAmount.toLocaleString()}</span></div>
+                </div>
+              )}
             </div>
           )}
 
@@ -262,14 +415,21 @@ export default function BillingPage() {
           <div className="bg-[#16213e] rounded-xl p-4 space-y-2">
             <div className="flex justify-between text-sm"><span className="text-gray-400">小計（ドリンク+指名料）</span><span>¥{subtotal.toLocaleString()}</span></div>
             <div className="flex justify-between text-sm"><span className="text-gray-400">セット料金</span><span>¥{setFee.toLocaleString()}</span></div>
-            <div className="flex justify-between text-sm"><span className="text-gray-400">TAX（小計×20%）</span><span>¥{tax.toLocaleString()}</span></div>
+            <div className="flex justify-between text-sm"><span className="text-gray-400">TAX（小計×{(taxRate * 100).toFixed(0)}%）</span><span>¥{tax.toLocaleString()}</span></div>
             <div className="flex justify-between text-sm"><span className="text-gray-400">税抜合計</span><span>¥{(subtotal + setFee + tax).toLocaleString()}</span></div>
             <div className="flex justify-between text-sm"><span className="text-gray-400">消費税（税抜合計×10%）</span><span>¥{consumptionTax.toLocaleString()}</span></div>
+            {(paymentMethod === 'card' && cardFee > 0) && <div className="flex justify-between text-sm text-blue-400"><span>カード手数料（+{(cardFeeRate * 100).toFixed(0)}%）</span><span>¥{cardFee.toLocaleString()}</span></div>}
+            {(paymentMethod === 'mixed' && mixedCardFee > 0) && <div className="flex justify-between text-sm text-blue-400"><span>カード手数料（+{(cardFeeRate * 100).toFixed(0)}%）</span><span>¥{mixedCardFee.toLocaleString()}</span></div>}
             {discount > 0 && <div className="flex justify-between text-sm text-red-400"><span>値引き</span><span>-¥{discount.toLocaleString()}</span></div>}
             <div className="border-t border-gray-600 pt-2 flex justify-between">
               <span className="font-bold text-lg">{discount > 0 ? '値引き後合計' : '合計'}</span>
-              <span className="font-bold text-2xl text-[#d4af37]">¥{total.toLocaleString()}</span>
+              <span className="font-bold text-2xl text-[#d4af37]">¥{finalTotal.toLocaleString()}</span>
             </div>
+            {paymentMethod === 'mixed' && mixedCardAmount > 0 && (
+              <div className="text-sm text-gray-400">
+                現金: ¥{mixedCashAmount.toLocaleString()} / カード: ¥{mixedCardAmount.toLocaleString()}
+              </div>
+            )}
           </div>
 
           <button onClick={() => setShowConfirm(true)} disabled={discount > 0 && !discountReason} className="w-full mt-4 bg-[#e94560] py-4 rounded-xl text-lg font-bold active:bg-[#c73550] transition-colors disabled:opacity-50 disabled:cursor-not-allowed">会計確定</button>
@@ -282,9 +442,13 @@ export default function BillingPage() {
           <div className="bg-[#16213e] rounded-2xl w-full max-w-sm p-6">
             <h2 className="text-lg font-bold mb-3">会計確定</h2>
             <p className="text-sm text-gray-300 mb-2">卓 {table.number} の会計を確定しますか？</p>
-            <p className="text-2xl font-bold text-[#d4af37] mb-2">¥{total.toLocaleString()}</p>
+            <p className="text-2xl font-bold text-[#d4af37] mb-2">¥{finalTotal.toLocaleString()}</p>
             {splitCount > 0 && <p className="text-sm text-gray-300 mb-2">割り勘: ¥{perPerson.toLocaleString()} x {splitCount}人</p>}
-            <p className="text-sm text-gray-400 mb-4">支払方法: {paymentMethod === 'cash' ? '現金' : 'カード'}</p>
+            <p className="text-sm text-gray-400 mb-2">支払方法: {paymentLabel(paymentMethod)}</p>
+            {paymentMethod === 'mixed' && mixedCardAmount > 0 && (
+              <p className="text-sm text-gray-400 mb-2">現金: ¥{mixedCashAmount.toLocaleString()} / カード: ¥{mixedCardAmount.toLocaleString()}</p>
+            )}
+            {(cardFee > 0 || mixedCardFee > 0) && <p className="text-sm text-blue-400 mb-2">カード手数料: ¥{(paymentMethod === 'mixed' ? mixedCardFee : cardFee).toLocaleString()}</p>}
             {discount > 0 && <p className="text-sm text-red-400 mb-4">値引き: -¥{discount.toLocaleString()} ({discountReason})</p>}
             <div className="flex gap-2">
               <button onClick={() => setShowConfirm(false)} className="flex-1 bg-white/10 py-3 rounded-lg font-bold text-gray-400">戻る</button>
@@ -297,14 +461,14 @@ export default function BillingPage() {
   )
 }
 
-// 監査ログ表示コンポーネント
-function AuditLogView({ logs, onClose }: { logs: import('../data/mock').DiscountLog[]; onClose?: () => void }) {
+function AuditLogView({ logs, onClose }: { logs: DiscountLog[]; onClose?: () => void }) {
   return (
     <div className="flex-1 overflow-y-auto p-4">
       {onClose && (
         <button onClick={onClose} className="text-sm text-gray-400 mb-3">&larr; 戻る</button>
       )}
       <h3 className="text-sm font-bold mb-3 text-gray-300">値引き監査ログ</h3>
+      <p className="text-xs text-gray-500 mb-3">※このログは編集・削除できません</p>
       {logs.length === 0 ? (
         <div className="text-center text-gray-500 mt-8">
           <p>値引き履歴はありません</p>

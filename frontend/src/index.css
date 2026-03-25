@@ -20,3 +20,43 @@ body {
   display: flex;
   flex-direction: column;
 }
+
+/* Print styles */
+@media print {
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  /* Hide everything except the receipt */
+  header, nav, .no-print {
+    display: none !important;
+  }
+
+  main {
+    overflow: visible !important;
+  }
+
+  main > div > div:not(:has(.print-receipt)) {
+    display: none !important;
+  }
+
+  .print-receipt {
+    background: #fff !important;
+    color: #000 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+  }
+
+  /* Hide buttons during print */
+  button {
+    display: none !important;
+  }
+
+  .print-receipt * {
+    color: #000 !important;
+  }
+}

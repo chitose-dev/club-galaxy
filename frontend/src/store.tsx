@@ -8,6 +8,8 @@ import {
   chargeItems as initialChargeItems,
   initialBillingRecords,
   initialDailyPayRequests,
+  initialBottleKeeps,
+  defaultStoreSettings,
   type Table,
   type Cast,
   type GuestMenuItem,
@@ -17,6 +19,9 @@ import {
   type DiscountLog,
   type BillingRecord,
   type DailyPayRequest,
+  type BottleKeep,
+  type Deduction,
+  type StoreSettings,
 } from './data/mock'
 
 interface Store {
@@ -29,6 +34,9 @@ interface Store {
   discountLogs: DiscountLog[]
   billingRecords: BillingRecord[]
   dailyPayRequests: DailyPayRequest[]
+  bottleKeeps: BottleKeep[]
+  deductions: Deduction[]
+  storeSettings: StoreSettings
   updateTable: (id: number, patch: Partial<Table>) => void
   addOrderToTable: (tableId: number, order: OrderItem) => void
   removeOrderFromTable: (tableId: number, menuItemId: number) => void
@@ -41,6 +49,12 @@ interface Store {
   setCastMenu: React.Dispatch<React.SetStateAction<CastMenuItem[]>>
   setSetPrices: React.Dispatch<React.SetStateAction<SetPrice[]>>
   setChargeItems: React.Dispatch<React.SetStateAction<SetPrice[]>>
+  setTables: React.Dispatch<React.SetStateAction<Table[]>>
+  addBottleKeep: (keep: BottleKeep) => void
+  updateBottleKeep: (id: number, patch: Partial<BottleKeep>) => void
+  removeBottleKeep: (id: number) => void
+  setDeductions: React.Dispatch<React.SetStateAction<Deduction[]>>
+  setStoreSettings: React.Dispatch<React.SetStateAction<StoreSettings>>
 }
 
 const StoreContext = createContext<Store | null>(null)
@@ -55,6 +69,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [discountLogs, setDiscountLogs] = useState<DiscountLog[]>([])
   const [billingRecords, setBillingRecords] = useState<BillingRecord[]>(initialBillingRecords)
   const [dailyPayRequests, setDailyPayRequests] = useState<DailyPayRequest[]>(initialDailyPayRequests)
+  const [bottleKeeps, setBottleKeeps] = useState<BottleKeep[]>(initialBottleKeeps)
+  const [deductions, setDeductions] = useState<Deduction[]>([])
+  const [storeSettings, setStoreSettings] = useState<StoreSettings>(defaultStoreSettings)
 
   const updateTable = useCallback((id: number, patch: Partial<Table>) => {
     setTables((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)))
@@ -118,6 +135,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setDailyPayRequests((prev) => [...prev, req])
   }, [])
 
+  const addBottleKeep = useCallback((keep: BottleKeep) => {
+    setBottleKeeps((prev) => [...prev, keep])
+  }, [])
+
+  const updateBottleKeep = useCallback((id: number, patch: Partial<BottleKeep>) => {
+    setBottleKeeps((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)))
+  }, [])
+
+  const removeBottleKeep = useCallback((id: number) => {
+    setBottleKeeps((prev) => prev.filter((b) => b.id !== id))
+  }, [])
+
   return (
     <StoreContext.Provider
       value={{
@@ -130,6 +159,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         discountLogs,
         billingRecords,
         dailyPayRequests,
+        bottleKeeps,
+        deductions,
+        storeSettings,
         updateTable,
         addOrderToTable,
         removeOrderFromTable,
@@ -142,6 +174,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setCastMenu,
         setSetPrices,
         setChargeItems,
+        setTables,
+        addBottleKeep,
+        updateBottleKeep,
+        removeBottleKeep,
+        setDeductions,
+        setStoreSettings,
       }}
     >
       {children}

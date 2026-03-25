@@ -1,22 +1,33 @@
 import { useState, useMemo } from 'react'
 import { useStore } from '../store'
+import { useAuth } from '../auth'
 import { sampleDailyWork, type BackType, type DailyWork } from '../data/mock'
 
 type Period = 'first' | 'second'
 
 export default function SalaryPage() {
-  const { casts, dailyPayRequests, addDailyPayRequest } = useStore()
+  const { casts, dailyPayRequests, addDailyPayRequest, deductions, setDeductions } = useStore()
+  const { user } = useAuth()
   const activeCasts = casts.filter((c) => c.active)
 
-  const [selectedCastId, setSelectedCastId] = useState<number>(activeCasts[0]?.id ?? 0)
+  // If cast role, only show own data
+  const availableCasts = user?.role === 'cast'
+    ? activeCasts.filter((c) => c.id === user.castId)
+    : activeCasts
+
+  const [selectedCastId, setSelectedCastId] = useState<number>(availableCasts[0]?.id ?? 0)
   const [period, setPeriod] = useState<Period>('first')
   const [showDailyPay, setShowDailyPay] = useState(false)
   const [dailyPayAmount, setDailyPayAmount] = useState('')
 
+  // Deduction inputs
+  const [showAddDeduction, setShowAddDeduction] = useState(false)
+  const [deductionAmount, setDeductionAmount] = useState('')
+  const [deductionReason, setDeductionReason] = useState('')
+
   const cast = casts.find((c) => c.id === selectedCastId)
   const dailyWork: DailyWork[] = sampleDailyWork[selectedCastId] ?? []
 
-  // 期間フィルタ
   const filteredWork = useMemo(() => {
     return dailyWork.filter((w) => {
       const day = parseInt(w.date.split('/')[1], 10)
@@ -24,11 +35,9 @@ export default function SalaryPage() {
     })
   }, [dailyWork, period])
 
-  // 集計
   const totalHours = filteredWork.reduce((s, w) => s + w.hours, 0)
   const totalSales = filteredWork.reduce((s, w) => s + w.sales, 0)
 
-  // バック合計金額
   const totalBackAmount = useMemo(() => {
     if (!cast) return 0
     let total = 0
@@ -40,7 +49,6 @@ export default function SalaryPage() {
     return total
   }, [filteredWork, cast])
 
-  // バック件数集計
   const backTotals = useMemo(() => {
     const totals: Partial<Record<BackType, number>> = {}
     for (const w of filteredWork) {
@@ -51,21 +59,21 @@ export default function SalaryPage() {
     return totals
   }, [filteredWork])
 
-  // 日払い合計
   const dailyPayTotal = useMemo(() => {
     return dailyPayRequests
       .filter((r) => r.castId === selectedCastId)
       .reduce((s, r) => s + r.amount, 0)
   }, [dailyPayRequests, selectedCastId])
 
-  // 給与計算
+  // Deductions for this cast
+  const castDeductions = deductions.filter((d) => d.castId === selectedCastId)
+  const deductionTotal = castDeductions.reduce((s, d) => s + d.amount, 0)
+
   const hourlyBase = cast ? cast.hourlyRate * totalHours + totalBackAmount : 0
   const guaranteeBase = cast ? Math.floor(totalSales * cast.guaranteeRate) : 0
   const grossSalary = Math.max(hourlyBase, guaranteeBase)
-  const deductions = 0 // 天引きはダミーで0
-  const netSalary = grossSalary - dailyPayTotal - deductions
+  const netSalary = grossSalary - dailyPayTotal - deductionTotal
 
-  // 日払い申請
   const handleDailyPay = () => {
     const amount = Number(dailyPayAmount)
     if (!amount || amount <= 0 || !cast) return
@@ -80,6 +88,24 @@ export default function SalaryPage() {
     setShowDailyPay(false)
   }
 
+  const handleAddDeduction = () => {
+    const amount = Number(deductionAmount)
+    if (!amount || amount <= 0 || !deductionReason || !cast) return
+    setDeductions((prev) => [...prev, {
+      id: Date.now(),
+      castId: cast.id,
+      amount,
+      reason: deductionReason,
+    }])
+    setDeductionAmount('')
+    setDeductionReason('')
+    setShowAddDeduction(false)
+  }
+
+  const handleRemoveDeduction = (id: number) => {
+    setDeductions((prev) => prev.filter((d) => d.id !== id))
+  }
+
   const dailyPayNet = Number(dailyPayAmount) > 0 ? Math.floor(Number(dailyPayAmount) * 0.9) : 0
 
   return (
@@ -92,7 +118,7 @@ export default function SalaryPage() {
           onChange={(e) => setSelectedCastId(Number(e.target.value))}
           className="bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm"
         >
-          {activeCasts.map((c) => (
+          {availableCasts.map((c) => (
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
@@ -108,7 +134,7 @@ export default function SalaryPage() {
         </button>
       </div>
 
-      {/* 給与サマリー（固定表示） */}
+      {/* 給与サマリー */}
       {cast && (
         <div className="px-4 py-3 bg-[#16213e] border-b border-gray-700">
           <div className="flex items-center justify-between mb-2">
@@ -133,7 +159,6 @@ export default function SalaryPage() {
       )}
 
       <div className="flex-1 overflow-y-auto px-4 pb-6 pt-3">
-
         {/* 勤務実績一覧 */}
         <div className="bg-white/5 rounded-xl p-4 mb-4">
           <h3 className="text-sm font-bold mb-3 text-gray-300">勤務実績</h3>
@@ -222,16 +247,50 @@ export default function SalaryPage() {
               <span>-¥{dailyPayTotal.toLocaleString()}</span>
             </div>
           )}
-          {deductions > 0 && (
+          {deductionTotal > 0 && (
             <div className="flex justify-between text-sm text-red-400">
-              <span>天引き</span>
-              <span>-¥{deductions.toLocaleString()}</span>
+              <span>天引き合計</span>
+              <span>-¥{deductionTotal.toLocaleString()}</span>
             </div>
           )}
           <div className="border-t border-gray-600 pt-2 flex justify-between">
             <span className="font-bold text-lg">差引支給額</span>
             <span className="font-bold text-2xl text-[#d4af37]">¥{netSalary.toLocaleString()}</span>
           </div>
+          <div className="text-xs text-gray-500">= MAX(時給, 保証) - 日払い - 天引き</div>
+        </div>
+
+        {/* 天引き管理 */}
+        <div className="bg-white/5 rounded-xl p-4 mb-4">
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="text-sm font-bold text-gray-300">天引き</h3>
+            {user?.role !== 'cast' && (
+              <button onClick={() => setShowAddDeduction(true)} className="text-xs bg-white/10 px-3 py-1 rounded text-gray-300">+ 追加</button>
+            )}
+          </div>
+          {castDeductions.length === 0 ? (
+            <p className="text-sm text-gray-500">天引きなし</p>
+          ) : (
+            <div className="space-y-2">
+              {castDeductions.map((d) => (
+                <div key={d.id} className="flex justify-between items-center text-sm bg-white/5 rounded-lg px-3 py-2">
+                  <div>
+                    <span className="text-gray-300">{d.reason}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-red-400">-¥{d.amount.toLocaleString()}</span>
+                    {user?.role !== 'cast' && (
+                      <button onClick={() => handleRemoveDeduction(d.id)} className="text-xs bg-red-900/50 px-2 py-0.5 rounded text-red-400">削除</button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <div className="border-t border-gray-700 pt-2 flex justify-between text-sm font-bold">
+                <span>天引き合計</span>
+                <span className="text-red-400">-¥{deductionTotal.toLocaleString()}</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 日払い申請 */}
@@ -287,6 +346,41 @@ export default function SalaryPage() {
             <div className="flex gap-2">
               <button onClick={() => setShowDailyPay(false)} className="flex-1 bg-white/10 py-3 rounded-lg font-bold text-gray-400">キャンセル</button>
               <button onClick={handleDailyPay} disabled={!dailyPayAmount || Number(dailyPayAmount) <= 0} className="flex-1 bg-[#e94560] py-3 rounded-lg font-bold disabled:opacity-50">申請確定</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 天引き追加モーダル */}
+      {showAddDeduction && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setShowAddDeduction(false)}>
+          <div className="bg-[#16213e] rounded-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-lg font-bold mb-4">天引き追加</h2>
+            <div className="space-y-3 mb-4">
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">金額</label>
+                <input
+                  type="number"
+                  value={deductionAmount}
+                  onChange={(e) => setDeductionAmount(e.target.value)}
+                  placeholder="天引き金額"
+                  className="w-full bg-white/10 border border-gray-600 rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">理由</label>
+                <input
+                  type="text"
+                  value={deductionReason}
+                  onChange={(e) => setDeductionReason(e.target.value)}
+                  placeholder="例: 衣装代、前借り返済"
+                  className="w-full bg-white/10 border border-gray-600 rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setShowAddDeduction(false)} className="flex-1 bg-white/10 py-3 rounded-lg font-bold text-gray-400">キャンセル</button>
+              <button onClick={handleAddDeduction} disabled={!deductionAmount || Number(deductionAmount) <= 0 || !deductionReason} className="flex-1 bg-[#e94560] py-3 rounded-lg font-bold disabled:opacity-50">追加</button>
             </div>
           </div>
         </div>

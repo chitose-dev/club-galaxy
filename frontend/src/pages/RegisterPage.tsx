@@ -2,14 +2,13 @@ import { useState, useMemo } from 'react'
 import { useStore } from '../store'
 
 export default function RegisterPage() {
-  const { billingRecords, dailyPayRequests } = useStore()
+  const { billingRecords, dailyPayRequests, storeSettings } = useStore()
 
-  const [initialCash, setInitialCash] = useState(100000)
+  const [initialCash, setInitialCash] = useState(storeSettings.initialCash)
   const [actualCash, setActualCash] = useState('')
   const [showEditInitial, setShowEditInitial] = useState(false)
   const [tempInitial, setTempInitial] = useState('')
 
-  // 売上集計
   const salesSummary = useMemo(() => {
     const cashSales = billingRecords
       .filter((r) => r.paymentMethod === 'cash')
@@ -17,28 +16,38 @@ export default function RegisterPage() {
     const cardSales = billingRecords
       .filter((r) => r.paymentMethod === 'card')
       .reduce((s, r) => s + r.total, 0)
-    return { cashSales, cardSales, total: cashSales + cardSales }
+    // Mixed: add cash portion to cash, card portion to card
+    const mixedCash = billingRecords
+      .filter((r) => r.paymentMethod === 'mixed')
+      .reduce((s, r) => s + (r.cashAmount ?? 0), 0)
+    const mixedCard = billingRecords
+      .filter((r) => r.paymentMethod === 'mixed')
+      .reduce((s, r) => s + (r.cardAmount ?? 0), 0)
+    const totalCardFees = billingRecords.reduce((s, r) => s + (r.cardFee ?? 0), 0)
+    return {
+      cashSales: cashSales + mixedCash,
+      cardSales: cardSales + mixedCard,
+      total: cashSales + cardSales + mixedCash + mixedCard,
+      totalCardFees,
+    }
   }, [billingRecords])
 
-  // 日払い支払合計
   const dailyPayTotal = useMemo(() => {
     return dailyPayRequests.reduce((s, r) => s + r.amount, 0)
   }, [dailyPayRequests])
 
-  // 理論有高 = レジ初期値 + 現金売上 - 日払い支払合計
   const theoreticalCash = initialCash + salesSummary.cashSales - dailyPayTotal
-
-  // 過不足
   const actualCashNum = Number(actualCash) || 0
   const difference = actualCashNum - theoreticalCash
   const hasActualInput = actualCash !== ''
+
+  const paymentMethodLabel = (m: string) => m === 'cash' ? '現金' : m === 'card' ? 'カード' : '現金+カード'
 
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-y-auto p-4 pb-6">
         <h2 className="text-lg font-bold mb-4">レジ締め</h2>
 
-        {/* レジ初期値 */}
         <div className="bg-white/5 rounded-xl p-4 mb-4">
           <div className="flex justify-between items-center">
             <div>
@@ -49,7 +58,6 @@ export default function RegisterPage() {
           </div>
         </div>
 
-        {/* 売上合計 */}
         <div className="bg-white/5 rounded-xl p-4 mb-4">
           <h3 className="text-sm font-bold mb-3 text-gray-300">本日の売上</h3>
           <div className="space-y-2">
@@ -61,6 +69,12 @@ export default function RegisterPage() {
               <span className="text-gray-400">カード売上</span>
               <span>¥{salesSummary.cardSales.toLocaleString()}</span>
             </div>
+            {salesSummary.totalCardFees > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-400">カード手数料合計</span>
+                <span className="text-blue-400">¥{salesSummary.totalCardFees.toLocaleString()}</span>
+              </div>
+            )}
             <div className="border-t border-gray-700 pt-2 flex justify-between text-sm font-bold">
               <span>売上合計</span>
               <span>¥{salesSummary.total.toLocaleString()}</span>
@@ -68,7 +82,6 @@ export default function RegisterPage() {
           </div>
         </div>
 
-        {/* 会計明細 */}
         {billingRecords.length > 0 && (
           <div className="bg-white/5 rounded-xl p-4 mb-4">
             <h3 className="text-sm font-bold mb-3 text-gray-300">会計明細</h3>
@@ -77,8 +90,12 @@ export default function RegisterPage() {
                 <div key={r.id} className="flex justify-between text-sm">
                   <span className="text-gray-400">卓{r.tableNumber} ({r.timestamp})</span>
                   <span className="flex items-center gap-2">
-                    <span className={`text-xs px-1.5 py-0.5 rounded ${r.paymentMethod === 'cash' ? 'bg-green-900/50 text-green-300' : 'bg-blue-900/50 text-blue-300'}`}>
-                      {r.paymentMethod === 'cash' ? '現金' : 'カード'}
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${
+                      r.paymentMethod === 'cash' ? 'bg-green-900/50 text-green-300' :
+                      r.paymentMethod === 'card' ? 'bg-blue-900/50 text-blue-300' :
+                      'bg-purple-900/50 text-purple-300'
+                    }`}>
+                      {paymentMethodLabel(r.paymentMethod)}
                     </span>
                     ¥{r.total.toLocaleString()}
                   </span>
@@ -88,7 +105,6 @@ export default function RegisterPage() {
           </div>
         )}
 
-        {/* 日払い */}
         <div className="bg-white/5 rounded-xl p-4 mb-4">
           <h3 className="text-sm font-bold mb-3 text-gray-300">日払い支払</h3>
           {dailyPayRequests.length === 0 ? (
@@ -109,7 +125,6 @@ export default function RegisterPage() {
           </div>
         </div>
 
-        {/* 理論有高 */}
         <div className="bg-[#16213e] rounded-xl p-4 mb-4 space-y-2">
           <h3 className="text-sm font-bold mb-2 text-gray-300">レジ計算</h3>
           <div className="flex justify-between text-sm">
@@ -130,7 +145,6 @@ export default function RegisterPage() {
           </div>
         </div>
 
-        {/* 実有高入力 */}
         <div className="bg-white/5 rounded-xl p-4 mb-4">
           <label className="text-xs text-gray-400 block mb-1">実有高（実際のレジ内金額）</label>
           <input
@@ -142,7 +156,6 @@ export default function RegisterPage() {
           />
         </div>
 
-        {/* 過不足 */}
         {hasActualInput && (
           <div className={`rounded-xl p-4 mb-4 ${difference >= 0 ? 'bg-green-900/30 border border-green-700' : 'bg-red-900/30 border border-red-700'}`}>
             <div className="flex justify-between items-center">
@@ -158,7 +171,6 @@ export default function RegisterPage() {
         )}
       </div>
 
-      {/* レジ初期値変更モーダル */}
       {showEditInitial && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setShowEditInitial(false)}>
           <div className="bg-[#16213e] rounded-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>

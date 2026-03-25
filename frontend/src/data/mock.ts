@@ -72,7 +72,10 @@ export interface BillingRecord {
   id: number
   tableNumber: string
   total: number
-  paymentMethod: 'cash' | 'card'
+  paymentMethod: 'cash' | 'card' | 'mixed'
+  cashAmount?: number
+  cardAmount?: number
+  cardFee?: number
   timestamp: string
 }
 
@@ -91,6 +94,36 @@ export interface DailyPayRequest {
   castName: string
   amount: number
   date: string
+}
+
+// ─── ボトルキープ ───
+
+export interface BottleKeep {
+  id: number
+  bottleName: string
+  remaining: number // 0-100
+  storageLocation: string
+  customerName: string
+  tableNumber?: string
+  createdAt: string
+}
+
+// ─── 天引き ───
+
+export interface Deduction {
+  id: number
+  castId: number
+  amount: number
+  reason: string
+}
+
+// ─── 店舗設定 ───
+
+export interface StoreSettings {
+  taxRate: number        // default 0.2
+  cardFeeRate: number    // default 0.1
+  initialCash: number    // default 100000
+  closingDay: number     // default 15
 }
 
 // ─── セット料金（時間帯別） ───
@@ -326,4 +359,40 @@ export const initialBillingRecords: BillingRecord[] = [
   { id: 1, tableNumber: '4', total: 52800, paymentMethod: 'cash', timestamp: '21:30' },
   { id: 2, tableNumber: '6', total: 38500, paymentMethod: 'card', timestamp: '22:15' },
   { id: 3, tableNumber: '8', total: 66000, paymentMethod: 'cash', timestamp: '23:00' },
+]
+
+// ─── ボトルキープダミーデータ ───
+
+export const initialBottleKeeps: BottleKeep[] = [
+  { id: 1, bottleName: '響 17年', remaining: 65, storageLocation: 'A-3', customerName: '田中様', tableNumber: '1', createdAt: '2025-03-01' },
+  { id: 2, bottleName: 'ヘネシー XO', remaining: 30, storageLocation: 'B-1', customerName: '佐藤様', tableNumber: 'VIP1', createdAt: '2025-02-20' },
+  { id: 3, bottleName: 'ドンペリ', remaining: 15, storageLocation: 'C-2', customerName: '山田様', createdAt: '2025-03-10' },
+  { id: 4, bottleName: 'マッカラン 18年', remaining: 80, storageLocation: 'A-5', customerName: '鈴木様', createdAt: '2025-03-15' },
+  { id: 5, bottleName: 'モエ ロゼ', remaining: 5, storageLocation: 'B-4', customerName: '高橋様', createdAt: '2025-02-28' },
+]
+
+// ─── 店舗デフォルト設定 ───
+
+export const defaultStoreSettings: StoreSettings = {
+  taxRate: 0.2,
+  cardFeeRate: 0.1,
+  initialCash: 100000,
+  closingDay: 15,
+}
+
+// ─── ダミーアカウント ───
+
+export interface UserAccount {
+  username: string
+  pin: string
+  role: 'owner' | 'staff' | 'cast'
+  castId?: number
+  displayName: string
+}
+
+export const dummyAccounts: UserAccount[] = [
+  { username: 'owner', pin: '1234', role: 'owner', displayName: 'オーナー' },
+  { username: 'staff', pin: '5678', role: 'staff', displayName: '黒服' },
+  { username: 'cast1', pin: '1111', role: 'cast', castId: 1, displayName: 'あいり' },
+  { username: 'cast2', pin: '2222', role: 'cast', castId: 2, displayName: 'みく' },
 ]
