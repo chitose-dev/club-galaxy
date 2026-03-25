@@ -180,30 +180,36 @@ export function getSetPriceLabel(startTime: string): string {
 
 // ─── 卓データ（デモ用10卓） ───
 
+/** 現在時刻からN分前の時刻をHH:MM形式で返す */
+function minutesAgo(minutes: number): string {
+  const d = new Date(Date.now() - minutes * 60 * 1000)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
 export const initialTables: Table[] = [
-  { id: 1, number: '1', status: 'occupied', guestCount: 3, startTime: '21:00', castNames: ['あいり'], nomination: 'shimei', setCount: 1, orders: [
+  { id: 1, number: '1', status: 'occupied', guestCount: 3, startTime: minutesAgo(30), castNames: ['あいり'], nomination: 'shimei', setCount: 1, orders: [
     { menuItem: castMenuItems[0], quantity: 2 },
     { menuItem: guestMenuItems[4], quantity: 1 },
   ] },
-  { id: 2, number: '2', status: 'occupied', guestCount: 2, startTime: '21:30', castNames: ['みく'], nomination: 'free', setCount: 1, orders: [
+  { id: 2, number: '2', status: 'occupied', guestCount: 2, startTime: minutesAgo(45), castNames: ['みく'], nomination: 'free', setCount: 1, orders: [
     { menuItem: castMenuItems[1], quantity: 1 },
     { menuItem: guestMenuItems[7], quantity: 3 },
   ] },
-  { id: 3, number: '3', status: 'ending', guestCount: 4, startTime: '20:15', castNames: ['れな'], nomination: 'shimei', setCount: 2, orders: [
+  { id: 3, number: '3', status: 'ending', guestCount: 4, startTime: minutesAgo(55), castNames: ['れな'], nomination: 'shimei', setCount: 1, orders: [
     { menuItem: castMenuItems[0], quantity: 3 },
     { menuItem: castMenuItems[2], quantity: 1 },
     { menuItem: guestMenuItems[5], quantity: 2 },
   ] },
   { id: 4, number: '4', status: 'empty', guestCount: 0, startTime: null, castNames: [], nomination: null, setCount: 0, orders: [] },
-  { id: 5, number: '5', status: 'occupied', guestCount: 2, startTime: '22:00', castNames: ['ゆい'], nomination: 'free', setCount: 1, orders: [] },
+  { id: 5, number: '5', status: 'occupied', guestCount: 2, startTime: minutesAgo(15), castNames: ['ゆい'], nomination: 'free', setCount: 1, orders: [] },
   { id: 6, number: '6', status: 'empty', guestCount: 0, startTime: null, castNames: [], nomination: null, setCount: 0, orders: [] },
-  { id: 7, number: '7', status: 'alert', guestCount: 5, startTime: '20:30', castNames: ['りさ', 'あいり'], nomination: 'douhan', setCount: 1, orders: [
+  { id: 7, number: '7', status: 'alert', guestCount: 5, startTime: minutesAgo(52), castNames: ['りさ', 'あいり'], nomination: 'douhan', setCount: 1, orders: [
     { menuItem: castMenuItems[0], quantity: 4 },
     { menuItem: castMenuItems[1], quantity: 2 },
     { menuItem: guestMenuItems[6], quantity: 3 },
   ] },
   { id: 8, number: '8', status: 'empty', guestCount: 0, startTime: null, castNames: [], nomination: null, setCount: 0, orders: [] },
-  { id: 9, number: 'VIP1', status: 'occupied', guestCount: 3, startTime: '22:30', castNames: ['みく', 'ゆい'], nomination: 'shimei', setCount: 1, orders: [] },
+  { id: 9, number: 'VIP1', status: 'occupied', guestCount: 3, startTime: minutesAgo(20), castNames: ['みく', 'ゆい'], nomination: 'shimei', setCount: 1, orders: [] },
   { id: 10, number: 'VIP2', status: 'empty', guestCount: 0, startTime: null, castNames: [], nomination: null, setCount: 0, orders: [] },
 ]
 

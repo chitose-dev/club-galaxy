@@ -198,6 +198,21 @@ export default function BillingPage() {
                   <span>{o.menuItem.price === 0 ? 'セット内' : `¥${(o.menuItem.price * o.quantity).toLocaleString()}`}</span>
                 </div>
               ))}
+              {/* 合計内訳 */}
+              <div className="border-t border-gray-700 pt-2 mt-2 space-y-1">
+                <div className="flex justify-between text-sm"><span className="text-gray-400">小計（ドリンク+指名料）</span><span>¥{subtotal.toLocaleString()}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-gray-400">セット料金</span><span>¥{setFee.toLocaleString()}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-gray-400">TAX（小計×20%）</span><span>¥{tax.toLocaleString()}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-gray-400">税抜合計</span><span>¥{(subtotal + setFee + tax).toLocaleString()}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-gray-400">消費税（税抜合計×10%）</span><span>¥{consumptionTax.toLocaleString()}</span></div>
+                <div className="border-t border-gray-600 pt-1 flex justify-between font-bold"><span>合計</span><span className="text-[#d4af37]">¥{(total + discount).toLocaleString()}</span></div>
+                {discount > 0 && (
+                  <>
+                    <div className="flex justify-between text-sm text-red-400"><span>値引き</span><span>-¥{discount.toLocaleString()}</span></div>
+                    <div className="flex justify-between font-bold text-red-400"><span>値引き後合計</span><span>¥{total.toLocaleString()}</span></div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
 
@@ -238,13 +253,9 @@ export default function BillingPage() {
           {/* 特別値引き */}
           <div className="bg-white/5 rounded-xl p-4 mb-4">
             <h3 className="text-sm font-bold mb-2 text-gray-300">特別値引き</h3>
-            <input type="number" value={discount || ''} onChange={(e) => setDiscount(Number(e.target.value))} placeholder="金額" className="w-full bg-white/10 border border-gray-600 rounded-lg px-3 py-2 text-sm" />
-            {discount > 0 && (
-              <div className="mt-2">
-                <input type="text" value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} placeholder="値引き理由（必須）" className="w-full bg-white/10 border border-gray-600 rounded-lg px-3 py-2 text-sm" />
-                {!discountReason && <p className="text-xs text-red-400 mt-1">理由を入力してください</p>}
-              </div>
-            )}
+            <input type="number" value={discount || ''} onChange={(e) => setDiscount(Number(e.target.value))} placeholder="値引き金額" className="w-full bg-white/10 border border-gray-600 rounded-lg px-3 py-2 text-sm mb-2" />
+            <input type="text" value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} placeholder="値引き理由（必須）" className="w-full bg-white/10 border border-gray-600 rounded-lg px-3 py-2 text-sm" />
+            {discount > 0 && !discountReason && <p className="text-xs text-red-400 mt-1">金額と理由の両方を入力してください</p>}
           </div>
 
           {/* 合計 */}
@@ -252,10 +263,11 @@ export default function BillingPage() {
             <div className="flex justify-between text-sm"><span className="text-gray-400">小計（ドリンク+指名料）</span><span>¥{subtotal.toLocaleString()}</span></div>
             <div className="flex justify-between text-sm"><span className="text-gray-400">セット料金</span><span>¥{setFee.toLocaleString()}</span></div>
             <div className="flex justify-between text-sm"><span className="text-gray-400">TAX（小計×20%）</span><span>¥{tax.toLocaleString()}</span></div>
-            <div className="flex justify-between text-sm"><span className="text-gray-400">消費税（(小計+セット+TAX)×10%）</span><span>¥{consumptionTax.toLocaleString()}</span></div>
+            <div className="flex justify-between text-sm"><span className="text-gray-400">税抜合計</span><span>¥{(subtotal + setFee + tax).toLocaleString()}</span></div>
+            <div className="flex justify-between text-sm"><span className="text-gray-400">消費税（税抜合計×10%）</span><span>¥{consumptionTax.toLocaleString()}</span></div>
             {discount > 0 && <div className="flex justify-between text-sm text-red-400"><span>値引き</span><span>-¥{discount.toLocaleString()}</span></div>}
             <div className="border-t border-gray-600 pt-2 flex justify-between">
-              <span className="font-bold text-lg">合計</span>
+              <span className="font-bold text-lg">{discount > 0 ? '値引き後合計' : '合計'}</span>
               <span className="font-bold text-2xl text-[#d4af37]">¥{total.toLocaleString()}</span>
             </div>
           </div>
