@@ -338,7 +338,7 @@ function TableManager({ tables, setTables, reorderTables }: {
           } ${dragOverIndex === index && dragIndex !== index ? 'border-t-2 border-t-[#d4af37]' : ''}`}
         >
           <div className="flex items-center gap-2">
-            <span className="text-gray-600 cursor-grab active:cursor-grabbing touch-none">
+            <span className="text-gray-400 cursor-grab active:cursor-grabbing touch-none">
               <GripVertical size={14} />
             </span>
             <span className="font-bold text-sm">{table.number}</span>
@@ -351,14 +351,14 @@ function TableManager({ tables, setTables, reorderTables }: {
             <button
               onClick={() => index > 0 && reorderTables(index, index - 1)}
               disabled={index === 0}
-              className="text-gray-600 hover:text-white transition-colors disabled:opacity-20 disabled:cursor-not-allowed p-1"
+              className="text-gray-400 hover:text-white transition-colors disabled:opacity-20 disabled:cursor-not-allowed p-1"
             >
               <ChevronUp size={14} />
             </button>
             <button
               onClick={() => index < tables.length - 1 && reorderTables(index, index + 1)}
               disabled={index === tables.length - 1}
-              className="text-gray-600 hover:text-white transition-colors disabled:opacity-20 disabled:cursor-not-allowed p-1"
+              className="text-gray-400 hover:text-white transition-colors disabled:opacity-20 disabled:cursor-not-allowed p-1"
             >
               <ChevronDown size={14} />
             </button>
