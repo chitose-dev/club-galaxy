@@ -11,7 +11,7 @@ import {
   SET_DURATION_MINUTES,
   chargeItems,
 } from '../data/mock'
-import { Clock, Users, Plus, Printer, RotateCcw, ChevronRight, X } from 'lucide-react'
+import { Clock, Users, Plus, Printer, RotateCcw, ChevronRight, X, FileText, CreditCard } from 'lucide-react'
 
 const statusStyle: Record<TableStatus, { border: string; bg: string; badge: string }> = {
   empty: { border: 'border-gray-700', bg: 'bg-white/[0.02]', badge: 'bg-gray-700 text-gray-400' },
@@ -351,10 +351,10 @@ export default function FloorPage() {
 
             <div className="flex gap-2 mt-2">
               <button onClick={() => { setSelected(null); navigate(`/order?table=${selected.id}`) }} className="flex-1 bg-white/5 border border-white/10 hover:border-purple-500/50 py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-1.5 transition-colors">
-                <ClipboardList size={15} /> 注文
+                <FileText size={15} /> 注文
               </button>
               <button onClick={() => { setSelected(null); navigate(`/billing?table=${selected.id}`) }} className="flex-1 bg-[#d4af37] text-black py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-1.5">
-                <Receipt size={15} /> 会計
+                <CreditCard size={15} /> 会計
               </button>
             </div>
 

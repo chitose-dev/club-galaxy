@@ -4,7 +4,7 @@ import { useStore } from '../store'
 import { useAuth } from '../auth'
 import { getSetPriceForTime, getSetPriceLabel, nominationLabels } from '../data/mock'
 import type { DiscountLog } from '../data/mock'
-import { Printer, CheckCircle, ArrowLeft, X } from 'lucide-react'
+import { Printer, CheckCircle, ArrowLeft } from 'lucide-react'
 
 type PaymentMethod = 'cash' | 'card' | 'mixed'
 type BillingTab = 'total' | 'individual' | 'audit'

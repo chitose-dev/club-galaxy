@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useStore } from '../store'
 import { sampleDailyWork } from '../data/mock'
 import type { Cast, BackType, GuestMenuItem, CastMenuItem, Table, StoreSettings, DailyWork, UserAccount } from '../data/mock'
-import { Pencil, Trash2, Plus, Save, X, Download } from 'lucide-react'
+import { Pencil, Trash2, Plus, Save, Download } from 'lucide-react'
 
 type AdminTab = 'menu' | 'cast' | 'price' | 'tables' | 'settings' | 'export' | 'users'
 
