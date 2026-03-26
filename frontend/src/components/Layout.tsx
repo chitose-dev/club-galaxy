@@ -1,13 +1,14 @@
 import { Outlet, NavLink } from 'react-router-dom'
 import { useAuth } from '../auth'
+import { LayoutGrid, ClipboardList, Receipt, Wallet, Archive, Settings } from 'lucide-react'
 
 const allTabs = [
-  { to: '/floor', label: 'フロア', icon: '🏠', roles: ['owner', 'staff'] },
-  { to: '/order', label: '注文', icon: '🍸', roles: ['owner', 'staff'] },
-  { to: '/billing', label: '会計', icon: '💰', roles: ['owner', 'staff'] },
-  { to: '/salary', label: '給与', icon: '💵', roles: ['owner', 'cast'] },
-  { to: '/register', label: 'レジ', icon: '🧾', roles: ['owner'] },
-  { to: '/admin', label: '管理', icon: '⚙️', roles: ['owner'] },
+  { to: '/floor', label: 'フロア', icon: LayoutGrid, roles: ['owner', 'staff'] },
+  { to: '/order', label: '注文', icon: ClipboardList, roles: ['owner', 'staff'] },
+  { to: '/billing', label: '会計', icon: Receipt, roles: ['owner', 'staff'] },
+  { to: '/salary', label: '給与', icon: Wallet, roles: ['owner', 'cast'] },
+  { to: '/register', label: 'レジ', icon: Archive, roles: ['owner'] },
+  { to: '/admin', label: '管理', icon: Settings, roles: ['owner'] },
 ]
 
 export default function Layout() {
@@ -18,17 +19,17 @@ export default function Layout() {
 
   return (
     <div className="flex flex-col h-dvh">
-      <header className="bg-[#16213e] px-4 py-3 flex items-center justify-between border-b border-gray-700">
-        <h1 className="text-lg font-bold tracking-wider text-[#d4af37]">
+      <header className="bg-[#16213e] px-4 py-3 flex items-center justify-between border-b border-white/10">
+        <h1 className="text-xl font-semibold tracking-widest text-[#d4af37]" style={{ fontFamily: "var(--font-display)" }}>
           CLUB GALAXY
         </h1>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-gray-400">
+        <div className="flex items-center gap-4">
+          <span className="text-xs text-gray-400 tracking-wide">
             {new Date().toLocaleDateString('ja-JP', { month: 'long', day: 'numeric', weekday: 'short' })}
           </span>
           {user && (
-            <button onClick={logout} className="bg-white/10 text-gray-300 text-xs px-2 py-1 rounded hover:bg-white/20 transition-colors">
-              {user.displayName} | ログアウト
+            <button onClick={logout} className="text-xs text-gray-400 hover:text-white transition-colors">
+              {user.displayName} <span className="text-gray-600 mx-1">|</span> ログアウト
             </button>
           )}
         </div>
@@ -38,21 +39,31 @@ export default function Layout() {
         <Outlet />
       </main>
 
-      <nav className={`bg-[#16213e] border-t border-gray-700 grid ${colsClass} safe-bottom`}>
-        {tabs.map((tab) => (
-          <NavLink
-            key={tab.to}
-            to={tab.to}
-            className={({ isActive }) =>
-              `flex flex-col items-center py-2 text-[10px] transition-colors ${
-                isActive ? 'text-[#d4af37]' : 'text-gray-400'
-              }`
-            }
-          >
-            <span className="text-lg mb-0.5">{tab.icon}</span>
-            {tab.label}
-          </NavLink>
-        ))}
+      <nav className={`bg-[#16213e] border-t border-white/10 grid ${colsClass} safe-bottom`}>
+        {tabs.map((tab) => {
+          const Icon = tab.icon
+          return (
+            <NavLink
+              key={tab.to}
+              to={tab.to}
+              className={({ isActive }) =>
+                `flex flex-col items-center py-2.5 text-[10px] tracking-wide transition-colors relative ${
+                  isActive ? 'text-[#d4af37]' : 'text-gray-500 hover:text-gray-300'
+                }`
+              }
+            >
+              {({ isActive }) => (
+                <>
+                  {isActive && (
+                    <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-[#d4af37] rounded-full" />
+                  )}
+                  <Icon size={18} strokeWidth={1.5} className="mb-1" />
+                  {tab.label}
+                </>
+              )}
+            </NavLink>
+          )
+        })}
       </nav>
     </div>
   )

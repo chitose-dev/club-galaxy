@@ -2,23 +2,49 @@
 
 :root {
   --color-primary: #1a1a2e;
-  --color-accent: #e94560;
+  --color-secondary: #16213e;
   --color-gold: #d4af37;
+  --color-gold-light: #e8c952;
+  --color-accent: #e94560;
+  --font-display: 'Cormorant Garamond', serif;
+  --font-body: 'Noto Sans JP', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
 }
 
 body {
   margin: 0;
-  font-family: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif;
+  font-family: var(--font-body);
   background: var(--color-primary);
   color: #fff;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
+  font-feature-settings: 'palt';
 }
 
 #root {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
+}
+
+/* Focus ring: gold */
+input:focus, select:focus, textarea:focus, button:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 1px;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-gold);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-gold-light);
 }
 
 /* Print styles */

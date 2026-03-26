@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useStore } from '../store'
 import { sampleDailyWork } from '../data/mock'
 import type { Cast, BackType, GuestMenuItem, CastMenuItem, Table, StoreSettings, DailyWork, UserAccount } from '../data/mock'
+import { Pencil, Trash2, Plus, Save, X, Download } from 'lucide-react'
 
 type AdminTab = 'menu' | 'cast' | 'price' | 'tables' | 'settings' | 'export' | 'users'
 
@@ -29,18 +30,22 @@ export default function AdminPage() {
 
   return (
     <div className="p-4">
-      <h2 className="text-lg font-bold mb-4 text-[#d4af37]">管理メニュー</h2>
+      <h2 className="text-lg font-bold mb-4 text-[#d4af37]" style={{ fontFamily: "var(--font-display)" }}>管理メニュー</h2>
 
-      <div className="flex border-b border-gray-700 mb-4 overflow-x-auto">
+      {/* Scrollable horizontal tabs */}
+      <div className="flex border-b border-white/10 mb-4 overflow-x-auto scrollbar-none -mx-4 px-4">
         {tabs.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`flex-shrink-0 px-3 py-3 text-sm font-bold transition-colors ${
-              activeTab === tab.key ? 'text-[#d4af37] border-b-2 border-[#d4af37]' : 'text-gray-400'
+            className={`flex-shrink-0 px-4 py-3 text-sm font-bold tracking-wide transition-colors relative whitespace-nowrap ${
+              activeTab === tab.key ? 'text-[#d4af37]' : 'text-gray-500'
             }`}
           >
             {tab.label}
+            {activeTab === tab.key && (
+              <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-[#d4af37] rounded-full" />
+            )}
           </button>
         ))}
       </div>
@@ -67,21 +72,27 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu }: {
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-sm font-bold text-gray-300 mb-2">ゲスト用ドリンク</h3>
-        <div className="space-y-1">
+        <h3 className="text-sm font-bold text-gray-400 mb-2">ゲスト用ドリンク</h3>
+        <div className="divide-y divide-white/5">
           {guestMenu.map((item) => (
-            <div key={item.id} className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2">
+            <div key={item.id} className="flex items-center justify-between py-2.5">
               <span className="text-sm">{item.name}</span>
               {editingId === item.id ? (
                 <div className="flex items-center gap-2">
-                  <input type="number" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} className="w-20 bg-white/10 border border-gray-600 rounded px-2 py-1 text-sm text-right" />
-                  <button onClick={() => { setGuestMenu((prev) => prev.map((m) => m.id === item.id ? { ...m, price: Number(editPrice) } : m)); setEditingId(null) }} className="text-xs bg-[#d4af37] text-black px-2 py-1 rounded font-bold">保存</button>
+                  <input type="number" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} className="w-20 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm text-right" />
+                  <button onClick={() => { setGuestMenu((prev) => prev.map((m) => m.id === item.id ? { ...m, price: Number(editPrice) } : m)); setEditingId(null) }} className="text-[#d4af37] hover:text-[#e8c952]">
+                    <Save size={14} />
+                  </button>
                 </div>
               ) : (
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-[#d4af37]">{item.price === 0 ? 'セット内' : `¥${item.price.toLocaleString()}`}</span>
-                  <button onClick={() => { setEditingId(item.id); setEditPrice(String(item.price)) }} className="text-xs bg-white/10 px-2 py-1 rounded text-gray-400">編集</button>
-                  <button onClick={() => setGuestMenu((prev) => prev.filter((m) => m.id !== item.id))} className="text-xs bg-red-900/50 px-2 py-1 rounded text-red-400">削除</button>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-[#d4af37] tabular-nums">{item.price === 0 ? 'セット内' : `¥${item.price.toLocaleString()}`}</span>
+                  <button onClick={() => { setEditingId(item.id); setEditPrice(String(item.price)) }} className="text-gray-600 hover:text-white transition-colors">
+                    <Pencil size={13} />
+                  </button>
+                  <button onClick={() => setGuestMenu((prev) => prev.filter((m) => m.id !== item.id))} className="text-gray-600 hover:text-red-400 transition-colors">
+                    <Trash2 size={13} />
+                  </button>
                 </div>
               )}
             </div>
@@ -90,24 +101,30 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu }: {
       </div>
 
       <div>
-        <h3 className="text-sm font-bold text-gray-300 mb-2">キャスト用ドリンク</h3>
-        <div className="space-y-1">
+        <h3 className="text-sm font-bold text-gray-400 mb-2">キャスト用ドリンク</h3>
+        <div className="divide-y divide-white/5">
           {castMenu.map((item) => (
-            <div key={item.id} className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2">
+            <div key={item.id} className="flex items-center justify-between py-2.5">
               <div>
                 <span className="text-sm">{item.name}</span>
-                <span className="text-xs text-purple-400 ml-2">Back: {item.backType}</span>
+                <span className="text-xs text-purple-400/70 ml-2">Back: {item.backType}</span>
               </div>
               {editingId === item.id ? (
                 <div className="flex items-center gap-2">
-                  <input type="number" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} className="w-20 bg-white/10 border border-gray-600 rounded px-2 py-1 text-sm text-right" />
-                  <button onClick={() => { setCastMenu((prev) => prev.map((m) => m.id === item.id ? { ...m, price: Number(editPrice) } : m)); setEditingId(null) }} className="text-xs bg-[#d4af37] text-black px-2 py-1 rounded font-bold">保存</button>
+                  <input type="number" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} className="w-20 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm text-right" />
+                  <button onClick={() => { setCastMenu((prev) => prev.map((m) => m.id === item.id ? { ...m, price: Number(editPrice) } : m)); setEditingId(null) }} className="text-[#d4af37] hover:text-[#e8c952]">
+                    <Save size={14} />
+                  </button>
                 </div>
               ) : (
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-[#d4af37]">¥{item.price.toLocaleString()}</span>
-                  <button onClick={() => { setEditingId(item.id); setEditPrice(String(item.price)) }} className="text-xs bg-white/10 px-2 py-1 rounded text-gray-400">編集</button>
-                  <button onClick={() => setCastMenu((prev) => prev.filter((m) => m.id !== item.id))} className="text-xs bg-red-900/50 px-2 py-1 rounded text-red-400">削除</button>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-[#d4af37] tabular-nums">¥{item.price.toLocaleString()}</span>
+                  <button onClick={() => { setEditingId(item.id); setEditPrice(String(item.price)) }} className="text-gray-600 hover:text-white transition-colors">
+                    <Pencil size={13} />
+                  </button>
+                  <button onClick={() => setCastMenu((prev) => prev.filter((m) => m.id !== item.id))} className="text-gray-600 hover:text-red-400 transition-colors">
+                    <Trash2 size={13} />
+                  </button>
                 </div>
               )}
             </div>
@@ -145,27 +162,31 @@ function CastManager({ casts, setCasts }: { casts: Cast[]; setCasts: React.Dispa
   return (
     <div className="space-y-3">
       {casts.map((cast) => (
-        <div key={cast.id} className="bg-white/5 rounded-lg p-3">
+        <div key={cast.id} className="bg-white/[0.03] border border-white/10 rounded-lg p-3">
           {editingId === cast.id ? (
             <div className="space-y-2">
-              <input value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm" placeholder="名前" />
-              <input type="number" value={editRate} onChange={(e) => setEditRate(e.target.value)} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm" placeholder="時給" />
+              <input value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="名前" />
+              <input type="number" value={editRate} onChange={(e) => setEditRate(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="時給" />
               <div className="flex gap-2">
                 <button onClick={() => handleSave(cast.id)} className="flex-1 bg-[#d4af37] text-black py-2 rounded-lg text-sm font-bold">保存</button>
-                <button onClick={() => setEditingId(null)} className="flex-1 bg-white/10 py-2 rounded-lg text-sm text-gray-400">キャンセル</button>
+                <button onClick={() => setEditingId(null)} className="flex-1 bg-white/5 border border-white/10 py-2 rounded-lg text-sm text-gray-500">キャンセル</button>
               </div>
             </div>
           ) : (
             <div className="flex items-center justify-between">
               <div>
-                <span className="font-bold">{cast.name}</span>
-                <span className="text-sm text-gray-400 ml-2">¥{cast.hourlyRate.toLocaleString()}/h</span>
-                {!cast.active && <span className="text-xs text-red-400 ml-2">非アクティブ</span>}
+                <span className="font-bold text-sm">{cast.name}</span>
+                <span className="text-sm text-gray-500 ml-2 tabular-nums">¥{cast.hourlyRate.toLocaleString()}/h</span>
+                {!cast.active && <span className="text-xs text-red-400/70 ml-2">非アクティブ</span>}
               </div>
               <div className="flex gap-2">
-                <button onClick={() => { setEditingId(cast.id); setEditName(cast.name); setEditRate(String(cast.hourlyRate)) }} className="text-xs bg-white/10 px-2 py-1 rounded text-gray-400">編集</button>
-                <button onClick={() => setCasts((prev) => prev.map((c) => c.id === cast.id ? { ...c, active: !c.active } : c))} className="text-xs bg-white/10 px-2 py-1 rounded text-gray-400">{cast.active ? '無効化' : '有効化'}</button>
-                <button onClick={() => setCasts((prev) => prev.filter((c) => c.id !== cast.id))} className="text-xs bg-red-900/50 px-2 py-1 rounded text-red-400">削除</button>
+                <button onClick={() => { setEditingId(cast.id); setEditName(cast.name); setEditRate(String(cast.hourlyRate)) }} className="text-gray-600 hover:text-white transition-colors p-1">
+                  <Pencil size={13} />
+                </button>
+                <button onClick={() => setCasts((prev) => prev.map((c) => c.id === cast.id ? { ...c, active: !c.active } : c))} className="text-xs bg-white/5 border border-white/10 px-2 py-1 rounded text-gray-500 hover:text-white transition-colors">{cast.active ? '無効化' : '有効化'}</button>
+                <button onClick={() => setCasts((prev) => prev.filter((c) => c.id !== cast.id))} className="text-gray-600 hover:text-red-400 transition-colors p-1">
+                  <Trash2 size={13} />
+                </button>
               </div>
             </div>
           )}
@@ -173,16 +194,18 @@ function CastManager({ casts, setCasts }: { casts: Cast[]; setCasts: React.Dispa
       ))}
 
       {showAdd ? (
-        <div className="bg-white/5 rounded-lg p-3 space-y-2">
-          <input value={newName} onChange={(e) => setNewName(e.target.value)} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm" placeholder="キャスト名" />
-          <input type="number" value={newRate} onChange={(e) => setNewRate(e.target.value)} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm" placeholder="時給" />
+        <div className="bg-white/[0.03] border border-white/10 rounded-lg p-3 space-y-2">
+          <input value={newName} onChange={(e) => setNewName(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="キャスト名" />
+          <input type="number" value={newRate} onChange={(e) => setNewRate(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="時給" />
           <div className="flex gap-2">
             <button onClick={handleAdd} className="flex-1 bg-[#d4af37] text-black py-2 rounded-lg text-sm font-bold">追加</button>
-            <button onClick={() => setShowAdd(false)} className="flex-1 bg-white/10 py-2 rounded-lg text-sm text-gray-400">キャンセル</button>
+            <button onClick={() => setShowAdd(false)} className="flex-1 bg-white/5 border border-white/10 py-2 rounded-lg text-sm text-gray-500">キャンセル</button>
           </div>
         </div>
       ) : (
-        <button onClick={() => setShowAdd(true)} className="w-full bg-white/5 border border-dashed border-gray-600 rounded-lg py-3 text-sm text-gray-400">+ キャスト追加</button>
+        <button onClick={() => setShowAdd(true)} className="w-full bg-white/[0.02] border border-dashed border-white/10 rounded-lg py-3 text-sm text-gray-500 flex items-center justify-center gap-1.5 hover:border-[#d4af37]/30 transition-colors">
+          <Plus size={14} /> キャスト追加
+        </button>
       )}
     </div>
   )
@@ -204,17 +227,21 @@ function PriceManager({ setPrices, chargeItems, setSetPrices, setChargeItems }: 
   }
 
   const renderRow = (item: { id: string; label: string; price: number }, isCharge: boolean) => (
-    <div key={item.id} className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2">
+    <div key={item.id} className="flex items-center justify-between py-2.5">
       <span className="text-sm">{item.label}</span>
       {editingId === item.id ? (
         <div className="flex items-center gap-2">
-          <input type="number" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} className="w-24 bg-white/10 border border-gray-600 rounded px-2 py-1 text-sm text-right" />
-          <button onClick={() => handleSave(item.id, isCharge)} className="text-xs bg-[#d4af37] text-black px-2 py-1 rounded font-bold">保存</button>
+          <input type="number" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} className="w-24 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm text-right" />
+          <button onClick={() => handleSave(item.id, isCharge)} className="text-[#d4af37] hover:text-[#e8c952]">
+            <Save size={14} />
+          </button>
         </div>
       ) : (
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-[#d4af37]">¥{item.price.toLocaleString()}</span>
-          <button onClick={() => { setEditingId(item.id); setEditPrice(String(item.price)) }} className="text-xs bg-white/10 px-2 py-1 rounded text-gray-400">編集</button>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-[#d4af37] tabular-nums">¥{item.price.toLocaleString()}</span>
+          <button onClick={() => { setEditingId(item.id); setEditPrice(String(item.price)) }} className="text-gray-600 hover:text-white transition-colors">
+            <Pencil size={13} />
+          </button>
         </div>
       )}
     </div>
@@ -223,12 +250,12 @@ function PriceManager({ setPrices, chargeItems, setSetPrices, setChargeItems }: 
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-sm font-bold text-gray-300 mb-2">セット料金（時間帯別）</h3>
-        <div className="space-y-1">{setPrices.map((item) => renderRow(item, false))}</div>
+        <h3 className="text-sm font-bold text-gray-400 mb-2">セット料金（時間帯別）</h3>
+        <div className="divide-y divide-white/5">{setPrices.map((item) => renderRow(item, false))}</div>
       </div>
       <div>
-        <h3 className="text-sm font-bold text-gray-300 mb-2">チャージ・指名料</h3>
-        <div className="space-y-1">{chargeItems.map((item) => renderRow(item, true))}</div>
+        <h3 className="text-sm font-bold text-gray-400 mb-2">チャージ・指名料</h3>
+        <div className="divide-y divide-white/5">{chargeItems.map((item) => renderRow(item, true))}</div>
       </div>
     </div>
   )
@@ -263,46 +290,48 @@ function TableManager({ tables, setTables }: {
 
   const handleDelete = (id: number) => {
     const table = tables.find((t) => t.id === id)
-    if (table && table.status !== 'empty') return // Can't delete occupied table
+    if (table && table.status !== 'empty') return
     setTables((prev) => prev.filter((t) => t.id !== id))
   }
 
   return (
     <div className="space-y-3">
-      <h3 className="text-sm font-bold text-gray-300 mb-2">卓一覧</h3>
+      <h3 className="text-sm font-bold text-gray-400 mb-2">卓一覧</h3>
       {tables.map((table) => (
-        <div key={table.id} className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2">
+        <div key={table.id} className="flex items-center justify-between py-2.5 border-b border-white/5">
           <div className="flex items-center gap-2">
             <span className="font-bold text-sm">{table.number}</span>
-            {table.number.includes('VIP') && <span className="text-xs bg-[#d4af37]/20 text-[#d4af37] px-1.5 py-0.5 rounded">VIP</span>}
-            <span className={`text-xs ${table.status === 'empty' ? 'text-green-400' : 'text-yellow-400'}`}>
+            {table.number.includes('VIP') && <span className="text-[10px] bg-[#d4af37]/10 text-[#d4af37] px-1.5 py-0.5 rounded">VIP</span>}
+            <span className={`text-xs ${table.status === 'empty' ? 'text-emerald-400/70' : 'text-amber-400/70'}`}>
               ({table.status === 'empty' ? '空き' : '使用中'})
             </span>
           </div>
           <button
             onClick={() => handleDelete(table.id)}
             disabled={table.status !== 'empty'}
-            className="text-xs bg-red-900/50 px-2 py-1 rounded text-red-400 disabled:opacity-30 disabled:cursor-not-allowed"
+            className="text-gray-600 hover:text-red-400 transition-colors disabled:opacity-20 disabled:cursor-not-allowed p-1"
           >
-            削除
+            <Trash2 size={14} />
           </button>
         </div>
       ))}
 
       {showAdd ? (
-        <div className="bg-white/5 rounded-lg p-3 space-y-2">
-          <input value={newName} onChange={(e) => setNewName(e.target.value)} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm" placeholder="卓番号 (例: 11)" />
-          <label className="flex items-center gap-2 text-sm">
+        <div className="bg-white/[0.03] border border-white/10 rounded-lg p-3 space-y-2">
+          <input value={newName} onChange={(e) => setNewName(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="卓番号 (例: 11)" />
+          <label className="flex items-center gap-2 text-sm text-gray-400">
             <input type="checkbox" checked={newIsVip} onChange={(e) => setNewIsVip(e.target.checked)} className="rounded" />
             VIP卓
           </label>
           <div className="flex gap-2">
             <button onClick={handleAdd} className="flex-1 bg-[#d4af37] text-black py-2 rounded-lg text-sm font-bold">追加</button>
-            <button onClick={() => setShowAdd(false)} className="flex-1 bg-white/10 py-2 rounded-lg text-sm text-gray-400">キャンセル</button>
+            <button onClick={() => setShowAdd(false)} className="flex-1 bg-white/5 border border-white/10 py-2 rounded-lg text-sm text-gray-500">キャンセル</button>
           </div>
         </div>
       ) : (
-        <button onClick={() => setShowAdd(true)} className="w-full bg-white/5 border border-dashed border-gray-600 rounded-lg py-3 text-sm text-gray-400">+ 卓追加</button>
+        <button onClick={() => setShowAdd(true)} className="w-full bg-white/[0.02] border border-dashed border-white/10 rounded-lg py-3 text-sm text-gray-500 flex items-center justify-center gap-1.5 hover:border-[#d4af37]/30 transition-colors">
+          <Plus size={14} /> 卓追加
+        </button>
       )}
     </div>
   )
@@ -331,33 +360,33 @@ function SettingsManager({ storeSettings, setStoreSettings }: {
 
   return (
     <div className="space-y-4">
-      <h3 className="text-sm font-bold text-gray-300 mb-2">店舗設定</h3>
+      <h3 className="text-sm font-bold text-gray-400 mb-2">店舗設定</h3>
 
-      <div className="bg-white/5 rounded-lg p-3">
-        <label className="text-xs text-gray-400 block mb-1">TAX率 (%)</label>
-        <input type="number" value={taxRate} onChange={(e) => setTaxRate(e.target.value)} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm" />
-        <p className="text-xs text-gray-500 mt-1">デフォルト: 20%</p>
+      <div className="bg-white/[0.03] border border-white/10 rounded-lg p-3">
+        <label className="text-xs text-gray-500 block mb-1.5">TAX率 (%)</label>
+        <input type="number" value={taxRate} onChange={(e) => setTaxRate(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" />
+        <p className="text-xs text-gray-600 mt-1">デフォルト: 20%</p>
       </div>
 
-      <div className="bg-white/5 rounded-lg p-3">
-        <label className="text-xs text-gray-400 block mb-1">カード手数料率 (%)</label>
-        <input type="number" value={cardFeeRate} onChange={(e) => setCardFeeRate(e.target.value)} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm" />
-        <p className="text-xs text-gray-500 mt-1">デフォルト: 10%</p>
+      <div className="bg-white/[0.03] border border-white/10 rounded-lg p-3">
+        <label className="text-xs text-gray-500 block mb-1.5">カード手数料率 (%)</label>
+        <input type="number" value={cardFeeRate} onChange={(e) => setCardFeeRate(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" />
+        <p className="text-xs text-gray-600 mt-1">デフォルト: 10%</p>
       </div>
 
-      <div className="bg-white/5 rounded-lg p-3">
-        <label className="text-xs text-gray-400 block mb-1">レジ初期金額 (¥)</label>
-        <input type="number" value={initialCash} onChange={(e) => setInitialCash(e.target.value)} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm" />
-        <p className="text-xs text-gray-500 mt-1">デフォルト: ¥100,000</p>
+      <div className="bg-white/[0.03] border border-white/10 rounded-lg p-3">
+        <label className="text-xs text-gray-500 block mb-1.5">レジ初期金額 (¥)</label>
+        <input type="number" value={initialCash} onChange={(e) => setInitialCash(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" />
+        <p className="text-xs text-gray-600 mt-1">デフォルト: ¥100,000</p>
       </div>
 
-      <div className="bg-white/5 rounded-lg p-3">
-        <label className="text-xs text-gray-400 block mb-1">給与締め日</label>
-        <input type="number" value={closingDay} onChange={(e) => setClosingDay(e.target.value)} min="1" max="31" className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm" />
-        <p className="text-xs text-gray-500 mt-1">デフォルト: 15日</p>
+      <div className="bg-white/[0.03] border border-white/10 rounded-lg p-3">
+        <label className="text-xs text-gray-500 block mb-1.5">給与締め日</label>
+        <input type="number" value={closingDay} onChange={(e) => setClosingDay(e.target.value)} min="1" max="31" className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" />
+        <p className="text-xs text-gray-600 mt-1">デフォルト: 15日</p>
       </div>
 
-      <button onClick={handleSave} className="w-full bg-[#d4af37] text-black py-3 rounded-lg font-bold">
+      <button onClick={handleSave} className={`w-full py-3 rounded-lg font-bold transition-colors ${saved ? 'bg-emerald-500/20 border border-emerald-500/30 text-emerald-400' : 'bg-[#d4af37] text-black'}`}>
         {saved ? '保存しました' : '設定を保存'}
       </button>
     </div>
@@ -408,7 +437,7 @@ function DataExport({ billingRecords, casts, dailyPayRequests, discountLogs }: {
         String(c.hourlyRate),
         `${(c.guaranteeRate * 100).toFixed(0)}%`,
         `${totalHours}h`,
-        '', // Would need complex calculation
+        '',
         String(totalSales),
         String(dailyPayTotal),
       ]
@@ -431,25 +460,34 @@ function DataExport({ billingRecords, casts, dailyPayRequests, discountLogs }: {
 
   return (
     <div className="space-y-4">
-      <h3 className="text-sm font-bold text-gray-300 mb-2">データ出力 (CSV)</h3>
-      <p className="text-xs text-gray-500">UTF-8 BOM付きCSV（Excelで文字化けしません）</p>
+      <h3 className="text-sm font-bold text-gray-400 mb-2">データ出力 (CSV)</h3>
+      <p className="text-xs text-gray-600">UTF-8 BOM付きCSV（Excelで文字化けしません）</p>
 
-      <button onClick={handleSalesReport} className="w-full bg-white/5 border border-gray-600 rounded-lg p-4 text-left hover:bg-white/10 transition-colors">
-        <div className="font-bold text-sm mb-1">売上日報</div>
-        <div className="text-xs text-gray-400">日付・卓・合計・支払方法</div>
-        <div className="text-xs text-gray-500 mt-1">{billingRecords.length}件</div>
+      <button onClick={handleSalesReport} className="w-full bg-white/[0.03] border border-white/10 rounded-lg p-4 text-left hover:border-[#d4af37]/30 transition-colors">
+        <div className="flex items-center gap-2 mb-1">
+          <Download size={14} className="text-[#d4af37]" />
+          <span className="font-bold text-sm">売上日報</span>
+        </div>
+        <div className="text-xs text-gray-500">日付・卓・合計・支払方法</div>
+        <div className="text-xs text-gray-600 mt-1">{billingRecords.length}件</div>
       </button>
 
-      <button onClick={handleSalaryReport} className="w-full bg-white/5 border border-gray-600 rounded-lg p-4 text-left hover:bg-white/10 transition-colors">
-        <div className="font-bold text-sm mb-1">キャスト給与一覧</div>
-        <div className="text-xs text-gray-400">名前・勤務時間・バック合計・給与</div>
-        <div className="text-xs text-gray-500 mt-1">{casts.filter((c) => c.active).length}名</div>
+      <button onClick={handleSalaryReport} className="w-full bg-white/[0.03] border border-white/10 rounded-lg p-4 text-left hover:border-[#d4af37]/30 transition-colors">
+        <div className="flex items-center gap-2 mb-1">
+          <Download size={14} className="text-[#d4af37]" />
+          <span className="font-bold text-sm">キャスト給与一覧</span>
+        </div>
+        <div className="text-xs text-gray-500">名前・勤務時間・バック合計・給与</div>
+        <div className="text-xs text-gray-600 mt-1">{casts.filter((c) => c.active).length}名</div>
       </button>
 
-      <button onClick={handleDiscountReport} className="w-full bg-white/5 border border-gray-600 rounded-lg p-4 text-left hover:bg-white/10 transition-colors">
-        <div className="font-bold text-sm mb-1">値引き監査ログ</div>
-        <div className="text-xs text-gray-400">正規料金・値引き額・理由・操作者</div>
-        <div className="text-xs text-gray-500 mt-1">{discountLogs.length}件</div>
+      <button onClick={handleDiscountReport} className="w-full bg-white/[0.03] border border-white/10 rounded-lg p-4 text-left hover:border-[#d4af37]/30 transition-colors">
+        <div className="flex items-center gap-2 mb-1">
+          <Download size={14} className="text-[#d4af37]" />
+          <span className="font-bold text-sm">値引き監査ログ</span>
+        </div>
+        <div className="text-xs text-gray-500">正規料金・値引き額・理由・操作者</div>
+        <div className="text-xs text-gray-600 mt-1">{discountLogs.length}件</div>
       </button>
     </div>
   )
@@ -509,49 +547,52 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
 
   return (
     <div className="space-y-3">
-      <h3 className="text-sm font-bold text-gray-300 mb-2">ユーザー一覧</h3>
+      <h3 className="text-sm font-bold text-gray-400 mb-2">ユーザー一覧</h3>
 
       {userAccounts.map((u) => (
-        <div key={u.username} className="bg-white/5 rounded-lg p-3">
+        <div key={u.username} className="bg-white/[0.03] border border-white/10 rounded-lg p-3">
           {editingUsername === u.username ? (
             <div className="space-y-2">
-              <div className="text-xs text-gray-400">ユーザー名: {u.username}</div>
-              <input value={formDisplay} onChange={(e) => setFormDisplay(e.target.value)} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm" placeholder="表示名" />
-              <input value={formPin} onChange={(e) => setFormPin(e.target.value)} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm" placeholder="PIN" maxLength={8} />
-              <select value={formRole} onChange={(e) => setFormRole(e.target.value as UserAccount['role'])} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm">
+              <div className="text-xs text-gray-500">ユーザー名: {u.username}</div>
+              <input value={formDisplay} onChange={(e) => setFormDisplay(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="表示名" />
+              <input value={formPin} onChange={(e) => setFormPin(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="PIN" maxLength={8} />
+              <select value={formRole} onChange={(e) => setFormRole(e.target.value as UserAccount['role'])} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm">
                 <option value="owner">オーナー</option>
                 <option value="staff">黒服</option>
                 <option value="cast">キャスト</option>
               </select>
               {formRole === 'cast' && (
-                <select value={formCastId ?? ''} onChange={(e) => setFormCastId(e.target.value ? Number(e.target.value) : undefined)} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm">
+                <select value={formCastId ?? ''} onChange={(e) => setFormCastId(e.target.value ? Number(e.target.value) : undefined)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm">
                   <option value="">-- キャスト紐付け --</option>
                   {casts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               )}
               <div className="flex gap-2">
                 <button onClick={() => handleSaveEdit(u.username)} className="flex-1 bg-[#d4af37] text-black py-2 rounded-lg text-sm font-bold">保存</button>
-                <button onClick={() => setEditingUsername(null)} className="flex-1 bg-white/10 py-2 rounded-lg text-sm text-gray-400">キャンセル</button>
+                <button onClick={() => setEditingUsername(null)} className="flex-1 bg-white/5 border border-white/10 py-2 rounded-lg text-sm text-gray-500">キャンセル</button>
               </div>
             </div>
           ) : (
             <div className="flex items-center justify-between">
-              <div>
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-bold text-sm">{u.displayName}</span>
-                <span className="text-xs text-gray-400 ml-2">@{u.username}</span>
-                <span className="text-xs bg-white/10 text-gray-300 px-1.5 py-0.5 rounded ml-2">{roleLabels[u.role]}</span>
+                <span className="text-xs text-gray-600">@{u.username}</span>
+                <span className="text-[10px] bg-white/5 text-gray-400 px-1.5 py-0.5 rounded">{roleLabels[u.role]}</span>
                 {u.role === 'cast' && u.castId && (
-                  <span className="text-xs text-purple-400 ml-2">#{casts.find((c) => c.id === u.castId)?.name ?? u.castId}</span>
+                  <span className="text-xs text-purple-400/70">#{casts.find((c) => c.id === u.castId)?.name ?? u.castId}</span>
                 )}
-                <span className="text-xs text-gray-500 ml-2">PIN: ****</span>
               </div>
-              <div className="flex gap-2">
-                <button onClick={() => startEdit(u)} className="text-xs bg-white/10 px-2 py-1 rounded text-gray-400">&#9998;</button>
+              <div className="flex gap-1.5">
+                <button onClick={() => startEdit(u)} className="text-gray-600 hover:text-white transition-colors p-1">
+                  <Pencil size={13} />
+                </button>
                 <button
                   onClick={() => deleteUser(u.username)}
                   disabled={u.role === 'owner'}
-                  className="text-xs bg-red-900/50 px-2 py-1 rounded text-red-400 disabled:opacity-30 disabled:cursor-not-allowed"
-                >&#128465;</button>
+                  className="text-gray-600 hover:text-red-400 transition-colors disabled:opacity-20 disabled:cursor-not-allowed p-1"
+                >
+                  <Trash2 size={13} />
+                </button>
               </div>
             </div>
           )}
@@ -559,28 +600,30 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
       ))}
 
       {showAdd ? (
-        <div className="bg-white/5 rounded-lg p-3 space-y-2">
-          <input value={formName} onChange={(e) => setFormName(e.target.value)} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm" placeholder="ユーザー名" />
-          <input value={formDisplay} onChange={(e) => setFormDisplay(e.target.value)} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm" placeholder="表示名" />
-          <input value={formPin} onChange={(e) => setFormPin(e.target.value)} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm" placeholder="PIN" maxLength={8} />
-          <select value={formRole} onChange={(e) => setFormRole(e.target.value as UserAccount['role'])} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm">
+        <div className="bg-white/[0.03] border border-white/10 rounded-lg p-3 space-y-2">
+          <input value={formName} onChange={(e) => setFormName(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="ユーザー名" />
+          <input value={formDisplay} onChange={(e) => setFormDisplay(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="表示名" />
+          <input value={formPin} onChange={(e) => setFormPin(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="PIN" maxLength={8} />
+          <select value={formRole} onChange={(e) => setFormRole(e.target.value as UserAccount['role'])} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm">
             <option value="owner">オーナー</option>
             <option value="staff">黒服</option>
             <option value="cast">キャスト</option>
           </select>
           {formRole === 'cast' && (
-            <select value={formCastId ?? ''} onChange={(e) => setFormCastId(e.target.value ? Number(e.target.value) : undefined)} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm">
+            <select value={formCastId ?? ''} onChange={(e) => setFormCastId(e.target.value ? Number(e.target.value) : undefined)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm">
               <option value="">-- キャスト紐付け --</option>
               {casts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           )}
           <div className="flex gap-2">
             <button onClick={handleAdd} className="flex-1 bg-[#d4af37] text-black py-2 rounded-lg text-sm font-bold">追加</button>
-            <button onClick={() => setShowAdd(false)} className="flex-1 bg-white/10 py-2 rounded-lg text-sm text-gray-400">キャンセル</button>
+            <button onClick={() => setShowAdd(false)} className="flex-1 bg-white/5 border border-white/10 py-2 rounded-lg text-sm text-gray-500">キャンセル</button>
           </div>
         </div>
       ) : (
-        <button onClick={() => { setShowAdd(true); setFormName(''); setFormDisplay(''); setFormPin(''); setFormRole('staff'); setFormCastId(undefined) }} className="w-full bg-white/5 border border-dashed border-gray-600 rounded-lg py-3 text-sm text-gray-400">+ ユーザー追加</button>
+        <button onClick={() => { setShowAdd(true); setFormName(''); setFormDisplay(''); setFormPin(''); setFormRole('staff'); setFormCastId(undefined) }} className="w-full bg-white/[0.02] border border-dashed border-white/10 rounded-lg py-3 text-sm text-gray-500 flex items-center justify-center gap-1.5 hover:border-[#d4af37]/30 transition-colors">
+          <Plus size={14} /> ユーザー追加
+        </button>
       )}
     </div>
   )
