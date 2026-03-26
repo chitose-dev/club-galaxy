@@ -10,6 +10,7 @@ import {
   initialDailyPayRequests,
   initialBottleKeeps,
   defaultStoreSettings,
+  dummyAccounts,
   type Table,
   type Cast,
   type GuestMenuItem,
@@ -22,6 +23,7 @@ import {
   type BottleKeep,
   type Deduction,
   type StoreSettings,
+  type UserAccount,
 } from './data/mock'
 
 interface Store {
@@ -55,6 +57,10 @@ interface Store {
   removeBottleKeep: (id: number) => void
   setDeductions: React.Dispatch<React.SetStateAction<Deduction[]>>
   setStoreSettings: React.Dispatch<React.SetStateAction<StoreSettings>>
+  userAccounts: UserAccount[]
+  addUser: (user: UserAccount) => void
+  updateUser: (username: string, patch: Partial<UserAccount>) => void
+  deleteUser: (username: string) => void
 }
 
 const StoreContext = createContext<Store | null>(null)
@@ -72,6 +78,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [bottleKeeps, setBottleKeeps] = useState<BottleKeep[]>(initialBottleKeeps)
   const [deductions, setDeductions] = useState<Deduction[]>([])
   const [storeSettings, setStoreSettings] = useState<StoreSettings>(defaultStoreSettings)
+  const [userAccounts, setUserAccounts] = useState<UserAccount[]>(dummyAccounts)
 
   const updateTable = useCallback((id: number, patch: Partial<Table>) => {
     setTables((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)))
@@ -147,6 +154,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setBottleKeeps((prev) => prev.filter((b) => b.id !== id))
   }, [])
 
+  const addUser = useCallback((user: UserAccount) => {
+    setUserAccounts((prev) => [...prev, user])
+  }, [])
+
+  const updateUser = useCallback((username: string, patch: Partial<UserAccount>) => {
+    setUserAccounts((prev) => prev.map((u) => (u.username === username ? { ...u, ...patch } : u)))
+  }, [])
+
+  const deleteUser = useCallback((username: string) => {
+    setUserAccounts((prev) => prev.filter((u) => u.username !== username))
+  }, [])
+
   return (
     <StoreContext.Provider
       value={{
@@ -180,6 +199,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         removeBottleKeep,
         setDeductions,
         setStoreSettings,
+        userAccounts,
+        addUser,
+        updateUser,
+        deleteUser,
       }}
     >
       {children}

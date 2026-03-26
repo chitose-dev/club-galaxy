@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useStore } from '../store'
 import { sampleDailyWork } from '../data/mock'
-import type { Cast, BackType, GuestMenuItem, CastMenuItem, Table, StoreSettings, DailyWork } from '../data/mock'
+import type { Cast, BackType, GuestMenuItem, CastMenuItem, Table, StoreSettings, DailyWork, UserAccount } from '../data/mock'
 
-type AdminTab = 'menu' | 'cast' | 'price' | 'tables' | 'settings' | 'export'
+type AdminTab = 'menu' | 'cast' | 'price' | 'tables' | 'settings' | 'export' | 'users'
 
 const backTypes: BackType[] = ['FD', '本D', 'Fカク', '本カク', '本カクW', '同伴', '本指名', '場内指名', 'ボトルバック', 'ヘルプ', 'その他']
 
@@ -12,6 +12,7 @@ export default function AdminPage() {
     guestMenu, castMenu, casts, setPrices, chargeItems, tables, storeSettings,
     billingRecords, dailyPayRequests, discountLogs,
     setGuestMenu, setCastMenu, setCasts, setSetPrices, setChargeItems, setTables, setStoreSettings,
+    userAccounts, addUser, updateUser, deleteUser,
   } = useStore()
 
   const [activeTab, setActiveTab] = useState<AdminTab>('menu')
@@ -23,6 +24,7 @@ export default function AdminPage() {
     { key: 'tables', label: '卓管理' },
     { key: 'settings', label: '設定' },
     { key: 'export', label: '出力' },
+    { key: 'users', label: 'ユーザー' },
   ]
 
   return (
@@ -49,6 +51,7 @@ export default function AdminPage() {
       {activeTab === 'tables' && <TableManager tables={tables} setTables={setTables} />}
       {activeTab === 'settings' && <SettingsManager storeSettings={storeSettings} setStoreSettings={setStoreSettings} />}
       {activeTab === 'export' && <DataExport billingRecords={billingRecords} casts={casts} dailyPayRequests={dailyPayRequests} discountLogs={discountLogs} />}
+      {activeTab === 'users' && <UserManager userAccounts={userAccounts} addUser={addUser} updateUser={updateUser} deleteUser={deleteUser} casts={casts} />}
     </div>
   )
 }
@@ -448,6 +451,137 @@ function DataExport({ billingRecords, casts, dailyPayRequests, discountLogs }: {
         <div className="text-xs text-gray-400">正規料金・値引き額・理由・操作者</div>
         <div className="text-xs text-gray-500 mt-1">{discountLogs.length}件</div>
       </button>
+    </div>
+  )
+}
+
+const roleLabels: Record<UserAccount['role'], string> = { owner: 'オーナー', staff: '黒服', cast: 'キャスト' }
+
+function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
+  userAccounts: UserAccount[]
+  addUser: (user: UserAccount) => void
+  updateUser: (username: string, patch: Partial<UserAccount>) => void
+  deleteUser: (username: string) => void
+  casts: Cast[]
+}) {
+  const [showAdd, setShowAdd] = useState(false)
+  const [editingUsername, setEditingUsername] = useState<string | null>(null)
+  const [formName, setFormName] = useState('')
+  const [formDisplay, setFormDisplay] = useState('')
+  const [formPin, setFormPin] = useState('')
+  const [formRole, setFormRole] = useState<UserAccount['role']>('staff')
+  const [formCastId, setFormCastId] = useState<number | undefined>(undefined)
+
+  const startEdit = (u: UserAccount) => {
+    setEditingUsername(u.username)
+    setFormDisplay(u.displayName)
+    setFormPin(u.pin)
+    setFormRole(u.role)
+    setFormCastId(u.castId)
+  }
+
+  const handleSaveEdit = (username: string) => {
+    updateUser(username, {
+      displayName: formDisplay,
+      pin: formPin,
+      role: formRole,
+      castId: formRole === 'cast' ? formCastId : undefined,
+    })
+    setEditingUsername(null)
+  }
+
+  const handleAdd = () => {
+    if (!formName || !formPin) return
+    addUser({
+      username: formName,
+      displayName: formDisplay || formName,
+      pin: formPin,
+      role: formRole,
+      castId: formRole === 'cast' ? formCastId : undefined,
+    })
+    setFormName('')
+    setFormDisplay('')
+    setFormPin('')
+    setFormRole('staff')
+    setFormCastId(undefined)
+    setShowAdd(false)
+  }
+
+  return (
+    <div className="space-y-3">
+      <h3 className="text-sm font-bold text-gray-300 mb-2">ユーザー一覧</h3>
+
+      {userAccounts.map((u) => (
+        <div key={u.username} className="bg-white/5 rounded-lg p-3">
+          {editingUsername === u.username ? (
+            <div className="space-y-2">
+              <div className="text-xs text-gray-400">ユーザー名: {u.username}</div>
+              <input value={formDisplay} onChange={(e) => setFormDisplay(e.target.value)} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm" placeholder="表示名" />
+              <input value={formPin} onChange={(e) => setFormPin(e.target.value)} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm" placeholder="PIN" maxLength={8} />
+              <select value={formRole} onChange={(e) => setFormRole(e.target.value as UserAccount['role'])} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm">
+                <option value="owner">オーナー</option>
+                <option value="staff">黒服</option>
+                <option value="cast">キャスト</option>
+              </select>
+              {formRole === 'cast' && (
+                <select value={formCastId ?? ''} onChange={(e) => setFormCastId(e.target.value ? Number(e.target.value) : undefined)} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm">
+                  <option value="">-- キャスト紐付け --</option>
+                  {casts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              )}
+              <div className="flex gap-2">
+                <button onClick={() => handleSaveEdit(u.username)} className="flex-1 bg-[#d4af37] text-black py-2 rounded-lg text-sm font-bold">保存</button>
+                <button onClick={() => setEditingUsername(null)} className="flex-1 bg-white/10 py-2 rounded-lg text-sm text-gray-400">キャンセル</button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="font-bold text-sm">{u.displayName}</span>
+                <span className="text-xs text-gray-400 ml-2">@{u.username}</span>
+                <span className="text-xs bg-white/10 text-gray-300 px-1.5 py-0.5 rounded ml-2">{roleLabels[u.role]}</span>
+                {u.role === 'cast' && u.castId && (
+                  <span className="text-xs text-purple-400 ml-2">#{casts.find((c) => c.id === u.castId)?.name ?? u.castId}</span>
+                )}
+                <span className="text-xs text-gray-500 ml-2">PIN: ****</span>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => startEdit(u)} className="text-xs bg-white/10 px-2 py-1 rounded text-gray-400">&#9998;</button>
+                <button
+                  onClick={() => deleteUser(u.username)}
+                  disabled={u.role === 'owner'}
+                  className="text-xs bg-red-900/50 px-2 py-1 rounded text-red-400 disabled:opacity-30 disabled:cursor-not-allowed"
+                >&#128465;</button>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+
+      {showAdd ? (
+        <div className="bg-white/5 rounded-lg p-3 space-y-2">
+          <input value={formName} onChange={(e) => setFormName(e.target.value)} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm" placeholder="ユーザー名" />
+          <input value={formDisplay} onChange={(e) => setFormDisplay(e.target.value)} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm" placeholder="表示名" />
+          <input value={formPin} onChange={(e) => setFormPin(e.target.value)} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm" placeholder="PIN" maxLength={8} />
+          <select value={formRole} onChange={(e) => setFormRole(e.target.value as UserAccount['role'])} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm">
+            <option value="owner">オーナー</option>
+            <option value="staff">黒服</option>
+            <option value="cast">キャスト</option>
+          </select>
+          {formRole === 'cast' && (
+            <select value={formCastId ?? ''} onChange={(e) => setFormCastId(e.target.value ? Number(e.target.value) : undefined)} className="w-full bg-white/10 border border-gray-600 rounded px-3 py-1.5 text-sm">
+              <option value="">-- キャスト紐付け --</option>
+              {casts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          )}
+          <div className="flex gap-2">
+            <button onClick={handleAdd} className="flex-1 bg-[#d4af37] text-black py-2 rounded-lg text-sm font-bold">追加</button>
+            <button onClick={() => setShowAdd(false)} className="flex-1 bg-white/10 py-2 rounded-lg text-sm text-gray-400">キャンセル</button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => { setShowAdd(true); setFormName(''); setFormDisplay(''); setFormPin(''); setFormRole('staff'); setFormCastId(undefined) }} className="w-full bg-white/5 border border-dashed border-gray-600 rounded-lg py-3 text-sm text-gray-400">+ ユーザー追加</button>
+      )}
     </div>
   )
 }
