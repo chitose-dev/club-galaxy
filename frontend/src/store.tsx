@@ -56,6 +56,7 @@ interface Store {
   updateBottleKeep: (id: number, patch: Partial<BottleKeep>) => void
   removeBottleKeep: (id: number) => void
   setDeductions: React.Dispatch<React.SetStateAction<Deduction[]>>
+  reorderTables: (fromIndex: number, toIndex: number) => void
   setStoreSettings: React.Dispatch<React.SetStateAction<StoreSettings>>
   userAccounts: UserAccount[]
   addUser: (user: UserAccount) => void
@@ -154,6 +155,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setBottleKeeps((prev) => prev.filter((b) => b.id !== id))
   }, [])
 
+  const reorderTables = useCallback((fromIndex: number, toIndex: number) => {
+    setTables((prev) => {
+      const next = [...prev]
+      const [moved] = next.splice(fromIndex, 1)
+      next.splice(toIndex, 0, moved)
+      return next
+    })
+  }, [])
+
   const addUser = useCallback((user: UserAccount) => {
     setUserAccounts((prev) => [...prev, user])
   }, [])
@@ -197,6 +207,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         addBottleKeep,
         updateBottleKeep,
         removeBottleKeep,
+        reorderTables,
         setDeductions,
         setStoreSettings,
         userAccounts,

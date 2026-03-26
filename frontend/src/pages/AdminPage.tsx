@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useStore } from '../store'
 import { sampleDailyWork } from '../data/mock'
 import type { Cast, BackType, GuestMenuItem, CastMenuItem, Table, StoreSettings, DailyWork, UserAccount } from '../data/mock'
-import { Pencil, Trash2, Plus, Save, Download } from 'lucide-react'
+import { Pencil, Trash2, Plus, Save, Download, ChevronUp, ChevronDown, GripVertical } from 'lucide-react'
 
 type AdminTab = 'menu' | 'cast' | 'price' | 'tables' | 'settings' | 'export' | 'users'
 
@@ -13,7 +13,7 @@ export default function AdminPage() {
     guestMenu, castMenu, casts, setPrices, chargeItems, tables, storeSettings,
     billingRecords, dailyPayRequests, discountLogs,
     setGuestMenu, setCastMenu, setCasts, setSetPrices, setChargeItems, setTables, setStoreSettings,
-    userAccounts, addUser, updateUser, deleteUser,
+    reorderTables, userAccounts, addUser, updateUser, deleteUser,
   } = useStore()
 
   const [activeTab, setActiveTab] = useState<AdminTab>('menu')
@@ -53,7 +53,7 @@ export default function AdminPage() {
       {activeTab === 'menu' && <MenuManager guestMenu={guestMenu} castMenu={castMenu} setGuestMenu={setGuestMenu} setCastMenu={setCastMenu} />}
       {activeTab === 'cast' && <CastManager casts={casts} setCasts={setCasts} />}
       {activeTab === 'price' && <PriceManager setPrices={setPrices} chargeItems={chargeItems} setSetPrices={setSetPrices} setChargeItems={setChargeItems} />}
-      {activeTab === 'tables' && <TableManager tables={tables} setTables={setTables} />}
+      {activeTab === 'tables' && <TableManager tables={tables} setTables={setTables} reorderTables={reorderTables} />}
       {activeTab === 'settings' && <SettingsManager storeSettings={storeSettings} setStoreSettings={setStoreSettings} />}
       {activeTab === 'export' && <DataExport billingRecords={billingRecords} casts={casts} dailyPayRequests={dailyPayRequests} discountLogs={discountLogs} />}
       {activeTab === 'users' && <UserManager userAccounts={userAccounts} addUser={addUser} updateUser={updateUser} deleteUser={deleteUser} casts={casts} />}
@@ -261,13 +261,16 @@ function PriceManager({ setPrices, chargeItems, setSetPrices, setChargeItems }: 
   )
 }
 
-function TableManager({ tables, setTables }: {
+function TableManager({ tables, setTables, reorderTables }: {
   tables: Table[]
   setTables: React.Dispatch<React.SetStateAction<Table[]>>
+  reorderTables: (fromIndex: number, toIndex: number) => void
 }) {
   const [showAdd, setShowAdd] = useState(false)
   const [newName, setNewName] = useState('')
   const [newIsVip, setNewIsVip] = useState(false)
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
 
   const handleAdd = () => {
     if (!newName) return
@@ -294,25 +297,79 @@ function TableManager({ tables, setTables }: {
     setTables((prev) => prev.filter((t) => t.id !== id))
   }
 
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDragIndex(index)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setDragOverIndex(index)
+  }
+
+  const handleDrop = (e: React.DragEvent, toIndex: number) => {
+    e.preventDefault()
+    if (dragIndex !== null && dragIndex !== toIndex) {
+      reorderTables(dragIndex, toIndex)
+    }
+    setDragIndex(null)
+    setDragOverIndex(null)
+  }
+
+  const handleDragEnd = () => {
+    setDragIndex(null)
+    setDragOverIndex(null)
+  }
+
   return (
     <div className="space-y-3">
       <h3 className="text-sm font-bold text-gray-400 mb-2">卓一覧</h3>
-      {tables.map((table) => (
-        <div key={table.id} className="flex items-center justify-between py-2.5 border-b border-white/5">
+      {tables.map((table, index) => (
+        <div
+          key={table.id}
+          draggable
+          onDragStart={(e) => handleDragStart(e, index)}
+          onDragOver={(e) => handleDragOver(e, index)}
+          onDrop={(e) => handleDrop(e, index)}
+          onDragEnd={handleDragEnd}
+          className={`flex items-center justify-between py-2.5 border-b border-white/5 transition-colors ${
+            dragIndex === index ? 'opacity-40' : ''
+          } ${dragOverIndex === index && dragIndex !== index ? 'border-t-2 border-t-[#d4af37]' : ''}`}
+        >
           <div className="flex items-center gap-2">
+            <span className="text-gray-600 cursor-grab active:cursor-grabbing touch-none">
+              <GripVertical size={14} />
+            </span>
             <span className="font-bold text-sm">{table.number}</span>
             {table.number.includes('VIP') && <span className="text-[10px] bg-[#d4af37]/10 text-[#d4af37] px-1.5 py-0.5 rounded">VIP</span>}
             <span className={`text-xs ${table.status === 'empty' ? 'text-emerald-400/70' : 'text-amber-400/70'}`}>
               ({table.status === 'empty' ? '空き' : '使用中'})
             </span>
           </div>
-          <button
-            onClick={() => handleDelete(table.id)}
-            disabled={table.status !== 'empty'}
-            className="text-gray-600 hover:text-red-400 transition-colors disabled:opacity-20 disabled:cursor-not-allowed p-1"
-          >
-            <Trash2 size={14} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => index > 0 && reorderTables(index, index - 1)}
+              disabled={index === 0}
+              className="text-gray-600 hover:text-white transition-colors disabled:opacity-20 disabled:cursor-not-allowed p-1"
+            >
+              <ChevronUp size={14} />
+            </button>
+            <button
+              onClick={() => index < tables.length - 1 && reorderTables(index, index + 1)}
+              disabled={index === tables.length - 1}
+              className="text-gray-600 hover:text-white transition-colors disabled:opacity-20 disabled:cursor-not-allowed p-1"
+            >
+              <ChevronDown size={14} />
+            </button>
+            <button
+              onClick={() => handleDelete(table.id)}
+              disabled={table.status !== 'empty'}
+              className="text-gray-600 hover:text-red-400 transition-colors disabled:opacity-20 disabled:cursor-not-allowed p-1"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
         </div>
       ))}
 
