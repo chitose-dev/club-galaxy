@@ -139,25 +139,65 @@ function CastManager({ casts, setCasts }: { casts: Cast[]; setCasts: React.Dispa
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editName, setEditName] = useState('')
   const [editRate, setEditRate] = useState('')
+  const [editGuarantee, setEditGuarantee] = useState('')
+  const [editBackRates, setEditBackRates] = useState<Partial<Record<BackType, number>>>({})
   const [showAdd, setShowAdd] = useState(false)
   const [newName, setNewName] = useState('')
   const [newRate, setNewRate] = useState('2000')
+  const [newGuarantee, setNewGuarantee] = useState('45')
+  const [newBackRates, setNewBackRates] = useState<Partial<Record<BackType, number>>>(() => {
+    const rates: Partial<Record<BackType, number>> = {}
+    backTypes.forEach((bt) => { rates[bt] = 0 })
+    return rates
+  })
 
   const handleSave = (id: number) => {
-    setCasts((prev) => prev.map((c) => c.id === id ? { ...c, name: editName, hourlyRate: Number(editRate) } : c))
+    setCasts((prev) => prev.map((c) => c.id === id ? { ...c, name: editName, hourlyRate: Number(editRate), guaranteeRate: Number(editGuarantee) / 100, backRates: { ...editBackRates } } : c))
     setEditingId(null)
+  }
+
+  const startEdit = (cast: Cast) => {
+    setEditingId(cast.id)
+    setEditName(cast.name)
+    setEditRate(String(cast.hourlyRate))
+    setEditGuarantee(String(Math.round(cast.guaranteeRate * 100)))
+    setEditBackRates({ ...cast.backRates })
   }
 
   const handleAdd = () => {
     if (!newName) return
     const maxId = Math.max(...casts.map((c) => c.id), 0)
-    const defaultBackRates: Partial<Record<BackType, number>> = {}
-    backTypes.forEach((bt) => { defaultBackRates[bt] = 0 })
-    setCasts((prev) => [...prev, { id: maxId + 1, name: newName, hourlyRate: Number(newRate), backRates: defaultBackRates, guaranteeRate: 0.45, active: true }])
+    setCasts((prev) => [...prev, { id: maxId + 1, name: newName, hourlyRate: Number(newRate), backRates: { ...newBackRates }, guaranteeRate: Number(newGuarantee) / 100, active: true }])
     setNewName('')
     setNewRate('2000')
+    setNewGuarantee('45')
+    const resetRates: Partial<Record<BackType, number>> = {}
+    backTypes.forEach((bt) => { resetRates[bt] = 0 })
+    setNewBackRates(resetRates)
     setShowAdd(false)
   }
+
+  const backRateInputs = (rates: Partial<Record<BackType, number>>, setRates: (r: Partial<Record<BackType, number>>) => void) => (
+    <div>
+      <label className="text-xs text-gray-500 block mb-1.5">バック単価</label>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+        {backTypes.map((bt) => (
+          <div key={bt} className="flex items-center gap-1.5">
+            <span className="text-[11px] text-gray-400 w-16 shrink-0 truncate">{bt}</span>
+            <div className="relative flex-1">
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-600">¥</span>
+              <input
+                type="number"
+                value={rates[bt] ?? 0}
+                onChange={(e) => setRates({ ...rates, [bt]: Number(e.target.value) })}
+                className="w-full bg-white/5 border border-white/10 rounded pl-5 pr-2 py-1 text-xs text-right tabular-nums"
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 
   return (
     <div className="space-y-3">
@@ -166,8 +206,18 @@ function CastManager({ casts, setCasts }: { casts: Cast[]; setCasts: React.Dispa
           {editingId === cast.id ? (
             <div className="space-y-2">
               <input value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="名前" />
-              <input type="number" value={editRate} onChange={(e) => setEditRate(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="時給" />
-              <div className="flex gap-2">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">時給</label>
+                  <input type="number" value={editRate} onChange={(e) => setEditRate(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="時給" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">売上保証率 (%)</label>
+                  <input type="number" value={editGuarantee} onChange={(e) => setEditGuarantee(e.target.value)} min="0" max="100" className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="%" />
+                </div>
+              </div>
+              {backRateInputs(editBackRates, setEditBackRates)}
+              <div className="flex gap-2 pt-1">
                 <button onClick={() => handleSave(cast.id)} className="flex-1 bg-[#d4af37] text-black py-2 rounded-lg text-sm font-bold">保存</button>
                 <button onClick={() => setEditingId(null)} className="flex-1 bg-white/5 border border-white/10 py-2 rounded-lg text-sm text-gray-500">キャンセル</button>
               </div>
@@ -177,10 +227,11 @@ function CastManager({ casts, setCasts }: { casts: Cast[]; setCasts: React.Dispa
               <div>
                 <span className="font-bold text-sm">{cast.name}</span>
                 <span className="text-sm text-gray-500 ml-2 tabular-nums">¥{cast.hourlyRate.toLocaleString()}/h</span>
+                <span className="text-xs text-purple-400/70 ml-2">保証{Math.round(cast.guaranteeRate * 100)}%</span>
                 {!cast.active && <span className="text-xs text-red-400/70 ml-2">非アクティブ</span>}
               </div>
               <div className="flex gap-2">
-                <button onClick={() => { setEditingId(cast.id); setEditName(cast.name); setEditRate(String(cast.hourlyRate)) }} className="text-gray-600 hover:text-white transition-colors p-1">
+                <button onClick={() => startEdit(cast)} className="text-gray-600 hover:text-white transition-colors p-1">
                   <Pencil size={13} />
                 </button>
                 <button onClick={() => setCasts((prev) => prev.map((c) => c.id === cast.id ? { ...c, active: !c.active } : c))} className="text-xs bg-white/5 border border-white/10 px-2 py-1 rounded text-gray-500 hover:text-white transition-colors">{cast.active ? '無効化' : '有効化'}</button>
@@ -196,8 +247,18 @@ function CastManager({ casts, setCasts }: { casts: Cast[]; setCasts: React.Dispa
       {showAdd ? (
         <div className="bg-white/[0.03] border border-white/10 rounded-lg p-3 space-y-2">
           <input value={newName} onChange={(e) => setNewName(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="キャスト名" />
-          <input type="number" value={newRate} onChange={(e) => setNewRate(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="時給" />
-          <div className="flex gap-2">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">時給</label>
+              <input type="number" value={newRate} onChange={(e) => setNewRate(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="時給" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">売上保証率 (%)</label>
+              <input type="number" value={newGuarantee} onChange={(e) => setNewGuarantee(e.target.value)} min="0" max="100" className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="%" />
+            </div>
+          </div>
+          {backRateInputs(newBackRates, setNewBackRates)}
+          <div className="flex gap-2 pt-1">
             <button onClick={handleAdd} className="flex-1 bg-[#d4af37] text-black py-2 rounded-lg text-sm font-bold">追加</button>
             <button onClick={() => setShowAdd(false)} className="flex-1 bg-white/5 border border-white/10 py-2 rounded-lg text-sm text-gray-500">キャンセル</button>
           </div>
