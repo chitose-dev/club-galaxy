@@ -63,8 +63,14 @@ function calcElapsedMinutes(startTime: string): number {
   return Math.floor((now.getTime() - startDate.getTime()) / (60 * 1000))
 }
 
+function flColor(rate: number) {
+  if (rate <= 60) return 'text-emerald-400'
+  if (rate <= 70) return 'text-amber-400'
+  return 'text-red-400'
+}
+
 export default function FloorPage() {
-  const { tables, casts, updateTable, bottleKeeps } = useStore()
+  const { tables, casts, updateTable, bottleKeeps, flMetrics } = useStore()
   const navigate = useNavigate()
   const [selected, setSelected] = useState<Table | null>(null)
 
@@ -122,7 +128,7 @@ export default function FloorPage() {
     if (!selected) return
     const singleChargeItem = chargeItems.find((c) => c.id === 'single-charge')
     const singleChargeOrder = singleChargeItem ? [{
-      menuItem: { id: 900, name: `シングルチャージ（¥${singleChargeItem.price.toLocaleString()} × ${ciGuests}名）`, price: singleChargeItem.price * ciGuests, category: 'guest' as const, subcategory: 'warimono' as const },
+      menuItem: { id: 900, name: `シングルチャージ（¥${singleChargeItem.price.toLocaleString()} × ${ciGuests}名）`, price: singleChargeItem.price * ciGuests, cost: (singleChargeItem.cost ?? 300) * ciGuests, castBack: 0, category: 'guest' as const, subcategory: 'warimono' as const },
       quantity: 1,
     }] : []
 
@@ -206,6 +212,12 @@ export default function FloorPage() {
             <span className="text-gray-400">{statusLabel[key]}</span>
           </span>
         ))}
+      </div>
+
+      {/* Profit Widget */}
+      <div className="flex items-center justify-between bg-white/5 rounded-lg px-4 py-2.5 mb-4 text-sm tabular-nums">
+        <span>本日 <span className="font-bold">¥{flMetrics.todayProfit.toLocaleString()}</span> <span className={`text-xs ${flColor(flMetrics.flRate)}`}>(FL {flMetrics.flRate.toFixed(1)}%)</span></span>
+        <span>今月 <span className="font-bold">¥{flMetrics.monthlyProfit.toLocaleString()}</span> <span className={`text-xs ${flColor(flMetrics.monthlyFlRate)}`}>(FL {flMetrics.monthlyFlRate.toFixed(1)}%)</span></span>
       </div>
 
       {/* Table Grid */}

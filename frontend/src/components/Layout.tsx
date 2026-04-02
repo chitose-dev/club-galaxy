@@ -1,12 +1,13 @@
 import { Outlet, NavLink } from 'react-router-dom'
 import { useAuth } from '../auth'
-import { LayoutGrid, ClipboardList, Receipt, Wallet, Archive, Settings } from 'lucide-react'
+import { LayoutGrid, ClipboardList, Receipt, Wallet, Archive, Settings, TrendingUp } from 'lucide-react'
 
 const allTabs = [
   { to: '/floor', label: 'フロア', icon: LayoutGrid, roles: ['owner', 'staff'] },
   { to: '/order', label: '注文', icon: ClipboardList, roles: ['owner', 'staff'] },
   { to: '/billing', label: '会計', icon: Receipt, roles: ['owner', 'staff'] },
   { to: '/salary', label: '給与', icon: Wallet, roles: ['owner', 'cast'] },
+  { to: '/profit', label: '利益', icon: TrendingUp, roles: ['owner'] },
   { to: '/register', label: 'レジ', icon: Archive, roles: ['owner'] },
   { to: '/admin', label: '管理', icon: Settings, roles: ['owner'] },
 ]
@@ -15,7 +16,7 @@ export default function Layout() {
   const { user, logout } = useAuth()
 
   const tabs = allTabs.filter((tab) => user && tab.roles.includes(user.role))
-  const colsClass = tabs.length <= 2 ? 'grid-cols-2' : tabs.length === 3 ? 'grid-cols-3' : tabs.length === 4 ? 'grid-cols-4' : tabs.length === 5 ? 'grid-cols-5' : 'grid-cols-6'
+  const colsClass = tabs.length <= 2 ? 'grid-cols-2' : tabs.length === 3 ? 'grid-cols-3' : tabs.length === 4 ? 'grid-cols-4' : tabs.length === 5 ? 'grid-cols-5' : tabs.length === 6 ? 'grid-cols-6' : 'grid-cols-7'
 
   return (
     <div className="flex flex-col h-dvh">

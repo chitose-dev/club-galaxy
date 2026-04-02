@@ -8,6 +8,8 @@ const HELP_BACK_ITEM: CastMenuItem = {
   id: 999,
   name: 'ヘルプ',
   price: 0,
+  cost: 0,
+  castBack: 0,
   category: 'cast',
   subcategory: 'fd',
   backType: 'ヘルプ',

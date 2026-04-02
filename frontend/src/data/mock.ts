@@ -18,6 +18,8 @@ export interface GuestMenuItem {
   id: number
   name: string
   price: number
+  cost: number        // 原価
+  castBack: number    // キャストバック
   category: 'guest'
   subcategory: 'shochu' | 'whisky' | 'brandy' | 'champagne' | 'shot' | 'pitcher' | 'beer' | 'warimono'
 }
@@ -26,6 +28,8 @@ export interface CastMenuItem {
   id: number
   name: string
   price: number
+  cost: number        // 原価
+  castBack: number    // キャストバック
   category: 'cast'
   subcategory: 'fd' | 'honkaku' | 'hond'
   backType: BackType
@@ -54,6 +58,7 @@ export interface SetPrice {
   id: string
   label: string
   price: number
+  cost: number
 }
 
 // ─── 会計関連 ───
@@ -129,16 +134,16 @@ export interface StoreSettings {
 // ─── セット料金（時間帯別） ───
 
 export const setPrices: SetPrice[] = [
-  { id: 'set-2000', label: '20:00〜20:59', price: 3500 },
-  { id: 'set-2100', label: '21:00〜22:59', price: 4000 },
-  { id: 'set-2300', label: '23:00〜ラスト', price: 5000 },
+  { id: 'set-2000', label: '20:00〜20:59', price: 3500, cost: 300 },
+  { id: 'set-2100', label: '21:00〜22:59', price: 4000, cost: 300 },
+  { id: 'set-2300', label: '23:00〜ラスト', price: 5000, cost: 300 },
 ]
 
 export const chargeItems: SetPrice[] = [
-  { id: 'single-charge', label: 'シングルチャージ', price: 1000 },
-  { id: 'douhan', label: '同伴', price: 4000 },
-  { id: 'shimei', label: '指名料', price: 2000 },
-  { id: 'banai', label: '場内指名', price: 1000 },
+  { id: 'single-charge', label: 'シングルチャージ', price: 1000, cost: 300 },
+  { id: 'douhan', label: '同伴', price: 4000, cost: 300 },
+  { id: 'shimei', label: '指名料', price: 2000, cost: 300 },
+  { id: 'banai', label: '場内指名', price: 1000, cost: 300 },
 ]
 
 export const SET_DURATION_MINUTES = 60
@@ -149,22 +154,22 @@ export const ENDING_MINUTES = 10
 // ─── ゲスト用ドリンクメニュー ───
 
 export const guestMenuItems: GuestMenuItem[] = [
-  { id: 101, name: '焼酎', price: 0, category: 'guest', subcategory: 'shochu' },
-  { id: 102, name: 'ウイスキー', price: 0, category: 'guest', subcategory: 'whisky' },
-  { id: 103, name: 'ブランデー', price: 0, category: 'guest', subcategory: 'brandy' },
-  { id: 104, name: 'シャンパン', price: 0, category: 'guest', subcategory: 'champagne' },
-  { id: 105, name: 'ゲストショット', price: 2000, category: 'guest', subcategory: 'shot' },
-  { id: 106, name: 'ピッチャー', price: 2000, category: 'guest', subcategory: 'pitcher' },
-  { id: 107, name: 'ゲストビール', price: 1500, category: 'guest', subcategory: 'beer' },
-  { id: 108, name: '割物', price: 600, category: 'guest', subcategory: 'warimono' },
+  { id: 101, name: '焼酎', price: 0, cost: 2000, castBack: 0, category: 'guest', subcategory: 'shochu' },
+  { id: 102, name: 'ウイスキー', price: 0, cost: 2000, castBack: 0, category: 'guest', subcategory: 'whisky' },
+  { id: 103, name: 'ブランデー', price: 0, cost: 2000, castBack: 0, category: 'guest', subcategory: 'brandy' },
+  { id: 104, name: 'シャンパン', price: 0, cost: 2000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 105, name: 'ゲストショット', price: 2000, cost: 500, castBack: 0, category: 'guest', subcategory: 'shot' },
+  { id: 106, name: 'ピッチャー', price: 2000, cost: 800, castBack: 0, category: 'guest', subcategory: 'pitcher' },
+  { id: 107, name: 'ゲストビール', price: 1500, cost: 400, castBack: 0, category: 'guest', subcategory: 'beer' },
+  { id: 108, name: '割物', price: 600, cost: 100, castBack: 0, category: 'guest', subcategory: 'warimono' },
 ]
 
 // ─── キャスト用ドリンクメニュー ───
 
 export const castMenuItems: CastMenuItem[] = [
-  { id: 201, name: 'レディースドリンク (FD)', price: 1000, category: 'cast', subcategory: 'fd', backType: 'FD' },
-  { id: 202, name: 'レディースカクテル (本カク)', price: 1500, category: 'cast', subcategory: 'honkaku', backType: '本カク' },
-  { id: 203, name: 'レディースショット (本D)', price: 2000, category: 'cast', subcategory: 'hond', backType: '本D' },
+  { id: 201, name: 'レディースドリンク (FD)', price: 1000, cost: 0, castBack: 500, category: 'cast', subcategory: 'fd', backType: 'FD' },
+  { id: 202, name: 'レディースカクテル (本カク)', price: 1500, cost: 0, castBack: 800, category: 'cast', subcategory: 'honkaku', backType: '本カク' },
+  { id: 203, name: 'レディースショット (本D)', price: 2000, cost: 0, castBack: 1000, category: 'cast', subcategory: 'hond', backType: '本D' },
 ]
 
 export const allMenuItems: MenuItem[] = [...guestMenuItems, ...castMenuItems]

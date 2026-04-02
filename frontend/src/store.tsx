@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
+import { createContext, useContext, useState, useCallback, useMemo, type ReactNode } from 'react'
 import {
   initialTables,
   casts as initialCasts,
@@ -25,6 +25,16 @@ import {
   type StoreSettings,
   type UserAccount,
 } from './data/mock'
+
+export interface FLMetrics {
+  todaySales: number
+  foodCost: number
+  laborCost: number
+  flRate: number
+  todayProfit: number
+  monthlyProfit: number
+  monthlyFlRate: number
+}
 
 interface Store {
   tables: Table[]
@@ -62,6 +72,7 @@ interface Store {
   addUser: (user: UserAccount) => void
   updateUser: (username: string, patch: Partial<UserAccount>) => void
   deleteUser: (username: string) => void
+  flMetrics: FLMetrics
 }
 
 const StoreContext = createContext<Store | null>(null)
@@ -176,6 +187,44 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setUserAccounts((prev) => prev.filter((u) => u.username !== username))
   }, [])
 
+  const flMetrics = useMemo<FLMetrics>(() => {
+    const todaySales = billingRecords.reduce((sum, r) => sum + r.total, 0)
+
+    // Food cost: sum of (menuItem.cost * quantity) across all occupied tables' orders
+    // plus costs from billing records (approximated from current table orders)
+    let foodCost = 0
+    for (const table of tables) {
+      for (const order of table.orders) {
+        foodCost += order.menuItem.cost * order.quantity
+      }
+    }
+
+    // Labor cost: cast back totals from orders + fixed staff cost
+    let castBackTotal = 0
+    for (const table of tables) {
+      for (const order of table.orders) {
+        castBackTotal += order.menuItem.castBack * order.quantity
+      }
+    }
+    const staffFixedCost = 28800
+    const laborCost = castBackTotal + staffFixedCost
+
+    const flRate = todaySales > 0 ? (foodCost + laborCost) / todaySales * 100 : 0
+    const todayProfit = todaySales - foodCost - laborCost
+
+    const monthlyDummyProfit = 380000
+    const monthlyProfit = todayProfit + monthlyDummyProfit
+    const monthlyDummySales = 1200000
+    const monthlyDummyFoodCost = 180000
+    const monthlyDummyLaborCost = 420000
+    const totalMonthlySales = todaySales + monthlyDummySales
+    const totalMonthlyFoodCost = foodCost + monthlyDummyFoodCost
+    const totalMonthlyLaborCost = laborCost + monthlyDummyLaborCost
+    const monthlyFlRate = totalMonthlySales > 0 ? (totalMonthlyFoodCost + totalMonthlyLaborCost) / totalMonthlySales * 100 : 0
+
+    return { todaySales, foodCost, laborCost, flRate, todayProfit, monthlyProfit, monthlyFlRate }
+  }, [billingRecords, tables])
+
   return (
     <StoreContext.Provider
       value={{
@@ -214,6 +263,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         addUser,
         updateUser,
         deleteUser,
+        flMetrics,
       }}
     >
       {children}

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useStore } from '../store'
 import { sampleDailyWork } from '../data/mock'
-import type { Cast, BackType, GuestMenuItem, CastMenuItem, Table, StoreSettings, DailyWork, UserAccount } from '../data/mock'
+import type { Cast, BackType, GuestMenuItem, CastMenuItem, SetPrice, Table, StoreSettings, DailyWork, UserAccount } from '../data/mock'
 import { Pencil, Trash2, Plus, Save, Download, ChevronUp, ChevronDown, GripVertical } from 'lucide-react'
 
 type AdminTab = 'menu' | 'cast' | 'price' | 'tables' | 'settings' | 'export' | 'users'
@@ -68,6 +68,8 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu }: {
 }) {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editPrice, setEditPrice] = useState('')
+  const [editCost, setEditCost] = useState('')
+  const [editCastBack, setEditCastBack] = useState('')
 
   return (
     <div className="space-y-6">
@@ -75,26 +77,40 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu }: {
         <h3 className="text-sm font-bold text-gray-400 mb-2">ゲスト用ドリンク</h3>
         <div className="divide-y divide-white/5">
           {guestMenu.map((item) => (
-            <div key={item.id} className="flex items-center justify-between py-2.5">
-              <span className="text-sm">{item.name}</span>
-              {editingId === item.id ? (
-                <div className="flex items-center gap-2">
-                  <input type="number" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} className="w-20 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm text-right" />
-                  <button onClick={() => { setGuestMenu((prev) => prev.map((m) => m.id === item.id ? { ...m, price: Number(editPrice) } : m)); setEditingId(null) }} className="text-[#d4af37] hover:text-[#e8c952]">
-                    <Save size={14} />
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-3">
-                  <span className="text-sm text-[#d4af37] tabular-nums">{item.price === 0 ? 'セット内' : `¥${item.price.toLocaleString()}`}</span>
-                  <button onClick={() => { setEditingId(item.id); setEditPrice(String(item.price)) }} className="text-gray-600 hover:text-white transition-colors">
-                    <Pencil size={13} />
-                  </button>
-                  <button onClick={() => setGuestMenu((prev) => prev.filter((m) => m.id !== item.id))} className="text-gray-600 hover:text-red-400 transition-colors">
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-              )}
+            <div key={item.id} className="py-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-sm">{item.name}</span>
+                {editingId === item.id ? (
+                  <div className="flex items-center gap-2">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] text-gray-500 w-8">価格</span>
+                        <input type="number" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} className="w-20 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm text-right" />
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] text-gray-500 w-8">原価</span>
+                        <input type="number" value={editCost} onChange={(e) => setEditCost(e.target.value)} className="w-20 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm text-right" />
+                      </div>
+                    </div>
+                    <button onClick={() => { setGuestMenu((prev) => prev.map((m) => m.id === item.id ? { ...m, price: Number(editPrice), cost: Number(editCost) } : m)); setEditingId(null) }} className="text-[#d4af37] hover:text-[#e8c952]">
+                      <Save size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <div className="text-right">
+                      <span className="text-sm text-[#d4af37] tabular-nums">{item.price === 0 ? 'セット内' : `¥${item.price.toLocaleString()}`}</span>
+                      <span className="text-[10px] text-gray-500 ml-2">原価¥{item.cost.toLocaleString()}</span>
+                    </div>
+                    <button onClick={() => { setEditingId(item.id); setEditPrice(String(item.price)); setEditCost(String(item.cost)) }} className="text-gray-600 hover:text-white transition-colors">
+                      <Pencil size={13} />
+                    </button>
+                    <button onClick={() => setGuestMenu((prev) => prev.filter((m) => m.id !== item.id))} className="text-gray-600 hover:text-red-400 transition-colors">
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -104,29 +120,43 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu }: {
         <h3 className="text-sm font-bold text-gray-400 mb-2">キャスト用ドリンク</h3>
         <div className="divide-y divide-white/5">
           {castMenu.map((item) => (
-            <div key={item.id} className="flex items-center justify-between py-2.5">
-              <div>
-                <span className="text-sm">{item.name}</span>
-                <span className="text-xs text-purple-400/70 ml-2">Back: {item.backType}</span>
+            <div key={item.id} className="py-2.5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-sm">{item.name}</span>
+                  <span className="text-xs text-purple-400/70 ml-2">Back: {item.backType}</span>
+                </div>
+                {editingId === item.id ? (
+                  <div className="flex items-center gap-2">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] text-gray-500 w-8">価格</span>
+                        <input type="number" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} className="w-20 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm text-right" />
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] text-gray-500 w-8">CB</span>
+                        <input type="number" value={editCastBack} onChange={(e) => setEditCastBack(e.target.value)} className="w-20 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm text-right" />
+                      </div>
+                    </div>
+                    <button onClick={() => { setCastMenu((prev) => prev.map((m) => m.id === item.id ? { ...m, price: Number(editPrice), castBack: Number(editCastBack) } : m)); setEditingId(null) }} className="text-[#d4af37] hover:text-[#e8c952]">
+                      <Save size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <div className="text-right">
+                      <span className="text-sm text-[#d4af37] tabular-nums">¥{item.price.toLocaleString()}</span>
+                      <span className="text-[10px] text-gray-500 ml-2">CB¥{item.castBack.toLocaleString()}</span>
+                    </div>
+                    <button onClick={() => { setEditingId(item.id); setEditPrice(String(item.price)); setEditCastBack(String(item.castBack)) }} className="text-gray-600 hover:text-white transition-colors">
+                      <Pencil size={13} />
+                    </button>
+                    <button onClick={() => setCastMenu((prev) => prev.filter((m) => m.id !== item.id))} className="text-gray-600 hover:text-red-400 transition-colors">
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                )}
               </div>
-              {editingId === item.id ? (
-                <div className="flex items-center gap-2">
-                  <input type="number" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} className="w-20 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm text-right" />
-                  <button onClick={() => { setCastMenu((prev) => prev.map((m) => m.id === item.id ? { ...m, price: Number(editPrice) } : m)); setEditingId(null) }} className="text-[#d4af37] hover:text-[#e8c952]">
-                    <Save size={14} />
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-3">
-                  <span className="text-sm text-[#d4af37] tabular-nums">¥{item.price.toLocaleString()}</span>
-                  <button onClick={() => { setEditingId(item.id); setEditPrice(String(item.price)) }} className="text-gray-600 hover:text-white transition-colors">
-                    <Pencil size={13} />
-                  </button>
-                  <button onClick={() => setCastMenu((prev) => prev.filter((m) => m.id !== item.id))} className="text-gray-600 hover:text-red-400 transition-colors">
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-              )}
             </div>
           ))}
         </div>
@@ -273,10 +303,10 @@ function CastManager({ casts, setCasts }: { casts: Cast[]; setCasts: React.Dispa
 }
 
 function PriceManager({ setPrices, chargeItems, setSetPrices, setChargeItems }: {
-  setPrices: { id: string; label: string; price: number }[]
-  chargeItems: { id: string; label: string; price: number }[]
-  setSetPrices: React.Dispatch<React.SetStateAction<{ id: string; label: string; price: number }[]>>
-  setChargeItems: React.Dispatch<React.SetStateAction<{ id: string; label: string; price: number }[]>>
+  setPrices: SetPrice[]
+  chargeItems: SetPrice[]
+  setSetPrices: React.Dispatch<React.SetStateAction<SetPrice[]>>
+  setChargeItems: React.Dispatch<React.SetStateAction<SetPrice[]>>
 }) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editPrice, setEditPrice] = useState('')
