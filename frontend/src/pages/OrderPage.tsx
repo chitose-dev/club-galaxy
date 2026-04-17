@@ -127,13 +127,13 @@ export default function OrderPage() {
             onClick={() => setActiveTab(tab.key)}
             className={`flex-1 py-3 text-sm font-bold tracking-wide transition-colors relative ${
               activeTab === tab.key
-                ? 'text-[#d4af37]'
+                ? 'text-white'
                 : 'text-gray-500'
             }`}
           >
             {tab.label}
             {activeTab === tab.key && (
-              <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-0.5 bg-[#d4af37] rounded-full" />
+              <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-0.5 bg-white rounded-full" />
             )}
           </button>
         ))}
@@ -144,7 +144,7 @@ export default function OrderPage() {
         <div className="flex-1 overflow-y-auto p-3">
           <div className="flex justify-between items-center mb-3">
             <h3 className="text-sm font-bold text-gray-400">ボトルキープ一覧</h3>
-            <button onClick={() => setShowAddBottle(true)} className="text-xs bg-[#d4af37] text-black px-3 py-1.5 rounded-lg font-bold flex items-center gap-1">
+            <button onClick={() => setShowAddBottle(true)} className="text-xs bg-white text-black px-3 py-1.5 rounded-lg font-bold flex items-center gap-1">
               <Plus size={12} /> キープ登録
             </button>
           </div>
@@ -169,7 +169,7 @@ export default function OrderPage() {
           {/* All bottles */}
           <div className="space-y-2">
             {sortedBottleKeeps.map((b) => (
-              <div key={b.id} className={`bg-white/[0.03] border rounded-lg p-3 ${b.remaining <= 20 ? 'border-red-500/30' : 'border-white/10'}`}>
+              <div key={b.id} className={`bg-white/5 rounded-lg p-3 ${b.remaining <= 20 ? 'border border-red-500/30' : ''}`}>
                 <div className="flex justify-between items-start mb-2">
                   <div>
                     <div className="font-bold text-sm">{b.bottleName}</div>
@@ -213,7 +213,7 @@ export default function OrderPage() {
           {/* Add bottle modal */}
           {showAddBottle && (
             <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowAddBottle(false)}>
-              <div className="bg-[#16213e] rounded-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+              <div className="bg-[#1a1a2e] rounded-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
                 <div className="flex justify-between items-center mb-4">
                   <h2 className="text-lg font-bold">ボトルキープ登録</h2>
                   <button onClick={() => setShowAddBottle(false)} className="text-gray-500 hover:text-white"><X size={18} /></button>
@@ -238,7 +238,7 @@ export default function OrderPage() {
                 </div>
                 <div className="flex gap-2">
                   <button onClick={() => setShowAddBottle(false)} className="flex-1 bg-white/5 border border-white/10 py-3 rounded-lg font-bold text-gray-500">キャンセル</button>
-                  <button onClick={handleAddBottleKeep} disabled={!bottleName || !bottleCustomer} className="flex-1 bg-[#d4af37] text-black py-3 rounded-lg font-bold disabled:opacity-40">登録</button>
+                  <button onClick={handleAddBottleKeep} disabled={!bottleName || !bottleCustomer} className="flex-1 bg-white text-black py-3 rounded-lg font-bold disabled:opacity-40">登録</button>
                 </div>
               </div>
             </div>
@@ -254,17 +254,17 @@ export default function OrderPage() {
                 <button
                   key={item.id}
                   onClick={() => handleAdd(item)}
-                  className="bg-white/[0.03] border border-white/10 rounded-lg p-3 text-left active:bg-white/[0.08] transition-colors relative"
+                  className="bg-white/5 rounded-lg p-3 text-left active:bg-white/[0.08] transition-colors relative"
                 >
                   <div className="text-sm font-medium mb-1">{item.name}</div>
-                  <div className="text-[#d4af37] text-sm tabular-nums">
+                  <div className="text-sm tabular-nums">
                     {item.price === 0 ? 'セット内' : `¥${item.price.toLocaleString()}`}
                   </div>
                   {item.category === 'cast' && (
                     <div className="text-xs text-gray-600 mt-0.5">Back: {(item as CastMenuItem).backType}</div>
                   )}
                   {ordered && (
-                    <span className="absolute -top-2 -right-2 bg-[#e94560] text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold">
+                    <span className="absolute -top-2 -right-2 bg-white text-black text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold">
                       {ordered.quantity}
                     </span>
                   )}
@@ -282,7 +282,7 @@ export default function OrderPage() {
                   <div className="text-orange-300 text-sm">バック記録</div>
                   <div className="text-xs text-gray-600 mt-0.5">Back: ヘルプ</div>
                   {helpOrdered && (
-                    <span className="absolute -top-2 -right-2 bg-[#e94560] text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold">
+                    <span className="absolute -top-2 -right-2 bg-white text-black text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold">
                       {helpOrdered.quantity}
                     </span>
                   )}
@@ -307,7 +307,7 @@ export default function OrderPage() {
 
           {/* Order list */}
           {orders.length > 0 && (
-            <div className="bg-[#16213e] border-t border-white/10 p-4">
+            <div className="bg-[#1a1a2e] border-t border-white/10 p-4">
               <div className="max-h-40 overflow-y-auto mb-3 space-y-1.5">
                 {orders.map((o) => (
                   <div key={o.menuItem.id} className="flex items-center justify-between text-sm">

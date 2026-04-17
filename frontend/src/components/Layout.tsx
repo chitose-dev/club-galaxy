@@ -20,7 +20,7 @@ export default function Layout() {
 
   return (
     <div className="flex flex-col h-dvh">
-      <header className="bg-[#16213e] px-4 py-3 flex items-center justify-between border-b border-white/10">
+      <header className="bg-[#1a1a2e] px-4 py-3 flex items-center justify-between border-b border-white/10">
         <h1 className="text-xl font-semibold tracking-widest text-[#d4af37]" style={{ fontFamily: "var(--font-display)" }}>
           CLUB GALAXY
         </h1>
@@ -37,10 +37,12 @@ export default function Layout() {
       </header>
 
       <main className="flex-1 overflow-y-auto bg-[#1a1a2e]">
-        <Outlet />
+        <div className="max-w-6xl mx-auto min-h-full">
+          <Outlet />
+        </div>
       </main>
 
-      <nav className={`bg-[#16213e] border-t border-white/10 grid ${colsClass} safe-bottom`}>
+      <nav className={`bg-[#1a1a2e] border-t border-white/10 grid ${colsClass} safe-bottom`}>
         {tabs.map((tab) => {
           const Icon = tab.icon
           return (
@@ -48,15 +50,15 @@ export default function Layout() {
               key={tab.to}
               to={tab.to}
               className={({ isActive }) =>
-                `flex flex-col items-center py-2.5 text-[10px] tracking-wide transition-colors relative ${
-                  isActive ? 'text-[#d4af37]' : 'text-gray-500 hover:text-gray-300'
+                `flex flex-col items-center py-2.5 text-xs tracking-wide transition-colors relative ${
+                  isActive ? 'text-white' : 'text-gray-500 hover:text-gray-300'
                 }`
               }
             >
               {({ isActive }) => (
                 <>
                   {isActive && (
-                    <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-[#d4af37] rounded-full" />
+                    <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-white rounded-full" />
                   )}
                   <Icon size={18} strokeWidth={1.5} className="mb-1" />
                   {tab.label}

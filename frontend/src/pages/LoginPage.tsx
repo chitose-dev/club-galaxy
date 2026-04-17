@@ -17,10 +17,12 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-dvh bg-[#1a1a2e] flex flex-col items-center justify-center p-6">
+    <div className="min-h-dvh bg-(--color-primary) flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-sm">
-        <h1 className="text-3xl font-bold text-[#d4af37] text-center mb-2 tracking-wider">CLUB GALAXY</h1>
-        <p className="text-center text-gray-400 text-sm mb-8">ログイン</p>
+        <h1 className="text-3xl font-semibold text-(--color-gold) text-center mb-2 tracking-[0.2em] font-(family-name:--font-display)">
+          CLUB GALAXY
+        </h1>
+        <p className="text-center text-gray-500 text-sm mb-8">スタッフログイン</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -30,7 +32,7 @@ export default function LoginPage() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="ユーザー名を入力"
-              className="w-full bg-white/10 border border-gray-600 rounded-lg px-4 py-3 text-sm focus:border-[#d4af37] outline-none"
+              className="w-full bg-white/10 border border-white/10 rounded-lg px-4 py-3 text-sm focus:border-(--color-gold) outline-none"
               autoFocus
             />
           </div>
@@ -42,7 +44,7 @@ export default function LoginPage() {
               value={pin}
               onChange={(e) => setPin(e.target.value)}
               placeholder="PINコードを入力"
-              className="w-full bg-white/10 border border-gray-600 rounded-lg px-4 py-3 text-sm focus:border-[#d4af37] outline-none"
+              className="w-full bg-white/10 border border-white/10 rounded-lg px-4 py-3 text-sm focus:border-(--color-gold) outline-none"
             />
           </div>
 
@@ -52,20 +54,15 @@ export default function LoginPage() {
 
           <button
             type="submit"
-            className="w-full bg-[#e94560] py-4 rounded-xl text-lg font-bold active:bg-[#c73550] transition-colors"
+            className="w-full bg-(--color-gold) text-black py-4 rounded-lg text-base font-bold active:opacity-80 transition-opacity"
           >
             ログイン
           </button>
         </form>
 
-        <div className="mt-8 bg-white/5 rounded-xl p-4">
-          <p className="text-xs text-gray-400 mb-2">デモアカウント:</p>
-          <div className="space-y-1 text-xs text-gray-500">
-            <div>オーナー: owner / 1234</div>
-            <div>黒服: staff / 5678</div>
-            <div>キャスト(あいり): cast1 / 1111</div>
-            <div>キャスト(みく): cast2 / 2222</div>
-          </div>
+        <div className="mt-10 text-center">
+          <p className="text-xs text-gray-600 mb-1">デモアカウント:</p>
+          <p className="text-xs text-gray-600">owner / 1234 ・ staff / 5678 ・ cast1 / 1111 ・ cast2 / 2222</p>
         </div>
       </div>
     </div>

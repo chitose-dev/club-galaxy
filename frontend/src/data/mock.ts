@@ -12,6 +12,8 @@ export interface Table {
   nomination: 'shimei' | 'banai' | 'free' | 'douhan' | null
   setCount: number
   orders: OrderItem[]
+  /** 中間チェック票が自動印字されたタイムスタンプ (同一卓での二重印字防止) */
+  checkTicketPrintedAt?: string | null
 }
 
 export interface GuestMenuItem {
@@ -52,6 +54,8 @@ export interface Cast {
   backRates: Partial<Record<BackType, number>>
   guaranteeRate: number // 売上保証率 (0.0〜1.0)
   active: boolean
+  /** 最後に卓にアサインされた時刻 (付け回しの待機時間順表示用) */
+  lastAssignedAt?: string | null
 }
 
 export interface SetPrice {
@@ -95,10 +99,12 @@ export interface DailyWork {
 
 export interface DailyPayRequest {
   id: number
-  castId: number
+  castId: number           // ボーイの場合は一意なstaffId(負数等)で代用
   castName: string
   amount: number
   date: string
+  /** 省略時は 'cast' として扱う */
+  staffType?: 'cast' | 'boy'
 }
 
 // ─── ボトルキープ ───
@@ -113,22 +119,101 @@ export interface BottleKeep {
   createdAt: string
 }
 
+// ─── 勤怠管理 ───
+
+export interface AttendanceRecord {
+  id: number
+  staffId: number
+  staffName: string
+  staffType: 'cast' | 'boy'
+  date: string
+  clockIn: string | null   // HH:MM
+  clockOut: string | null   // HH:MM
+  breakMinutes: number
+  workHours: number         // 自動計算
+}
+
+// ─── 経費管理 ───
+
+export type ExpenseCategory = '仕入れ（酒等）' | '税金' | '雑費'
+
+export interface Expense {
+  id: number
+  amount: number
+  category: ExpenseCategory
+  note: string
+  source: 'register' | 'transfer'  // レジ現金 or 振込・オーナー立替
+  date: string
+  timestamp: string
+}
+
 // ─── 天引き ───
 
 export interface Deduction {
   id: number
-  castId: number
+  castId: number           // ボーイの場合は一意なstaffId(負数等)で代用
   amount: number
   reason: string
+  source: 'register' | 'transfer'  // レジ現金 or 振込・オーナー立替
+  /** 省略時は 'cast' として扱う */
+  staffType?: 'cast' | 'boy'
+}
+
+// ─── 前借り ───
+
+export interface AdvancePayment {
+  id: number
+  castId: number
+  castName: string
+  amount: number
+  source: 'register' | 'transfer'  // レジ現金 or 振込・オーナー立替
+  reason: string
+  date: string
+  timestamp: string
 }
 
 // ─── 店舗設定 ───
 
 export interface StoreSettings {
   taxRate: number        // default 0.2
-  cardFeeRate: number    // default 0.1
+  cardFeeRate: number    // 客向け手数料。default 0.1
+  cardProcessingFeeRate: number // カード会社への支払手数料 (店舗経費)。default 0.035
   initialCash: number    // default 100000
   closingDay: number     // default 15
+  storeName: string
+  storeAddress: string
+  storePhone: string
+  invoiceNumber: string  // インボイス登録番号
+}
+
+// ─── 日報 ───
+
+export interface DailyReport {
+  id: number
+  date: string               // YYYY-MM-DD
+  initialCash: number
+  cashSales: number
+  cardSales: number
+  totalSales: number
+  dailyPayTotal: number
+  cashExpenseTotal: number
+  cashAdvanceTotal: number
+  theoreticalCash: number
+  actualCash: number
+  difference: number
+  note: string
+  operator: string
+  createdAt: string          // ISO timestamp
+}
+
+// ─── アーカイブ ───
+
+export interface ArchivedData {
+  id: number
+  archivedAt: string
+  dateRange: string
+  billingCount: number
+  totalSales: number
 }
 
 // ─── セット料金（時間帯別） ───
@@ -380,9 +465,31 @@ export const initialBottleKeeps: BottleKeep[] = [
 export const defaultStoreSettings: StoreSettings = {
   taxRate: 0.2,
   cardFeeRate: 0.1,
+  cardProcessingFeeRate: 0.035,
   initialCash: 100000,
   closingDay: 15,
+  storeName: "Heaven's Garden",
+  storeAddress: '',
+  storePhone: '',
+  invoiceNumber: 'T5390001005970',
 }
+
+// ─── 勤怠ダミーデータ ───
+
+export const initialAttendanceRecords: AttendanceRecord[] = [
+  { id: 1, staffId: 1, staffName: 'あいり', staffType: 'cast', date: '2026-04-14', clockIn: '20:00', clockOut: null, breakMinutes: 0, workHours: 0 },
+  { id: 2, staffId: 3, staffName: 'れな', staffType: 'cast', date: '2026-04-14', clockIn: '20:30', clockOut: null, breakMinutes: 0, workHours: 0 },
+]
+
+// ─── 経費ダミーデータ ───
+
+export const initialExpenses: Expense[] = [
+  { id: 1, amount: 15000, category: '仕入れ（酒等）', note: 'ビール仕入れ', source: 'register', date: '2026-04-14', timestamp: '18:30' },
+]
+
+// ─── 前借りダミーデータ ───
+
+export const initialAdvancePayments: AdvancePayment[] = []
 
 // ─── ダミーアカウント ───
 
@@ -392,11 +499,13 @@ export interface UserAccount {
   role: 'owner' | 'staff' | 'cast'
   castId?: number
   displayName: string
+  /** ボーイ(staff)の時給。給与計算に使用 */
+  hourlyRate?: number
 }
 
 export const dummyAccounts: UserAccount[] = [
   { username: 'owner', pin: '1234', role: 'owner', displayName: 'オーナー' },
-  { username: 'staff', pin: '5678', role: 'staff', displayName: '黒服' },
+  { username: 'staff', pin: '5678', role: 'staff', displayName: '黒服', hourlyRate: 1500 },
   { username: 'cast1', pin: '1111', role: 'cast', castId: 1, displayName: 'あいり' },
   { username: 'cast2', pin: '2222', role: 'cast', castId: 2, displayName: 'みく' },
 ]

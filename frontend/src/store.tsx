@@ -11,6 +11,9 @@ import {
   initialBottleKeeps,
   defaultStoreSettings,
   dummyAccounts,
+  initialAttendanceRecords,
+  initialExpenses,
+  initialAdvancePayments,
   type Table,
   type Cast,
   type GuestMenuItem,
@@ -24,12 +27,19 @@ import {
   type Deduction,
   type StoreSettings,
   type UserAccount,
+  type AttendanceRecord,
+  type Expense,
+  type AdvancePayment,
+  type ArchivedData,
+  type DailyReport,
 } from './data/mock'
 
 export interface FLMetrics {
   todaySales: number
   foodCost: number
   laborCost: number
+  /** カード会社への決済手数料 (店舗経費) */
+  cardProcessingCost: number
   flRate: number
   todayProfit: number
   monthlyProfit: number
@@ -73,6 +83,27 @@ interface Store {
   updateUser: (username: string, patch: Partial<UserAccount>) => void
   deleteUser: (username: string) => void
   flMetrics: FLMetrics
+  // 勤怠管理
+  attendanceRecords: AttendanceRecord[]
+  addAttendance: (record: AttendanceRecord) => void
+  updateAttendance: (id: number, patch: Partial<AttendanceRecord>) => void
+  // 経費管理
+  expenses: Expense[]
+  addExpense: (expense: Expense) => void
+  removeExpense: (id: number) => void
+  // 前借り管理
+  advancePayments: AdvancePayment[]
+  addAdvancePayment: (payment: AdvancePayment) => void
+  // アーカイブ
+  archivedData: ArchivedData[]
+  archiveOldData: (beforeDate: string) => void
+  // 日報
+  dailyReports: DailyReport[]
+  addDailyReport: (report: DailyReport) => void
+  removeDailyReport: (id: number) => void
+  // 伝票番号カウンター
+  nextReceiptNumber: number
+  getNextReceiptNumber: () => number
 }
 
 const StoreContext = createContext<Store | null>(null)
@@ -91,6 +122,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [deductions, setDeductions] = useState<Deduction[]>([])
   const [storeSettings, setStoreSettings] = useState<StoreSettings>(defaultStoreSettings)
   const [userAccounts, setUserAccounts] = useState<UserAccount[]>(dummyAccounts)
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(initialAttendanceRecords)
+  const [expenses, setExpenses] = useState<Expense[]>(initialExpenses)
+  const [advancePayments, setAdvancePayments] = useState<AdvancePayment[]>(initialAdvancePayments)
+  const [archivedData, setArchivedData] = useState<ArchivedData[]>([])
+  const [dailyReports, setDailyReports] = useState<DailyReport[]>([])
+  const [nextReceiptNumber, setNextReceiptNumber] = useState(1001)
 
   const updateTable = useCallback((id: number, patch: Partial<Table>) => {
     setTables((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)))
@@ -136,7 +173,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setTables((prev) =>
       prev.map((t) =>
         t.id === id
-          ? { ...t, status: 'empty' as const, guestCount: 0, startTime: null, castNames: [], nomination: null, setCount: 0, orders: [] }
+          ? { ...t, status: 'empty' as const, guestCount: 0, startTime: null, castNames: [], nomination: null, setCount: 0, orders: [], checkTicketPrintedAt: null }
           : t,
       ),
     )
@@ -187,6 +224,54 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setUserAccounts((prev) => prev.filter((u) => u.username !== username))
   }, [])
 
+  const addAttendance = useCallback((record: AttendanceRecord) => {
+    setAttendanceRecords((prev) => [...prev, record])
+  }, [])
+
+  const updateAttendance = useCallback((id: number, patch: Partial<AttendanceRecord>) => {
+    setAttendanceRecords((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)))
+  }, [])
+
+  const addExpense = useCallback((expense: Expense) => {
+    setExpenses((prev) => [...prev, expense])
+  }, [])
+
+  const removeExpense = useCallback((id: number) => {
+    setExpenses((prev) => prev.filter((e) => e.id !== id))
+  }, [])
+
+  const addAdvancePayment = useCallback((payment: AdvancePayment) => {
+    setAdvancePayments((prev) => [...prev, payment])
+  }, [])
+
+  const archiveOldData = useCallback((beforeDate: string) => {
+    const toArchive = billingRecords.filter((r) => r.timestamp < beforeDate)
+    if (toArchive.length === 0) return
+    const archived: ArchivedData = {
+      id: Date.now(),
+      archivedAt: new Date().toISOString(),
+      dateRange: `〜${beforeDate}`,
+      billingCount: toArchive.length,
+      totalSales: toArchive.reduce((s, r) => s + r.total, 0),
+    }
+    setArchivedData((prev) => [...prev, archived])
+    setBillingRecords((prev) => prev.filter((r) => r.timestamp >= beforeDate))
+  }, [billingRecords])
+
+  const addDailyReport = useCallback((report: DailyReport) => {
+    setDailyReports((prev) => [...prev, report])
+  }, [])
+
+  const removeDailyReport = useCallback((id: number) => {
+    setDailyReports((prev) => prev.filter((r) => r.id !== id))
+  }, [])
+
+  const getNextReceiptNumber = useCallback(() => {
+    const num = nextReceiptNumber
+    setNextReceiptNumber((prev) => prev + 1)
+    return num
+  }, [nextReceiptNumber])
+
   const flMetrics = useMemo<FLMetrics>(() => {
     const todaySales = billingRecords.reduce((sum, r) => sum + r.total, 0)
 
@@ -209,8 +294,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const staffFixedCost = 28800
     const laborCost = castBackTotal + staffFixedCost
 
-    const flRate = todaySales > 0 ? (foodCost + laborCost) / todaySales * 100 : 0
-    const todayProfit = todaySales - foodCost - laborCost
+    // Card processing fee (store expense paid to card company)
+    let cardSalesTotal = 0
+    for (const r of billingRecords) {
+      if (r.paymentMethod === 'card') {
+        cardSalesTotal += r.total
+      } else if (r.paymentMethod === 'mixed') {
+        cardSalesTotal += r.cardAmount ?? 0
+      }
+    }
+    const cardProcessingCost = Math.round(cardSalesTotal * storeSettings.cardProcessingFeeRate)
+
+    const totalCost = foodCost + laborCost + cardProcessingCost
+    const flRate = todaySales > 0 ? totalCost / todaySales * 100 : 0
+    const todayProfit = todaySales - totalCost
 
     const monthlyDummyProfit = 380000
     const monthlyProfit = todayProfit + monthlyDummyProfit
@@ -220,10 +317,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const totalMonthlySales = todaySales + monthlyDummySales
     const totalMonthlyFoodCost = foodCost + monthlyDummyFoodCost
     const totalMonthlyLaborCost = laborCost + monthlyDummyLaborCost
-    const monthlyFlRate = totalMonthlySales > 0 ? (totalMonthlyFoodCost + totalMonthlyLaborCost) / totalMonthlySales * 100 : 0
+    const monthlyFlRate = totalMonthlySales > 0 ? (totalMonthlyFoodCost + totalMonthlyLaborCost + cardProcessingCost) / totalMonthlySales * 100 : 0
 
-    return { todaySales, foodCost, laborCost, flRate, todayProfit, monthlyProfit, monthlyFlRate }
-  }, [billingRecords, tables])
+    return { todaySales, foodCost, laborCost, cardProcessingCost, flRate, todayProfit, monthlyProfit, monthlyFlRate }
+  }, [billingRecords, tables, storeSettings.cardProcessingFeeRate])
 
   return (
     <StoreContext.Provider
@@ -264,6 +361,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         updateUser,
         deleteUser,
         flMetrics,
+        attendanceRecords,
+        addAttendance,
+        updateAttendance,
+        expenses,
+        addExpense,
+        removeExpense,
+        advancePayments,
+        addAdvancePayment,
+        archivedData,
+        archiveOldData,
+        dailyReports,
+        addDailyReport,
+        removeDailyReport,
+        nextReceiptNumber,
+        getNextReceiptNumber,
       }}
     >
       {children}
