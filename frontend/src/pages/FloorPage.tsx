@@ -268,9 +268,19 @@ export default function FloorPage() {
         <span>今月 <span className="font-bold">¥{flMetrics.monthlyProfit.toLocaleString()}</span> <span className={`text-xs ${flColor(flMetrics.monthlyFlRate)}`}>(FL {flMetrics.monthlyFlRate.toFixed(1)}%)</span></span>
       </div>
 
-      {/* Table Grid */}
+      {/* Table Grid (要件定義書4A: 終了間近を左上優先) */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-        {tables.map((table) => {
+        {[...tables].sort((a, b) => {
+          // 空き卓は末尾
+          if (a.status === 'empty' && b.status !== 'empty') return 1
+          if (a.status !== 'empty' && b.status === 'empty') return -1
+          if (a.status === 'empty' && b.status === 'empty') return a.id - b.id
+          // 使用中卓は残り時間昇順(終了間近を左上)
+          const remA = a.startTime ? calcRemainingMinutes(a.startTime, a.setCount) : Infinity
+          const remB = b.startTime ? calcRemainingMinutes(b.startTime, b.setCount) : Infinity
+          if (remA !== remB) return remA - remB
+          return a.id - b.id
+        }).map((table) => {
           const remaining = table.startTime ? calcRemainingMinutes(table.startTime, table.setCount) : null
           const elapsed = table.startTime ? calcElapsedMinutes(table.startTime) : 0
           const style = statusStyle[table.status]

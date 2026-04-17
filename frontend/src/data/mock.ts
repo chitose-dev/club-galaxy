@@ -49,7 +49,9 @@ export interface OrderItem {
 
 export interface Cast {
   id: number
-  name: string
+  name: string               // 源氏名
+  realName?: string          // 本名（日経表PDF下部、税理士提出用）
+  address?: string           // 住所（日経表PDF下部、税理士提出用）
   hourlyRate: number
   backRates: Partial<Record<BackType, number>>
   guaranteeRate: number // 売上保証率 (0.0〜1.0)
@@ -219,16 +221,16 @@ export interface ArchivedData {
 // ─── セット料金（時間帯別） ───
 
 export const setPrices: SetPrice[] = [
-  { id: 'set-2000', label: '20:00〜20:59', price: 3500, cost: 300 },
-  { id: 'set-2100', label: '21:00〜22:59', price: 4000, cost: 300 },
-  { id: 'set-2300', label: '23:00〜ラスト', price: 5000, cost: 300 },
+  { id: 'set-2000', label: '20:00〜', price: 4000, cost: 300 },
+  { id: 'set-2200', label: '22:00〜', price: 5000, cost: 300 },
+  { id: 'set-2400', label: '24:00〜LAST', price: 6000, cost: 300 },
 ]
 
 export const chargeItems: SetPrice[] = [
   { id: 'single-charge', label: 'シングルチャージ', price: 1000, cost: 300 },
   { id: 'douhan', label: '同伴', price: 4000, cost: 300 },
-  { id: 'shimei', label: '指名料', price: 2000, cost: 300 },
-  { id: 'banai', label: '場内指名', price: 1000, cost: 300 },
+  { id: 'shimei', label: '本指名', price: 1500, cost: 300 },
+  { id: 'banai', label: '場内指名', price: 500, cost: 300 },
 ]
 
 export const SET_DURATION_MINUTES = 60
@@ -287,17 +289,21 @@ export const casts: Cast[] = [
 // ─── ユーティリティ ───
 
 export function getSetPriceForTime(startTime: string): number {
+  // 要件定義書 Ver.20.0: 20:00〜 4000 / 22:00〜 5000 / 24:00〜LAST 6000
+  // startTime が "00:00"〜"03:00" 等、日付をまたいだ時刻の場合は「24:00〜」区分(深夜帯)として扱う
   const hour = parseInt(startTime.split(':')[0], 10)
-  if (hour < 21) return 3500
-  if (hour < 23) return 4000
-  return 5000
+  if (hour < 4) return 6000               // 0時台〜3時台(ラスト前)
+  if (hour < 22) return 4000              // 20:00〜21:59
+  if (hour < 24) return 5000              // 22:00〜23:59
+  return 6000
 }
 
 export function getSetPriceLabel(startTime: string): string {
   const hour = parseInt(startTime.split(':')[0], 10)
-  if (hour < 21) return '20:00〜20:59'
-  if (hour < 23) return '21:00〜22:59'
-  return '23:00〜ラスト'
+  if (hour < 4) return '24:00〜LAST'
+  if (hour < 22) return '20:00〜'
+  if (hour < 24) return '22:00〜'
+  return '24:00〜LAST'
 }
 
 // ─── 卓データ（デモ用10卓） ───

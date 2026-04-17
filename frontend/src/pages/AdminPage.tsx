@@ -202,6 +202,8 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu }: {
 function CastManager({ casts, setCasts }: { casts: Cast[]; setCasts: React.Dispatch<React.SetStateAction<Cast[]>> }) {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editName, setEditName] = useState('')
+  const [editRealName, setEditRealName] = useState('')
+  const [editAddress, setEditAddress] = useState('')
   const [editRate, setEditRate] = useState('')
   const [editGuarantee, setEditGuarantee] = useState('')
   const [editBackRates, setEditBackRates] = useState<Partial<Record<BackType, number>>>({})
@@ -217,13 +219,15 @@ function CastManager({ casts, setCasts }: { casts: Cast[]; setCasts: React.Dispa
   })
 
   const handleSave = (id: number) => {
-    setCasts((prev) => prev.map((c) => c.id === id ? { ...c, name: editName, hourlyRate: Number(editRate), guaranteeRate: Number(editGuarantee) / 100, backRates: { ...editBackRates } } : c))
+    setCasts((prev) => prev.map((c) => c.id === id ? { ...c, name: editName, realName: editRealName || undefined, address: editAddress || undefined, hourlyRate: Number(editRate), guaranteeRate: Number(editGuarantee) / 100, backRates: { ...editBackRates } } : c))
     setEditingId(null)
   }
 
   const startEdit = (cast: Cast) => {
     setEditingId(cast.id)
     setEditName(cast.name)
+    setEditRealName(cast.realName ?? '')
+    setEditAddress(cast.address ?? '')
     setEditRate(String(cast.hourlyRate))
     setEditGuarantee(String(Math.round(cast.guaranteeRate * 100)))
     setEditBackRates({ ...cast.backRates })
@@ -280,7 +284,11 @@ function CastManager({ casts, setCasts }: { casts: Cast[]; setCasts: React.Dispa
         <div key={cast.id} className="bg-white/5 rounded-lg p-3">
           {editingId === cast.id ? (
             <div className="space-y-2">
-              <input value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="名前" />
+              <input value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="源氏名" />
+              <div className="grid grid-cols-2 gap-2">
+                <input value={editRealName} onChange={(e) => setEditRealName(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-xs" placeholder="本名（税理士提出用）" />
+                <input value={editAddress} onChange={(e) => setEditAddress(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-xs" placeholder="住所（税理士提出用）" />
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-xs text-gray-500 block mb-1">時給</label>

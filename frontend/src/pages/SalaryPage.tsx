@@ -430,6 +430,8 @@ export default function SalaryPage() {
                 dailyWork: work,
                 storeSettings,
                 previousMonthSales: prevMonthSales,
+                realName: cast.realName,
+                address: cast.address,
               })
             }}
             className="w-full bg-white/5 border border-white/10 py-3 rounded-lg font-bold mb-4 text-sm text-gray-400 flex items-center justify-center gap-2"
