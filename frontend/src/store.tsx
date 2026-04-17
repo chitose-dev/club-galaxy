@@ -255,7 +255,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       totalSales: toArchive.reduce((s, r) => s + r.total, 0),
     }
     setArchivedData((prev) => [...prev, archived])
-    setBillingRecords((prev) => prev.filter((r) => r.timestamp >= beforeDate))
+    setBillingRecords((prev) => prev.filter((r) => (r.date ?? new Date().toISOString().slice(0, 10)) >= beforeDate))
   }, [billingRecords])
 
   const addDailyReport = useCallback((report: DailyReport) => {
@@ -273,10 +273,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [nextReceiptNumber])
 
   const flMetrics = useMemo<FLMetrics>(() => {
-    const todaySales = billingRecords.reduce((sum, r) => sum + r.total, 0)
+    const todayStr = new Date().toISOString().slice(0, 10)
+    const monthPrefix = todayStr.slice(0, 7)
+    const dateOf = (r: typeof billingRecords[number]) => r.date ?? todayStr
 
-    // Food cost: sum of (menuItem.cost * quantity) across all occupied tables' orders
-    // plus costs from billing records (approximated from current table orders)
+    const todayBillings = billingRecords.filter((r) => dateOf(r) === todayStr)
+    const monthBillings = billingRecords.filter((r) => dateOf(r).startsWith(monthPrefix))
+
+    const todaySales = todayBillings.reduce((s, r) => s + r.total, 0)
+    const monthSales = monthBillings.reduce((s, r) => s + r.total, 0)
+
+    // Food cost: 本日は現在稼働中の卓の原価合計(会計未確定)
     let foodCost = 0
     for (const table of tables) {
       for (const order of table.orders) {
@@ -294,30 +301,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const staffFixedCost = 28800
     const laborCost = castBackTotal + staffFixedCost
 
-    // Card processing fee (store expense paid to card company)
-    let cardSalesTotal = 0
-    for (const r of billingRecords) {
-      if (r.paymentMethod === 'card') {
-        cardSalesTotal += r.total
-      } else if (r.paymentMethod === 'mixed') {
-        cardSalesTotal += r.cardAmount ?? 0
-      }
-    }
-    const cardProcessingCost = Math.round(cardSalesTotal * storeSettings.cardProcessingFeeRate)
+    // 月次の F・L 概算 (本日分 + 月次売上から逆算)
+    // 本来は会計時の商品原価を BillingRecord に保存すべきだが、現状は概算で処理
+    const monthlyFoodCost = Math.round(monthSales * 0.12)   // 原価率約12%想定
+    const monthlyLaborCost = Math.round(monthSales * 0.30)  // 人件費率約30%想定
+
+    // Card processing fee
+    const todayCardSales = todayBillings.reduce((s, r) => {
+      if (r.paymentMethod === 'card') return s + r.total
+      if (r.paymentMethod === 'mixed') return s + (r.cardAmount ?? 0)
+      return s
+    }, 0)
+    const monthCardSales = monthBillings.reduce((s, r) => {
+      if (r.paymentMethod === 'card') return s + r.total
+      if (r.paymentMethod === 'mixed') return s + (r.cardAmount ?? 0)
+      return s
+    }, 0)
+    const cardProcessingCost = Math.round(todayCardSales * storeSettings.cardProcessingFeeRate)
+    const monthCardProcessingCost = Math.round(monthCardSales * storeSettings.cardProcessingFeeRate)
 
     const totalCost = foodCost + laborCost + cardProcessingCost
     const flRate = todaySales > 0 ? totalCost / todaySales * 100 : 0
     const todayProfit = todaySales - totalCost
 
-    const monthlyDummyProfit = 380000
-    const monthlyProfit = todayProfit + monthlyDummyProfit
-    const monthlyDummySales = 1200000
-    const monthlyDummyFoodCost = 180000
-    const monthlyDummyLaborCost = 420000
-    const totalMonthlySales = todaySales + monthlyDummySales
-    const totalMonthlyFoodCost = foodCost + monthlyDummyFoodCost
-    const totalMonthlyLaborCost = laborCost + monthlyDummyLaborCost
-    const monthlyFlRate = totalMonthlySales > 0 ? (totalMonthlyFoodCost + totalMonthlyLaborCost + cardProcessingCost) / totalMonthlySales * 100 : 0
+    const monthlyProfit = monthSales - monthlyFoodCost - monthlyLaborCost - monthCardProcessingCost
+    const monthlyFlRate = monthSales > 0 ? (monthlyFoodCost + monthlyLaborCost + monthCardProcessingCost) / monthSales * 100 : 0
 
     return { todaySales, foodCost, laborCost, cardProcessingCost, flRate, todayProfit, monthlyProfit, monthlyFlRate }
   }, [billingRecords, tables, storeSettings.cardProcessingFeeRate])

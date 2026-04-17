@@ -115,6 +115,7 @@ export default function BillingPage() {
       cardAmount: paymentMethod === 'card' ? finalTotal : paymentMethod === 'mixed' ? mixedCardAmount : 0,
       cardFee: cardFee > 0 || mixedCardFee > 0 ? (paymentMethod === 'mixed' ? mixedCardFee : cardFee) : undefined,
       timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
+      date: new Date().toISOString().slice(0, 10),
     })
 
     setLastBillingData({

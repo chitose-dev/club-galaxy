@@ -48,7 +48,7 @@ export default function RegisterPage() {
 // ─── 締め処理タブ ───
 
 function ClosingView() {
-  const { billingRecords, dailyPayRequests, storeSettings, expenses, advancePayments, addDailyReport } = useStore()
+  const { billingRecords: allBillingRecords, dailyPayRequests, storeSettings, expenses, advancePayments, addDailyReport } = useStore()
   const { user } = useAuth()
 
   const [initialCash, setInitialCash] = useState(storeSettings.initialCash)
@@ -57,6 +57,13 @@ function ClosingView() {
   const [tempInitial, setTempInitial] = useState('')
   const [note, setNote] = useState('')
   const [savedMessage, setSavedMessage] = useState('')
+
+  // レジ締めは本日分の会計のみ対象
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const billingRecords = useMemo(
+    () => allBillingRecords.filter((r) => (r.date ?? todayStr) === todayStr),
+    [allBillingRecords, todayStr],
+  )
 
   const salesSummary = useMemo(() => {
     const cashSales = billingRecords

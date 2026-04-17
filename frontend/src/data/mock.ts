@@ -87,7 +87,8 @@ export interface BillingRecord {
   cashAmount?: number
   cardAmount?: number
   cardFee?: number
-  timestamp: string
+  timestamp: string           // HH:MM
+  date?: string               // YYYY-MM-DD (月年別集計用、省略時は今日扱い)
 }
 
 // ─── 給与関連 ───
@@ -450,11 +451,49 @@ export const initialDailyPayRequests: DailyPayRequest[] = [
 
 // ─── 会計済みデータ（レジ締め用ダミー） ───
 
-export const initialBillingRecords: BillingRecord[] = [
-  { id: 1, tableNumber: '4', total: 52800, paymentMethod: 'cash', timestamp: '21:30' },
-  { id: 2, tableNumber: '6', total: 38500, paymentMethod: 'card', timestamp: '22:15' },
-  { id: 3, tableNumber: '8', total: 66000, paymentMethod: 'cash', timestamp: '23:00' },
-]
+// 推移グラフ用に過去365日分のダミー会計データを生成
+// 月を跨ぐように、曜日による変動・月による変動を含む
+function generateHistoricalBillings(): BillingRecord[] {
+  const result: BillingRecord[] = []
+  let id = 1
+  const today = new Date()
+  // 過去365日
+  for (let daysAgo = 365; daysAgo >= 1; daysAgo--) {
+    const d = new Date(today)
+    d.setDate(d.getDate() - daysAgo)
+    const dow = d.getDay()
+    // 日曜はほぼ休業、月火は少なめ、金土は繁盛
+    if (dow === 0) continue
+    const base = dow === 5 || dow === 6 ? 8 : dow === 1 || dow === 2 ? 3 : 5
+    // 月による変動 (12月は稼ぎ時、2月は閑散期)
+    const m = d.getMonth() + 1
+    const monthFactor = m === 12 ? 1.5 : m === 2 ? 0.7 : 1.0
+    const tableCount = Math.max(1, Math.round(base * monthFactor + (id % 3)))
+    const dateStr = d.toISOString().slice(0, 10)
+    for (let t = 0; t < tableCount; t++) {
+      const payType = (id + t) % 3
+      const total = 30000 + ((id * 7 + t * 13) % 50) * 1000
+      const method: BillingRecord['paymentMethod'] = payType === 0 ? 'cash' : payType === 1 ? 'card' : 'mixed'
+      const cashAmount = method === 'cash' ? total : method === 'mixed' ? Math.floor(total * 0.6) : 0
+      const cardAmount = method === 'card' ? total : method === 'mixed' ? total - cashAmount : 0
+      const cardFee = method === 'card' || method === 'mixed' ? Math.floor(cardAmount * 0.1) : undefined
+      result.push({
+        id: id++,
+        tableNumber: String(((id + t) % 10) + 1),
+        total,
+        paymentMethod: method,
+        cashAmount: method !== 'card' ? cashAmount : undefined,
+        cardAmount: method !== 'cash' ? cardAmount : undefined,
+        cardFee,
+        timestamp: `${20 + Math.floor(t / 3)}:${String((t * 15) % 60).padStart(2, '0')}`,
+        date: dateStr,
+      })
+    }
+  }
+  return result
+}
+
+export const initialBillingRecords: BillingRecord[] = generateHistoricalBillings()
 
 // ─── ボトルキープダミーデータ ───
 
@@ -489,9 +528,31 @@ export const initialAttendanceRecords: AttendanceRecord[] = [
 
 // ─── 経費ダミーデータ ───
 
-export const initialExpenses: Expense[] = [
-  { id: 1, amount: 15000, category: '仕入れ（酒等）', note: 'ビール仕入れ', source: 'register', date: '2026-04-14', timestamp: '18:30' },
-]
+function generateHistoricalExpenses(): Expense[] {
+  const result: Expense[] = []
+  let id = 1
+  const today = new Date()
+  const categories: ExpenseCategory[] = ['仕入れ（酒等）', '税金', '雑費']
+  for (let daysAgo = 365; daysAgo >= 1; daysAgo -= 3) {
+    const d = new Date(today)
+    d.setDate(d.getDate() - daysAgo)
+    const dateStr = d.toISOString().slice(0, 10)
+    const cat = categories[id % 3]
+    const amount = cat === '仕入れ（酒等）' ? 15000 + (id % 5) * 3000 : cat === '税金' ? 80000 : 3000 + (id % 4) * 1000
+    result.push({
+      id: id++,
+      amount,
+      category: cat,
+      note: cat === '仕入れ（酒等）' ? '酒類仕入れ' : cat === '税金' ? '消費税等' : '雑費',
+      source: id % 2 === 0 ? 'register' : 'transfer',
+      date: dateStr,
+      timestamp: '18:30',
+    })
+  }
+  return result
+}
+
+export const initialExpenses: Expense[] = generateHistoricalExpenses()
 
 // ─── 前借りダミーデータ ───
 
