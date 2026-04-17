@@ -1,5 +1,6 @@
 import { Outlet, NavLink } from 'react-router-dom'
 import { useAuth } from '../auth'
+import { useStore } from '../store'
 import { LayoutGrid, ClipboardList, Receipt, Wallet, Archive, Settings, TrendingUp } from 'lucide-react'
 
 const allTabs = [
@@ -14,6 +15,7 @@ const allTabs = [
 
 export default function Layout() {
   const { user, logout } = useAuth()
+  const { storeSettings } = useStore()
 
   const tabs = allTabs.filter((tab) => user && tab.roles.includes(user.role))
   const colsClass = tabs.length <= 2 ? 'grid-cols-2' : tabs.length === 3 ? 'grid-cols-3' : tabs.length === 4 ? 'grid-cols-4' : tabs.length === 5 ? 'grid-cols-5' : tabs.length === 6 ? 'grid-cols-6' : 'grid-cols-7'
@@ -22,7 +24,7 @@ export default function Layout() {
     <div className="flex flex-col h-dvh">
       <header className="bg-[#1a1a2e] px-4 py-3 flex items-center justify-between border-b border-white/10">
         <h1 className="text-xl font-semibold tracking-widest text-[#d4af37]" style={{ fontFamily: "var(--font-display)" }}>
-          CLUB GALAXY
+          {storeSettings.storeName}
         </h1>
         <div className="flex items-center gap-4">
           <span className="text-xs text-gray-400 tracking-wide">

@@ -71,7 +71,7 @@ function flColor(rate: number) {
 }
 
 export default function FloorPage() {
-  const { tables, casts, setCasts, updateTable, bottleKeeps, flMetrics } = useStore()
+  const { tables, casts, setCasts, updateTable, bottleKeeps, flMetrics, storeSettings } = useStore()
   const navigate = useNavigate()
   const [selected, setSelected] = useState<Table | null>(null)
 
@@ -164,7 +164,7 @@ export default function FloorPage() {
     const drinkTotal = table.orders.reduce((sum, o) => sum + o.menuItem.price * o.quantity, 0)
 
     const body = `
-      <div class="header">Heaven's Garden チェック票</div>
+      <div class="header">${storeSettings.storeName} チェック票</div>
       <div class="divider"></div>
       <div class="row"><span>卓:</span><span>${table.number}</span></div>
       <div class="row"><span>担当:</span><span>${table.castNames.join(', ')}</span></div>
