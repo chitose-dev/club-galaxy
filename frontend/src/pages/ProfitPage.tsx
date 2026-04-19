@@ -286,7 +286,7 @@ function StoreTrendView() {
 // ─── キャスト推移ビュー ───
 
 function CastTrendView() {
-  const { casts } = useStore()
+  const { casts, billingRecords } = useStore()
   const activeCasts = casts.filter((c) => c.active)
   const [castId, setCastId] = useState(activeCasts[0]?.id ?? 0)
   const [granularity, setGranularity] = useState<Granularity>('month')
@@ -354,8 +354,17 @@ function CastTrendView() {
       )
       b.back += backAmount
       const hourly = Math.floor(cast.hourlyRate * w.hours)
-      // A(時給+バック) vs B(売上×保証率) → 日単位ではなく期間単位で取るべきだが、ここは合計で最後に計算
       b.gross += hourly + backAmount
+    }
+
+    // 指示書§5.2: 本指名卓の小計を担当キャストの売上に重畳
+    for (const r of billingRecords) {
+      if (r.nominatedCastId !== cast.id) continue
+      const d = r.date ?? today.toISOString().slice(0, 10)
+      const k = keyOf(d)
+      const b = map.get(k)
+      if (!b) continue
+      b.sales += r.subtotalBeforeTax ?? 0
     }
 
     return labels.map((l) => {
@@ -364,7 +373,7 @@ function CastTrendView() {
       const salary = Math.floor(b.gross * 0.9)
       return { label: l, sales: b.sales, hours: b.hours, back: b.back, salary }
     })
-  }, [cast, granularity])
+  }, [cast, granularity, billingRecords])
 
   const totals = useMemo(() => {
     return buckets.reduce(

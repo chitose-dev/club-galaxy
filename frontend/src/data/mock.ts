@@ -26,6 +26,16 @@ export interface ExtensionEntry {
   id: number
   minutes: 30 | 60
   timestamp: string  // ISO
+  /** 延長料金を紐付けたキャスト名 (延長時に指名したキャスト) */
+  nominatedCastName?: string
+  /** このエントリで追加された注文ID(取消時に一緒に削除するため) */
+  orderMenuItemId?: number
+}
+
+/** 延長料金 (指示書§6.2.3: +30分=1000円、+60分=3000円) */
+export const EXTENSION_CHARGES: Record<30 | 60, number> = {
+  30: 1000,
+  60: 3000,
 }
 
 export interface GuestMenuItem {

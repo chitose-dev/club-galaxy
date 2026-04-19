@@ -1,8 +1,8 @@
 import { useState, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useStore } from '../store'
-import type { MenuItem, CastMenuItem, BackType } from '../data/mock'
-import { displayOrderName } from '../data/mock'
+import type { MenuItem, CastMenuItem, BackType, OrderItem } from '../data/mock'
+import { displayOrderName, chargeItems } from '../data/mock'
 import { Minus, Plus, Trash2, Wine, X } from 'lucide-react'
 
 const HELP_BACK_ITEM: CastMenuItem = {
@@ -39,6 +39,8 @@ export default function OrderPage() {
 
   // キャスト選択モーダル(本カク等、cast系メニュー選択時に誰に紐付けるか選ぶ)
   const [castSelectTarget, setCastSelectTarget] = useState<CastMenuItem | null>(null)
+  // 指名料チャージ追加用(本指名/場内指名/同伴/Help)
+  const [chargeSelectTarget, setChargeSelectTarget] = useState<{ id: string; label: string; price: number; cost: number } | null>(null)
 
   const selectedTable = tables.find((t) => t.id === selectedTableId)
   const orders = selectedTable?.orders ?? []
@@ -59,6 +61,27 @@ export default function OrderPage() {
     if (!selectedTableId) return
     addOrderToTable(selectedTableId, { menuItem: item, quantity: 1, castName })
     setCastSelectTarget(null)
+  }
+
+  // 指名料チャージをキャスト紐付きで追加 (B-6: 場内指名/同伴をメニューから追加)
+  const handleAddCharge = (charge: { id: string; label: string; price: number; cost: number }, castName: string) => {
+    if (!selectedTableId) return
+    // 固有のmenuItem.idを使って複数のキャストに別エントリで追加できるようにする
+    const order: OrderItem = {
+      menuItem: {
+        id: 3000 + Math.floor(Math.random() * 1000000),
+        name: charge.label,
+        price: charge.price,
+        cost: charge.cost,
+        castBack: 0,
+        category: 'guest',
+        subcategory: 'warimono',
+      },
+      quantity: 1,
+      castName,
+    }
+    addOrderToTable(selectedTableId, order)
+    setChargeSelectTarget(null)
   }
 
   const handleRemove = (itemId: number, castName?: string) => {
@@ -255,6 +278,24 @@ export default function OrderPage() {
         </div>
       ) : (
         <>
+          {/* 指名料・同伴 追加チップ (B-6: cast タブでのみ表示) */}
+          {activeTab === 'cast' && selectedTable && selectedTable.castNames.length > 0 && (
+            <div className="px-3 pt-2 pb-1 border-b border-white/5">
+              <div className="text-[10px] text-gray-500 mb-1">指名料・同伴 追加</div>
+              <div className="flex gap-2 flex-wrap">
+                {chargeItems.filter((c) => c.id !== 'single-charge').map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => setChargeSelectTarget(c)}
+                    className="bg-[#d4af37]/10 border border-[#d4af37]/30 text-[#d4af37] text-xs px-3 py-1.5 rounded-full font-bold"
+                  >
+                    + {c.label} ¥{c.price.toLocaleString()}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Menu grid */}
           <div className="flex-1 overflow-y-auto p-3 grid grid-cols-2 gap-2 content-start">
             {menuItems.map((item) => {
@@ -352,6 +393,30 @@ export default function OrderPage() {
             </div>
           )}
         </>
+      )}
+
+      {/* 指名料チャージ追加時のキャスト選択モーダル (B-6) */}
+      {chargeSelectTarget && selectedTable && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setChargeSelectTarget(null)}>
+          <div className="bg-[#1a1a2e] rounded-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-3">
+              <h2 className="text-base font-bold">「{chargeSelectTarget.label}」を誰に?</h2>
+              <button onClick={() => setChargeSelectTarget(null)} className="text-gray-500 hover:text-white"><X size={18} /></button>
+            </div>
+            <p className="text-xs text-gray-500 mb-4">¥{chargeSelectTarget.price.toLocaleString()} を担当キャストに紐付けて追加</p>
+            <div className="space-y-2">
+              {selectedTable.castNames.map((name) => (
+                <button
+                  key={name}
+                  onClick={() => handleAddCharge(chargeSelectTarget, name)}
+                  className="w-full bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg py-3 px-4 text-left font-bold transition-colors"
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Cast 選択モーダル(cast系メニューを誰の紐付けにするか) */}
