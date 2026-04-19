@@ -61,7 +61,7 @@ interface Store {
   storeSettings: StoreSettings
   updateTable: (id: number, patch: Partial<Table>) => void
   addOrderToTable: (tableId: number, order: OrderItem) => void
-  removeOrderFromTable: (tableId: number, menuItemId: number) => void
+  removeOrderFromTable: (tableId: number, menuItemId: number, castName?: string) => void
   resetTable: (id: number) => void
   addDiscountLog: (log: DiscountLog) => void
   addBillingRecord: (record: BillingRecord) => void
@@ -137,12 +137,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setTables((prev) =>
       prev.map((t) => {
         if (t.id !== tableId) return t
-        const existing = t.orders.find((o) => o.menuItem.id === order.menuItem.id)
+        // メニュー同一 + キャスト紐付け同一で集約
+        const existing = t.orders.find((o) => o.menuItem.id === order.menuItem.id && o.castName === order.castName)
         if (existing) {
           return {
             ...t,
             orders: t.orders.map((o) =>
-              o.menuItem.id === order.menuItem.id
+              o.menuItem.id === order.menuItem.id && o.castName === order.castName
                 ? { ...o, quantity: o.quantity + order.quantity }
                 : o,
             ),
@@ -153,7 +154,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     )
   }, [])
 
-  const removeOrderFromTable = useCallback((tableId: number, menuItemId: number) => {
+  const removeOrderFromTable = useCallback((tableId: number, menuItemId: number, castName?: string) => {
     setTables((prev) =>
       prev.map((t) => {
         if (t.id !== tableId) return t
@@ -161,7 +162,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           ...t,
           orders: t.orders
             .map((o) =>
-              o.menuItem.id === menuItemId ? { ...o, quantity: o.quantity - 1 } : o,
+              o.menuItem.id === menuItemId && o.castName === castName ? { ...o, quantity: o.quantity - 1 } : o,
             )
             .filter((o) => o.quantity > 0),
         }

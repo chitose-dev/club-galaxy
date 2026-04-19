@@ -2,7 +2,7 @@ import { useState, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useStore } from '../store'
 import { useAuth } from '../auth'
-import { getSetPriceForTime, getSetPriceLabel, nominationLabels } from '../data/mock'
+import { getSetPriceForTime, getSetPriceLabel, nominationLabels, displayOrderName } from '../data/mock'
 import type { DiscountLog } from '../data/mock'
 import { Printer, CheckCircle, ArrowLeft } from 'lucide-react'
 
@@ -10,7 +10,7 @@ type PaymentMethod = 'cash' | 'card' | 'mixed'
 type BillingTab = 'total' | 'individual' | 'audit'
 
 export default function BillingPage() {
-  const { tables, resetTable, discountLogs, addDiscountLog, addBillingRecord, chargeItems, storeSettings, getNextReceiptNumber } = useStore()
+  const { tables, resetTable, discountLogs, addDiscountLog, addBillingRecord, storeSettings, getNextReceiptNumber, casts } = useStore()
   const { user } = useAuth()
   const [searchParams] = useSearchParams()
 
@@ -31,7 +31,7 @@ export default function BillingPage() {
   const [lastBillingData, setLastBillingData] = useState<{
     tableNumber: string; castNames: string[]; total: number; paymentMethod: PaymentMethod;
     subtotal: number; setFee: number; tax: number; consumptionTax: number; cardFee: number;
-    discount: number; orders: { menuItem: { id: number; name: string; price: number }; quantity: number }[];
+    discount: number; orders: { menuItem: { id: number; name: string; price: number }; quantity: number; castName?: string }[];
     nominationLabel: string; startTime: string | null;
     cashAmount: number; cardAmount: number;
     receiptNumber: number; receiptName: string; receiptPurpose: string;
@@ -57,22 +57,21 @@ export default function BillingPage() {
   }
 
   const setPrice = table.startTime ? getSetPriceForTime(table.startTime) : 0
-  const setPriceTotal = setPrice * table.guestCount * table.setCount
+  const discountPerSet = table.setDiscountPerSet ?? 0
+  const setPriceAfterDiscount = Math.max(0, setPrice - discountPerSet)
+  const setPriceTotal = setPriceAfterDiscount * table.guestCount * table.setCount
 
-  const nominationCharge = (() => {
-    if (!table.nomination) return 0
-    const found = chargeItems.find((c) => c.id === table.nomination)
-    return found?.price ?? 0
-  })()
-
+  // 指名料・同伴料は自動で orders に含まれているため、ここでは個別に加算しない(指示書§2.3)
   const drinkTotal = table.orders.reduce((sum, o) => sum + o.menuItem.price * o.quantity, 0)
-  const subtotal = drinkTotal + nominationCharge
-  const setFee = setPriceTotal
+  const subtotal = drinkTotal  // 内税扱い
+  const setFee = setPriceTotal  // 内税扱い
   const taxRate = storeSettings.taxRate
   const cardFeeRate = storeSettings.cardFeeRate
-  const tax = Math.floor(subtotal * taxRate)
-  const consumptionTax = Math.floor((subtotal + setFee + tax) * 0.1)
-  const preCardTotal = subtotal + setFee + tax + consumptionTax - discount
+  const subtotalAll = subtotal + setFee  // 全て内税
+  const tax = Math.floor(subtotalAll * taxRate)  // 税サ20%外税
+  const preCardTotal = subtotalAll + tax - discount
+  // 消費税は内税として表示のみ (合計には影響しない)
+  const consumptionTax = Math.floor(preCardTotal * 10 / 110)
 
   const cardFee = paymentMethod === 'card'
     ? Math.floor(preCardTotal * cardFeeRate)
@@ -106,6 +105,11 @@ export default function BillingPage() {
       })
     }
 
+    // 指示書§5.2: 本指名卓の場合、担当キャストIDを記録 (売上重畳のため)
+    const nominatedCastId = table.nomination === 'shimei' && table.castNames[0]
+      ? casts.find((c) => c.name === table.castNames[0])?.id
+      : undefined
+
     addBillingRecord({
       id: Date.now(),
       tableNumber: table.number,
@@ -116,6 +120,9 @@ export default function BillingPage() {
       cardFee: cardFee > 0 || mixedCardFee > 0 ? (paymentMethod === 'mixed' ? mixedCardFee : cardFee) : undefined,
       timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
       date: new Date().toISOString().slice(0, 10),
+      nominatedCastId,
+      subtotalBeforeTax: subtotalAll,
+      castNamesSnapshot: [...table.castNames],
     })
 
     setLastBillingData({
@@ -129,7 +136,7 @@ export default function BillingPage() {
       consumptionTax,
       cardFee: paymentMethod === 'mixed' ? mixedCardFee : cardFee,
       discount,
-      orders: table.orders.map((o) => ({ menuItem: { id: o.menuItem.id, name: o.menuItem.name, price: o.menuItem.price }, quantity: o.quantity })),
+      orders: table.orders.map((o) => ({ menuItem: { id: o.menuItem.id, name: o.menuItem.name, price: o.menuItem.price }, quantity: o.quantity, castName: o.castName })),
       nominationLabel: table.nomination ? nominationLabels[table.nomination] : '',
       startTime: table.startTime,
       cashAmount: paymentMethod === 'cash' ? finalTotal : paymentMethod === 'mixed' ? mixedCashAmount : 0,
@@ -185,19 +192,18 @@ export default function BillingPage() {
             <div className="text-sm space-y-1 mb-3 border-b border-gray-200 pb-3">
               <div className="font-bold mb-1">明細</div>
               <div className="flex justify-between"><span>セット料金</span><span>¥{d.setFee.toLocaleString()}</span></div>
-              {d.nominationLabel && <div className="flex justify-between"><span>{d.nominationLabel}</span><span>(指名料込)</span></div>}
-              {d.orders.map((o) => (
-                <div key={o.menuItem.id} className="flex justify-between">
-                  <span>{o.menuItem.name} x{o.quantity}</span>
+              {d.orders.map((o, idx) => (
+                <div key={`${o.menuItem.id}-${idx}`} className="flex justify-between">
+                  <span>{o.castName ? `${o.menuItem.name}${o.castName}` : o.menuItem.name} x{o.quantity}</span>
                   <span>{o.menuItem.price === 0 ? 'セット内' : `¥${(o.menuItem.price * o.quantity).toLocaleString()}`}</span>
                 </div>
               ))}
             </div>
             <div className="text-sm space-y-1 mb-3 border-b border-gray-200 pb-3">
-              <div className="flex justify-between"><span>小計</span><span>¥{d.subtotal.toLocaleString()}</span></div>
-              <div className="flex justify-between"><span>セット料金</span><span>¥{d.setFee.toLocaleString()}</span></div>
+              <div className="flex justify-between"><span>注文小計(内税)</span><span>¥{d.subtotal.toLocaleString()}</span></div>
+              <div className="flex justify-between"><span>セット料金(内税)</span><span>¥{d.setFee.toLocaleString()}</span></div>
               <div className="flex justify-between"><span>TAX ({(taxRate * 100).toFixed(0)}%)</span><span>¥{d.tax.toLocaleString()}</span></div>
-              <div className="flex justify-between"><span>消費税 (10%)</span><span>¥{d.consumptionTax.toLocaleString()}</span></div>
+              <div className="flex justify-between text-xs text-gray-500"><span>※消費税10%(内税内訳)</span><span>¥{d.consumptionTax.toLocaleString()}</span></div>
               {d.discount > 0 && <div className="flex justify-between text-red-600"><span>値引き</span><span>-¥{d.discount.toLocaleString()}</span></div>}
             </div>
             <div className="text-center mb-3 border-b border-gray-200 pb-3">
@@ -227,7 +233,7 @@ export default function BillingPage() {
               <div className="flex justify-between"><span>小計:</span><span>¥{d.subtotal.toLocaleString()}</span></div>
               <div className="flex justify-between"><span>セット:</span><span>¥{d.setFee.toLocaleString()}</span></div>
               <div className="flex justify-between"><span>TAX:</span><span>¥{d.tax.toLocaleString()}</span></div>
-              <div className="flex justify-between"><span>消費税:</span><span>¥{d.consumptionTax.toLocaleString()}</span></div>
+              <div className="flex justify-between text-gray-600"><span>※消費税(内税内訳):</span><span>¥{d.consumptionTax.toLocaleString()}</span></div>
               {d.cardFee > 0 && <div className="flex justify-between"><span>カード手数料:</span><span>¥{d.cardFee.toLocaleString()}</span></div>}
               {d.discount > 0 && <div className="flex justify-between text-red-600"><span>値引き:</span><span>-¥{d.discount.toLocaleString()}</span></div>}
               <div className="flex justify-between font-bold border-t border-gray-300 pt-1"><span>合計:</span><span>¥{d.total.toLocaleString()}</span></div>
@@ -302,31 +308,29 @@ export default function BillingPage() {
                 <span>セット料金 <span className="text-gray-600">({table.startTime ? getSetPriceLabel(table.startTime) : '-'})</span></span>
                 <span className="tabular-nums">¥{setPriceTotal.toLocaleString()}</span>
               </div>
-              <div className="text-xs text-gray-600 ml-2">¥{setPrice.toLocaleString()} x {table.guestCount}名 x {table.setCount}セット</div>
-              {nominationCharge > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span>{table.nomination ? nominationLabels[table.nomination] : ''}</span>
-                  <span className="tabular-nums">¥{nominationCharge.toLocaleString()}</span>
-                </div>
-              )}
+              <div className="text-xs text-gray-600 ml-2">
+                {discountPerSet > 0
+                  ? `¥${setPrice.toLocaleString()} - 値引¥${discountPerSet.toLocaleString()} = ¥${setPriceAfterDiscount.toLocaleString()} x ${table.guestCount}名 x ${table.setCount}セット`
+                  : `¥${setPrice.toLocaleString()} x ${table.guestCount}名 x ${table.setCount}セット`}
+              </div>
               {table.orders.length > 0 && (
                 <>
                   <div className="border-t border-white/5 pt-2 mt-2">
-                    <div className="text-xs text-gray-500 mb-1">ドリンク注文</div>
+                    <div className="text-xs text-gray-500 mb-1">注文</div>
                   </div>
-                  {table.orders.map((o) => (
-                    <div key={o.menuItem.id} className="flex justify-between text-sm">
-                      <span className="text-gray-300">{o.menuItem.name}{o.quantity > 1 && <span className="text-gray-500"> x{o.quantity}</span>}</span>
+                  {table.orders.map((o, idx) => (
+                    <div key={`${o.menuItem.id}-${idx}`} className="flex justify-between text-sm">
+                      <span className="text-gray-300">{displayOrderName(o)}{o.quantity > 1 && <span className="text-gray-500"> x{o.quantity}</span>}</span>
                       <span className="tabular-nums">{o.menuItem.price === 0 ? 'セット内' : `¥${(o.menuItem.price * o.quantity).toLocaleString()}`}</span>
                     </div>
                   ))}
                 </>
               )}
               <div className="border-t border-white/5 pt-2 mt-2 space-y-1.5">
-                <div className="flex justify-between text-sm"><span className="text-gray-500">小計（ドリンク+指名料）</span><span className="tabular-nums">¥{subtotal.toLocaleString()}</span></div>
-                <div className="flex justify-between text-sm"><span className="text-gray-500">セット料金</span><span className="tabular-nums">¥{setFee.toLocaleString()}</span></div>
-                <div className="flex justify-between text-sm"><span className="text-gray-500">TAX（小計×{(taxRate * 100).toFixed(0)}%）</span><span className="tabular-nums">¥{tax.toLocaleString()}</span></div>
-                <div className="flex justify-between text-sm"><span className="text-gray-500">消費税（(小計+セット+TAX)×10%）</span><span className="tabular-nums">¥{consumptionTax.toLocaleString()}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-gray-500">注文小計(内税)</span><span className="tabular-nums">¥{subtotal.toLocaleString()}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-gray-500">セット料金(内税)</span><span className="tabular-nums">¥{setFee.toLocaleString()}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-gray-500">TAX（小計+セット×{(taxRate * 100).toFixed(0)}%）</span><span className="tabular-nums">¥{tax.toLocaleString()}</span></div>
+                <div className="flex justify-between text-xs text-gray-600"><span>※消費税10%内訳(内税・合計に含む)</span><span className="tabular-nums">¥{consumptionTax.toLocaleString()}</span></div>
                 {(paymentMethod === 'card' && cardFee > 0) && <div className="flex justify-between text-sm text-blue-400"><span>カード手数料（+{(cardFeeRate * 100).toFixed(0)}%）</span><span className="tabular-nums">¥{cardFee.toLocaleString()}</span></div>}
                 {(paymentMethod === 'mixed' && mixedCardFee > 0) && <div className="flex justify-between text-sm text-blue-400"><span>カード手数料（+{(cardFeeRate * 100).toFixed(0)}%）</span><span className="tabular-nums">¥{mixedCardFee.toLocaleString()}</span></div>}
                 {discount > 0 && <div className="flex justify-between text-sm text-red-400"><span>値引き</span><span className="tabular-nums">-¥{discount.toLocaleString()}</span></div>}
@@ -355,27 +359,20 @@ export default function BillingPage() {
             <h3 className="text-sm font-bold mb-3 text-gray-400">明細</h3>
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
-                <span>セット料金 ({table.startTime ? getSetPriceLabel(table.startTime) : '-'})<span className="text-gray-600"> x{table.guestCount}名 x{table.setCount}セット</span></span>
+                <span>セット料金 ({table.startTime ? getSetPriceLabel(table.startTime) : '-'})<span className="text-gray-600"> x{table.guestCount}名 x{table.setCount}セット</span>{discountPerSet > 0 && <span className="text-amber-300"> (値引¥{discountPerSet.toLocaleString()}/セット)</span>}</span>
                 <span className="tabular-nums">¥{setPriceTotal.toLocaleString()}</span>
               </div>
-              {nominationCharge > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span>{table.nomination ? nominationLabels[table.nomination] : ''}</span>
-                  <span className="tabular-nums">¥{nominationCharge.toLocaleString()}</span>
-                </div>
-              )}
-              {table.orders.map((o) => (
-                <div key={o.menuItem.id} className="flex justify-between text-sm">
-                  <span className="text-gray-300">{o.menuItem.name}{o.quantity > 1 && <span className="text-gray-500"> x{o.quantity}</span>}</span>
+              {table.orders.map((o, idx) => (
+                <div key={`${o.menuItem.id}-${idx}`} className="flex justify-between text-sm">
+                  <span className="text-gray-300">{displayOrderName(o)}{o.quantity > 1 && <span className="text-gray-500"> x{o.quantity}</span>}</span>
                   <span className="tabular-nums">{o.menuItem.price === 0 ? 'セット内' : `¥${(o.menuItem.price * o.quantity).toLocaleString()}`}</span>
                 </div>
               ))}
               <div className="border-t border-white/5 pt-2 mt-2 space-y-1.5">
-                <div className="flex justify-between text-sm"><span className="text-gray-500">小計（ドリンク+指名料）</span><span className="tabular-nums">¥{subtotal.toLocaleString()}</span></div>
-                <div className="flex justify-between text-sm"><span className="text-gray-500">セット料金</span><span className="tabular-nums">¥{setFee.toLocaleString()}</span></div>
-                <div className="flex justify-between text-sm"><span className="text-gray-500">TAX（小計×{(taxRate * 100).toFixed(0)}%）</span><span className="tabular-nums">¥{tax.toLocaleString()}</span></div>
-                <div className="flex justify-between text-sm"><span className="text-gray-500">税抜合計</span><span className="tabular-nums">¥{(subtotal + setFee + tax).toLocaleString()}</span></div>
-                <div className="flex justify-between text-sm"><span className="text-gray-500">消費税（税抜合計×10%）</span><span className="tabular-nums">¥{consumptionTax.toLocaleString()}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-gray-500">注文小計(内税)</span><span className="tabular-nums">¥{subtotal.toLocaleString()}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-gray-500">セット料金(内税)</span><span className="tabular-nums">¥{setFee.toLocaleString()}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-gray-500">TAX（小計+セット×{(taxRate * 100).toFixed(0)}%）</span><span className="tabular-nums">¥{tax.toLocaleString()}</span></div>
+                <div className="flex justify-between text-xs text-gray-600"><span>※消費税10%内訳(内税・合計に含む)</span><span className="tabular-nums">¥{consumptionTax.toLocaleString()}</span></div>
                 {(paymentMethod === 'card' && cardFee > 0) && (
                   <div className="flex justify-between text-sm text-blue-400"><span>カード手数料（+{(cardFeeRate * 100).toFixed(0)}%）</span><span className="tabular-nums">¥{cardFee.toLocaleString()}</span></div>
                 )}
@@ -494,11 +491,10 @@ export default function BillingPage() {
 
           {/* Grand total */}
           <div className="bg-white/10 rounded-lg p-4 space-y-1.5">
-            <div className="flex justify-between text-sm"><span className="text-gray-500">小計（ドリンク+指名料）</span><span className="tabular-nums">¥{subtotal.toLocaleString()}</span></div>
-            <div className="flex justify-between text-sm"><span className="text-gray-500">セット料金</span><span className="tabular-nums">¥{setFee.toLocaleString()}</span></div>
-            <div className="flex justify-between text-sm"><span className="text-gray-500">TAX（小計×{(taxRate * 100).toFixed(0)}%）</span><span className="tabular-nums">¥{tax.toLocaleString()}</span></div>
-            <div className="flex justify-between text-sm"><span className="text-gray-500">税抜合計</span><span className="tabular-nums">¥{(subtotal + setFee + tax).toLocaleString()}</span></div>
-            <div className="flex justify-between text-sm"><span className="text-gray-500">消費税（税抜合計×10%）</span><span className="tabular-nums">¥{consumptionTax.toLocaleString()}</span></div>
+            <div className="flex justify-between text-sm"><span className="text-gray-500">注文小計(内税)</span><span className="tabular-nums">¥{subtotal.toLocaleString()}</span></div>
+            <div className="flex justify-between text-sm"><span className="text-gray-500">セット料金(内税)</span><span className="tabular-nums">¥{setFee.toLocaleString()}</span></div>
+            <div className="flex justify-between text-sm"><span className="text-gray-500">TAX（小計+セット×{(taxRate * 100).toFixed(0)}%）</span><span className="tabular-nums">¥{tax.toLocaleString()}</span></div>
+            <div className="flex justify-between text-xs text-gray-600"><span>※消費税10%内訳(内税)</span><span className="tabular-nums">¥{consumptionTax.toLocaleString()}</span></div>
             {(paymentMethod === 'card' && cardFee > 0) && <div className="flex justify-between text-sm text-blue-400"><span>カード手数料（+{(cardFeeRate * 100).toFixed(0)}%）</span><span className="tabular-nums">¥{cardFee.toLocaleString()}</span></div>}
             {(paymentMethod === 'mixed' && mixedCardFee > 0) && <div className="flex justify-between text-sm text-blue-400"><span>カード手数料（+{(cardFeeRate * 100).toFixed(0)}%）</span><span className="tabular-nums">¥{mixedCardFee.toLocaleString()}</span></div>}
             {discount > 0 && <div className="flex justify-between text-sm text-red-400"><span>値引き</span><span className="tabular-nums">-¥{discount.toLocaleString()}</span></div>}

@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useStore } from '../store'
 import type { MenuItem, CastMenuItem, BackType } from '../data/mock'
+import { displayOrderName } from '../data/mock'
 import { Minus, Plus, Trash2, Wine, X } from 'lucide-react'
 
 const HELP_BACK_ITEM: CastMenuItem = {
@@ -36,6 +37,9 @@ export default function OrderPage() {
   const [bottleStorage, setBottleStorage] = useState('')
   const [bottleCustomer, setBottleCustomer] = useState('')
 
+  // キャスト選択モーダル(本カク等、cast系メニュー選択時に誰に紐付けるか選ぶ)
+  const [castSelectTarget, setCastSelectTarget] = useState<CastMenuItem | null>(null)
+
   const selectedTable = tables.find((t) => t.id === selectedTableId)
   const orders = selectedTable?.orders ?? []
 
@@ -43,25 +47,37 @@ export default function OrderPage() {
 
   const handleAdd = (item: MenuItem) => {
     if (!selectedTableId) return
+    // 指示書§2.3: cast系メニューはキャスト選択モーダルで担当を選ぶ
+    if (item.category === 'cast' && selectedTable && selectedTable.castNames.length > 0) {
+      setCastSelectTarget(item as CastMenuItem)
+      return
+    }
     addOrderToTable(selectedTableId, { menuItem: item, quantity: 1 })
   }
 
-  const handleRemove = (itemId: number) => {
+  const handleAddForCast = (item: CastMenuItem, castName: string) => {
     if (!selectedTableId) return
-    removeOrderFromTable(selectedTableId, itemId)
+    addOrderToTable(selectedTableId, { menuItem: item, quantity: 1, castName })
+    setCastSelectTarget(null)
   }
 
-  const handleDelete = (itemId: number) => {
+  const handleRemove = (itemId: number, castName?: string) => {
+    if (!selectedTableId) return
+    removeOrderFromTable(selectedTableId, itemId, castName)
+  }
+
+  const handleDelete = (itemId: number, castName?: string) => {
     if (!selectedTableId || !selectedTable) return
-    const order = orders.find((o) => o.menuItem.id === itemId)
+    const order = orders.find((o) => o.menuItem.id === itemId && o.castName === castName)
     if (!order) return
     for (let i = 0; i < order.quantity; i++) {
-      removeOrderFromTable(selectedTableId, itemId)
+      removeOrderFromTable(selectedTableId, itemId, castName)
     }
   }
 
   const total = orders.reduce((sum, o) => sum + o.menuItem.price * o.quantity, 0)
 
+  // 指名料・同伴は自動追加オーダーに含まれているので、ここでは castMenu のバックだけ集計
   const backSummary = useMemo(() => {
     const summary: Partial<Record<BackType, number>> = {}
     for (const order of orders) {
@@ -70,15 +86,8 @@ export default function OrderPage() {
         summary[castItem.backType] = (summary[castItem.backType] ?? 0) + order.quantity
       }
     }
-    if (selectedTable?.nomination === 'douhan') {
-      summary['同伴'] = (summary['同伴'] ?? 0) + 1
-    } else if (selectedTable?.nomination === 'shimei') {
-      summary['本指名'] = (summary['本指名'] ?? 0) + 1
-    } else if (selectedTable?.nomination === 'banai') {
-      summary['場内指名'] = (summary['場内指名'] ?? 0) + 1
-    }
     return summary
-  }, [orders, selectedTable?.nomination])
+  }, [orders])
 
   const sortedBottleKeeps = [...bottleKeeps].sort((a, b) => a.remaining - b.remaining)
 
@@ -249,7 +258,9 @@ export default function OrderPage() {
           {/* Menu grid */}
           <div className="flex-1 overflow-y-auto p-3 grid grid-cols-2 gap-2 content-start">
             {menuItems.map((item) => {
-              const ordered = orders.find((o) => o.menuItem.id === item.id)
+              // 同じメニューがキャスト別に複数あっても合計で表示
+              const orderedQty = orders.filter((o) => o.menuItem.id === item.id).reduce((s, o) => s + o.quantity, 0)
+              const ordered = orderedQty > 0 ? { quantity: orderedQty } : null
               return (
                 <button
                   key={item.id}
@@ -272,7 +283,8 @@ export default function OrderPage() {
               )
             })}
             {activeTab === 'cast' && (() => {
-              const helpOrdered = orders.find((o) => o.menuItem.id === HELP_BACK_ITEM.id)
+              const helpQty = orders.filter((o) => o.menuItem.id === HELP_BACK_ITEM.id).reduce((s, o) => s + o.quantity, 0)
+              const helpOrdered = helpQty > 0 ? { quantity: helpQty } : null
               return (
                 <button
                   onClick={() => handleAdd(HELP_BACK_ITEM)}
@@ -309,21 +321,24 @@ export default function OrderPage() {
           {orders.length > 0 && (
             <div className="bg-[#1a1a2e] border-t border-white/10 p-4">
               <div className="max-h-40 overflow-y-auto mb-3 space-y-1.5">
-                {orders.map((o) => (
-                  <div key={o.menuItem.id} className="flex items-center justify-between text-sm">
-                    <span className="flex-1 truncate text-gray-300">{o.menuItem.name}</span>
+                {orders.map((o, idx) => (
+                  <div key={`${o.menuItem.id}-${o.castName ?? ''}-${idx}`} className="flex items-center justify-between text-sm">
+                    <span className="flex-1 truncate text-gray-300">{displayOrderName(o)}</span>
                     <div className="flex items-center gap-2">
-                      <button onClick={() => handleRemove(o.menuItem.id)} className="text-gray-400 bg-white/5 border border-white/10 rounded w-7 h-7 flex items-center justify-center">
+                      <button onClick={() => handleRemove(o.menuItem.id, o.castName)} className="text-gray-400 bg-white/5 border border-white/10 rounded w-7 h-7 flex items-center justify-center">
                         <Minus size={14} />
                       </button>
                       <span className="w-6 text-center font-bold tabular-nums">{o.quantity}</span>
-                      <button onClick={() => handleAdd(o.menuItem)} className="text-gray-400 bg-white/5 border border-white/10 rounded w-7 h-7 flex items-center justify-center">
+                      <button onClick={() => {
+                        if (o.castName) addOrderToTable(selectedTableId, { menuItem: o.menuItem, quantity: 1, castName: o.castName })
+                        else handleAdd(o.menuItem)
+                      }} className="text-gray-400 bg-white/5 border border-white/10 rounded w-7 h-7 flex items-center justify-center">
                         <Plus size={14} />
                       </button>
                       <span className="w-20 text-right text-gray-400 tabular-nums">
                         {o.menuItem.price === 0 ? 'セット内' : `¥${(o.menuItem.price * o.quantity).toLocaleString()}`}
                       </span>
-                      <button onClick={() => handleDelete(o.menuItem.id)} className="text-red-400 bg-red-500/10 border border-red-500/20 rounded p-1 ml-1">
+                      <button onClick={() => handleDelete(o.menuItem.id, o.castName)} className="text-red-400 bg-red-500/10 border border-red-500/20 rounded p-1 ml-1">
                         <Trash2 size={12} />
                       </button>
                     </div>
@@ -337,6 +352,37 @@ export default function OrderPage() {
             </div>
           )}
         </>
+      )}
+
+      {/* Cast 選択モーダル(cast系メニューを誰の紐付けにするか) */}
+      {castSelectTarget && selectedTable && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setCastSelectTarget(null)}>
+          <div className="bg-[#1a1a2e] rounded-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-3">
+              <h2 className="text-base font-bold">「{castSelectTarget.name}」を誰に?</h2>
+              <button onClick={() => setCastSelectTarget(null)} className="text-gray-500 hover:text-white"><X size={18} /></button>
+            </div>
+            <p className="text-xs text-gray-500 mb-4">指示書§2.3: バック付与の担当キャストを選択してください</p>
+            <div className="space-y-2">
+              {selectedTable.castNames.map((name) => (
+                <button
+                  key={name}
+                  onClick={() => handleAddForCast(castSelectTarget, name)}
+                  className="w-full bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg py-3 px-4 text-left font-bold transition-colors"
+                >
+                  {name}
+                </button>
+              ))}
+              {/* キャスト紐付けなしで追加 */}
+              <button
+                onClick={() => { addOrderToTable(selectedTableId, { menuItem: castSelectTarget, quantity: 1 }); setCastSelectTarget(null) }}
+                className="w-full bg-white/5 border border-white/10 rounded-lg py-2 text-xs text-gray-500"
+              >
+                担当なしで追加
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

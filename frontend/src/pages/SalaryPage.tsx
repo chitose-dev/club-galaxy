@@ -93,11 +93,14 @@ export default function SalaryPage() {
   const castDeductions = deductions.filter((d) => d.castId === selectedCastId)
   const deductionTotal = castDeductions.reduce((s, d) => s + d.amount, 0)
 
-  const hourlyBase = cast ? cast.hourlyRate * totalHours + totalBackAmount : 0
+  // 指示書§4.1: 給与 = (時給×時間 + 各種バック) × 0.9 (ホステス税10%控除)
+  // 最終振込 = 給与 − 日払い − 天引き
+  const taxablePre = cast ? cast.hourlyRate * totalHours + totalBackAmount : 0   // 税引前
+  const grossSalary = Math.floor(taxablePre * 0.9)                                // 支給額(指示書)
+  const hostessTax = taxablePre - grossSalary                                     // ホステス税(−10%)
+  // 参考: 要件定義書 MAX 式での保証額(UI表示のみ、計算には使わない)
   const guaranteeBase = cast ? Math.floor(totalSales * cast.guaranteeRate) : 0
-  const grossSalary = Math.max(hourlyBase, guaranteeBase)
-  const hostessTax = Math.floor(grossSalary * 0.1)
-  const netSalary = grossSalary - hostessTax - dailyPayTotal - deductionTotal
+  const netSalary = grossSalary - dailyPayTotal - deductionTotal                  // 最終振込
 
   const getDayBackAmount = (w: DailyWork): number => {
     if (!cast) return 0
@@ -220,22 +223,27 @@ export default function SalaryPage() {
           </div>
           <div className="grid grid-cols-4 gap-2 text-center">
             <div className="bg-white/5 rounded-lg py-2 px-1">
-              <div className="text-xs text-gray-500">時給ベース</div>
-              <div className={`text-sm font-bold tabular-nums ${hourlyBase >= guaranteeBase ? 'font-bold' : 'text-gray-400'}`}>¥{hourlyBase.toLocaleString()}</div>
+              <div className="text-xs text-gray-500">税引前(時給+バック)</div>
+              <div className="text-sm font-bold tabular-nums">¥{taxablePre.toLocaleString()}</div>
             </div>
             <div className="bg-white/5 rounded-lg py-2 px-1">
-              <div className="text-xs text-gray-500">保証ベース</div>
-              <div className={`text-sm font-bold tabular-nums ${guaranteeBase > hourlyBase ? 'font-bold' : 'text-gray-400'}`}>¥{guaranteeBase.toLocaleString()}</div>
-            </div>
-            <div className="bg-white/5 rounded-lg py-2 px-1">
-              <div className="text-xs text-red-400/70">ホステス税</div>
+              <div className="text-xs text-red-400/70">ホステス税(-10%)</div>
               <div className="text-sm font-bold text-red-400 tabular-nums">-¥{hostessTax.toLocaleString()}</div>
             </div>
+            <div className="bg-white/5 rounded-lg py-2 px-1">
+              <div className="text-xs text-gray-500">支給額</div>
+              <div className="text-sm font-bold tabular-nums">¥{grossSalary.toLocaleString()}</div>
+            </div>
             <div className="bg-white/10 rounded-lg py-2 px-1">
-              <div className="text-xs text-gray-500">差引支給額</div>
+              <div className="text-xs text-gray-500">最終振込額</div>
               <div className="text-sm font-bold text-[#d4af37] tabular-nums">¥{netSalary.toLocaleString()}</div>
             </div>
           </div>
+          {guaranteeBase > taxablePre && (
+            <div className="text-[10px] text-amber-400/70 mt-1 text-center">
+              ※参考: 保証金額(売上×{(cast.guaranteeRate * 100).toFixed(0)}%) ¥{guaranteeBase.toLocaleString()} (要件定義書MAX式は衝突記録参照)
+            </div>
+          )}
         </div>
       )}
 
@@ -311,37 +319,26 @@ export default function SalaryPage() {
           </div>
         )}
 
-        {/* Salary calculation */}
+        {/* Salary calculation (指示書§4.1 準拠) */}
         <div className="bg-white/10 rounded-lg p-4 mb-4 space-y-2">
           <h3 className="text-sm font-bold mb-2 text-gray-400">給与計算</h3>
           <div className="flex justify-between text-sm">
-            <span className="text-gray-500">時給ベース</span>
-            <span className={`tabular-nums ${hourlyBase >= guaranteeBase ? 'font-bold' : ''}`}>
-              ¥{hourlyBase.toLocaleString()}
-            </span>
+            <span className="text-gray-500">税引前 (時給+バック)</span>
+            <span className="font-bold tabular-nums">¥{taxablePre.toLocaleString()}</span>
           </div>
           <div className="text-xs text-gray-600 ml-2 tabular-nums">
             ¥{cast?.hourlyRate.toLocaleString()} x {totalHours}h + バック ¥{totalBackAmount.toLocaleString()}
           </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-500">売上保証ベース</span>
-            <span className={`tabular-nums ${guaranteeBase > hourlyBase ? 'font-bold' : ''}`}>
-              ¥{guaranteeBase.toLocaleString()}
-            </span>
-          </div>
-          <div className="text-xs text-gray-600 ml-2 tabular-nums">
-            ¥{totalSales.toLocaleString()} x {((cast?.guaranteeRate ?? 0) * 100).toFixed(0)}%
-          </div>
-          <div className="border-t border-white/10 pt-2">
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-500">総支給額</span>
-              <span className="font-bold tabular-nums">¥{grossSalary.toLocaleString()}</span>
-            </div>
-            <div className="text-xs text-gray-600 ml-2">= MAX(時給ベース, 売上保証ベース)</div>
-          </div>
           <div className="flex justify-between text-sm text-red-400">
             <span>ホステス税 (-10%)</span>
             <span className="tabular-nums">-¥{hostessTax.toLocaleString()}</span>
+          </div>
+          <div className="border-t border-white/10 pt-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500">支給額</span>
+              <span className="font-bold tabular-nums">¥{grossSalary.toLocaleString()}</span>
+            </div>
+            <div className="text-xs text-gray-600 ml-2">= 税引前 × 0.9 (指示書§4.1)</div>
           </div>
           {dailyPayTotal > 0 && (
             <div className="flex justify-between text-sm text-red-400">
@@ -356,10 +353,15 @@ export default function SalaryPage() {
             </div>
           )}
           <div className="border-t border-white/10 pt-2 flex justify-between">
-            <span className="font-bold text-lg">差引支給額</span>
+            <span className="font-bold text-lg">最終振込額</span>
             <span className="font-bold text-2xl text-[#d4af37] tabular-nums">¥{netSalary.toLocaleString()}</span>
           </div>
-          <div className="text-xs text-gray-600">= 総支給額 - ホステス税 - 日払い - 天引き</div>
+          <div className="text-xs text-gray-600">= 支給額 - 日払い - 天引き</div>
+          {guaranteeBase > taxablePre && cast && (
+            <div className="text-[10px] text-amber-400/70 mt-1 border-t border-amber-500/20 pt-2">
+              ※参考(要件定義書MAX式): 売上¥{totalSales.toLocaleString()} × 保証{(cast.guaranteeRate * 100).toFixed(0)}% = ¥{guaranteeBase.toLocaleString()} (今の式では未使用)
+            </div>
+          )}
         </div>
 
         {/* 経理連動: 源泉税差額 */}
@@ -391,11 +393,12 @@ export default function SalaryPage() {
               <p>キャスト名: ${cast.name}</p>
               <p>対象期間: ${period === 'first' ? '1日〜15日' : '16日〜末日'}</p>
               <table>
-                <tr><th>総支給額</th><td>¥${grossSalary.toLocaleString()}</td></tr>
+                <tr><th>税引前 (時給+バック)</th><td>¥${taxablePre.toLocaleString()}</td></tr>
                 <tr><th>ホステス税(-10%)</th><td>-¥${hostessTax.toLocaleString()}</td></tr>
+                <tr><th>支給額</th><td>¥${grossSalary.toLocaleString()}</td></tr>
                 <tr><th>日払い済</th><td>-¥${dailyPayTotal.toLocaleString()}</td></tr>
                 <tr><th>天引き合計</th><td>-¥${deductionTotal.toLocaleString()}</td></tr>
-                <tr><th class="bold">差引支給額</th><td class="bold">¥${netSalary.toLocaleString()}</td></tr>
+                <tr><th class="bold">最終振込額</th><td class="bold">¥${netSalary.toLocaleString()}</td></tr>
               </table>
               <div class="sign">受領サイン</div>
             `

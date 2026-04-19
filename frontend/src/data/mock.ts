@@ -14,6 +14,18 @@ export interface Table {
   orders: OrderItem[]
   /** 中間チェック票が自動印字されたタイムスタンプ (同一卓での二重印字防止) */
   checkTicketPrintedAt?: string | null
+  /** セット料金1セット分の値引き額 (0 or undefined = 値引きなし) */
+  setDiscountPerSet?: number
+  /** 残り時間の手動微調整(分単位、±) */
+  timeAdjustmentMinutes?: number
+  /** 延長履歴(延長取消のため) */
+  extensionHistory?: ExtensionEntry[]
+}
+
+export interface ExtensionEntry {
+  id: number
+  minutes: 30 | 60
+  timestamp: string  // ISO
 }
 
 export interface GuestMenuItem {
@@ -89,6 +101,12 @@ export interface BillingRecord {
   cardFee?: number
   timestamp: string           // HH:MM
   date?: string               // YYYY-MM-DD (月年別集計用、省略時は今日扱い)
+  /** 本指名卓の場合の担当キャストID (指示書§5.2: 売上重畳のため) */
+  nominatedCastId?: number
+  /** TAX前の小計(保証計算・売上重畳に使用) */
+  subtotalBeforeTax?: number
+  /** 担当キャスト名(集計表示用) */
+  castNamesSnapshot?: string[]
 }
 
 // ─── 給与関連 ───
@@ -228,10 +246,11 @@ export const setPrices: SetPrice[] = [
 ]
 
 export const chargeItems: SetPrice[] = [
-  { id: 'single-charge', label: 'シングルチャージ', price: 1000, cost: 300 },
+  { id: 'single-charge', label: 'シングルチャージ', price: 2000, cost: 300 },
   { id: 'douhan', label: '同伴', price: 4000, cost: 300 },
   { id: 'shimei', label: '本指名', price: 1500, cost: 300 },
   { id: 'banai', label: '場内指名', price: 500, cost: 300 },
+  { id: 'help', label: 'Help(1名)', price: 4000, cost: 300 },
 ]
 
 export const SET_DURATION_MINUTES = 60
@@ -242,22 +261,109 @@ export const ENDING_MINUTES = 10
 // ─── ゲスト用ドリンクメニュー ───
 
 export const guestMenuItems: GuestMenuItem[] = [
-  { id: 101, name: '焼酎', price: 0, cost: 2000, castBack: 0, category: 'guest', subcategory: 'shochu' },
-  { id: 102, name: 'ウイスキー', price: 0, cost: 2000, castBack: 0, category: 'guest', subcategory: 'whisky' },
-  { id: 103, name: 'ブランデー', price: 0, cost: 2000, castBack: 0, category: 'guest', subcategory: 'brandy' },
-  { id: 104, name: 'シャンパン', price: 0, cost: 2000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  // ─── ゲスト飲料(単品) ───
   { id: 105, name: 'ゲストショット', price: 2000, cost: 500, castBack: 0, category: 'guest', subcategory: 'shot' },
-  { id: 106, name: 'ピッチャー', price: 2000, cost: 800, castBack: 0, category: 'guest', subcategory: 'pitcher' },
-  { id: 107, name: 'ゲストビール', price: 1500, cost: 400, castBack: 0, category: 'guest', subcategory: 'beer' },
-  { id: 108, name: '割物', price: 600, cost: 100, castBack: 0, category: 'guest', subcategory: 'warimono' },
+  { id: 106, name: 'ピッチャー各種', price: 2000, cost: 800, castBack: 0, category: 'guest', subcategory: 'pitcher' },
+  { id: 107, name: 'ゲストビール(中瓶)', price: 1500, cost: 400, castBack: 0, category: 'guest', subcategory: 'beer' },
+  { id: 108, name: '割り物各種', price: 600, cost: 100, castBack: 0, category: 'guest', subcategory: 'warimono' },
+
+  // ─── シャンパン(指示書§7.2) ───
+  { id: 301, name: 'ヴーヴクリコ イエロー', price: 28000, cost: 12000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 302, name: 'ヴーヴクリコ ロゼ', price: 35000, cost: 15000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 303, name: 'ヴーヴクリコ ホワイト', price: 35000, cost: 15000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 304, name: 'モエ・エ・シャンドン 白', price: 23000, cost: 10000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 305, name: 'モエ・エ・シャンドン ロゼ', price: 29000, cost: 12000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 306, name: 'モエ ネクター', price: 36000, cost: 15000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 307, name: 'モエ ネクター ロゼ', price: 58000, cost: 22000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 308, name: 'モエ アイス 白', price: 45000, cost: 18000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 309, name: 'モエ アイス ロゼ', price: 58000, cost: 22000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 310, name: 'ソウメイ ゴールド', price: 100000, cost: 40000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 311, name: 'ソウメイ オレンジ', price: 140000, cost: 55000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 312, name: 'ソウメイ ロゼ', price: 190000, cost: 75000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 313, name: 'ソウメイ ブラック', price: 450000, cost: 180000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 314, name: 'ペリエ・ジュエ ベル・エポック 白', price: 110000, cost: 42000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 315, name: 'ペリエ・ジュエ ベル・エポック ロゼ', price: 250000, cost: 100000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 316, name: 'アルマンド ゴールド', price: 160000, cost: 65000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 317, name: 'アルマンド ロゼ', price: 250000, cost: 100000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 318, name: 'アルマンド レッド', price: 350000, cost: 140000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 319, name: 'アルマンド グリーン', price: 400000, cost: 160000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 320, name: 'エンジェル ブラック白', price: 160000, cost: 65000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 321, name: 'エンジェル ホワイトロゼ', price: 250000, cost: 100000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 322, name: 'エンジェル ピンク', price: 350000, cost: 140000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 323, name: 'エンジェル ブルー', price: 350000, cost: 140000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 324, name: 'クリスタル 白', price: 220000, cost: 90000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 325, name: 'クリスタル ロゼ', price: 400000, cost: 160000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 326, name: 'サロン (時価)', price: 550000, cost: 220000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 327, name: 'ドン・ペリニヨン 白', price: 90000, cost: 36000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 328, name: 'ドン・ペリニヨン ロゼ', price: 160000, cost: 65000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 329, name: 'ドン・ペリニヨン ゴールド', price: 550000, cost: 220000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 330, name: 'D.ROCK ゴールド', price: 100000, cost: 40000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 331, name: 'D.ROCK ホワイト', price: 130000, cost: 52000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+  { id: 332, name: 'D.ROCK ロゼ', price: 160000, cost: 65000, castBack: 0, category: 'guest', subcategory: 'champagne' },
+
+  // ─── ウイスキー(指示書§7.2) ───
+  { id: 401, name: 'I.W. ハーパー GOLD MEDAL', price: 12000, cost: 5000, castBack: 0, category: 'guest', subcategory: 'whisky' },
+  { id: 402, name: 'I.W. ハーパー 12年', price: 35000, cost: 14000, castBack: 0, category: 'guest', subcategory: 'whisky' },
+  { id: 403, name: '竹鶴', price: 55000, cost: 22000, castBack: 0, category: 'guest', subcategory: 'whisky' },
+  { id: 404, name: 'ジャックダニエル', price: 15000, cost: 6000, castBack: 0, category: 'guest', subcategory: 'whisky' },
+  { id: 405, name: 'オールドパー 12年', price: 20000, cost: 8000, castBack: 0, category: 'guest', subcategory: 'whisky' },
+  { id: 406, name: 'バランタイン 12年', price: 30000, cost: 12000, castBack: 0, category: 'guest', subcategory: 'whisky' },
+  { id: 407, name: 'シーバスリーガル 18年', price: 35000, cost: 14000, castBack: 0, category: 'guest', subcategory: 'whisky' },
+  { id: 408, name: '宮城峡', price: 30000, cost: 12000, castBack: 0, category: 'guest', subcategory: 'whisky' },
+  { id: 409, name: '白州', price: 50000, cost: 20000, castBack: 0, category: 'guest', subcategory: 'whisky' },
+  { id: 410, name: '余市', price: 35000, cost: 14000, castBack: 0, category: 'guest', subcategory: 'whisky' },
+  { id: 411, name: '山崎', price: 60000, cost: 24000, castBack: 0, category: 'guest', subcategory: 'whisky' },
+  { id: 412, name: '山崎 12年', price: 130000, cost: 52000, castBack: 0, category: 'guest', subcategory: 'whisky' },
+  { id: 413, name: '響', price: 60000, cost: 24000, castBack: 0, category: 'guest', subcategory: 'whisky' },
+  { id: 414, name: '響 12年', price: 350000, cost: 140000, castBack: 0, category: 'guest', subcategory: 'whisky' },
+
+  // ─── 焼酎(指示書§7.2) ───
+  { id: 501, name: '鍛高譚', price: 6000, cost: 2400, castBack: 0, category: 'guest', subcategory: 'shochu' },
+  { id: 502, name: '黒霧島', price: 8000, cost: 3200, castBack: 0, category: 'guest', subcategory: 'shochu' },
+  { id: 503, name: '赤霧島', price: 8000, cost: 3200, castBack: 0, category: 'guest', subcategory: 'shochu' },
+  { id: 504, name: '茜霧島', price: 8000, cost: 3200, castBack: 0, category: 'guest', subcategory: 'shochu' },
+  { id: 505, name: '白霧島', price: 8000, cost: 3200, castBack: 0, category: 'guest', subcategory: 'shochu' },
+  { id: 506, name: 'いいちこフラスコボトル', price: 12000, cost: 4800, castBack: 0, category: 'guest', subcategory: 'shochu' },
+  { id: 507, name: '一刻者(赤)', price: 15000, cost: 6000, castBack: 0, category: 'guest', subcategory: 'shochu' },
+  { id: 508, name: '吉四六', price: 15000, cost: 6000, castBack: 0, category: 'guest', subcategory: 'shochu' },
+
+  // ─── ブランデー(指示書§7.2) ───
+  { id: 601, name: 'レミーマルタン VSOP', price: 20000, cost: 8000, castBack: 0, category: 'guest', subcategory: 'brandy' },
+  { id: 602, name: 'レミーマルタン XO', price: 75000, cost: 30000, castBack: 0, category: 'guest', subcategory: 'brandy' },
+  { id: 603, name: 'ヘネシー VSOP', price: 45000, cost: 18000, castBack: 0, category: 'guest', subcategory: 'brandy' },
+  { id: 604, name: 'ヘネシー XO', price: 75000, cost: 30000, castBack: 0, category: 'guest', subcategory: 'brandy' },
+  { id: 605, name: 'マーテル VSOP', price: 35000, cost: 14000, castBack: 0, category: 'guest', subcategory: 'brandy' },
+  { id: 606, name: 'マーテル コルドンブルー', price: 75000, cost: 30000, castBack: 0, category: 'guest', subcategory: 'brandy' },
+
+  // ─── ワイン(赤)(指示書§7.2) ───
+  { id: 701, name: 'ドルーアンラローズ ジュヴレ シャンベルタン', price: 28000, cost: 12000, castBack: 0, category: 'guest', subcategory: 'warimono' },
+  { id: 702, name: 'サン テステフ ド カロン セギュール', price: 18000, cost: 8000, castBack: 0, category: 'guest', subcategory: 'warimono' },
+  { id: 703, name: 'ルイ ジャド ソンジュ ド バッカス ピノノワール', price: 18000, cost: 8000, castBack: 0, category: 'guest', subcategory: 'warimono' },
+  { id: 704, name: 'ワイ バイ ヨンキ カベルネ ソーヴィニヨン', price: 26000, cost: 10000, castBack: 0, category: 'guest', subcategory: 'warimono' },
+
+  // ─── ワイン(白)(指示書§7.2) ───
+  { id: 705, name: 'ルイ ジャド ソンジュ ド バッカス シャルドネ', price: 18000, cost: 8000, castBack: 0, category: 'guest', subcategory: 'warimono' },
+  { id: 706, name: 'レザルム ド ラグランジュ', price: 23000, cost: 10000, castBack: 0, category: 'guest', subcategory: 'warimono' },
+  { id: 707, name: 'ルイ ジャド シャブリ セリエ デュ ヴァルヴァン', price: 20000, cost: 8000, castBack: 0, category: 'guest', subcategory: 'warimono' },
+  { id: 708, name: 'ウィリアム フェーブル シャブリ 1er クリュ ヴァイヨン', price: 23000, cost: 10000, castBack: 0, category: 'guest', subcategory: 'warimono' },
+  { id: 709, name: 'ワイ バイ ヨンキ シャルドネ アンコール', price: 26000, cost: 10000, castBack: 0, category: 'guest', subcategory: 'warimono' },
+  { id: 710, name: 'KENZO EST. あさつゆ', price: 70000, cost: 28000, castBack: 0, category: 'guest', subcategory: 'warimono' },
+  { id: 711, name: 'オーパスワン', price: 180000, cost: 72000, castBack: 0, category: 'guest', subcategory: 'warimono' },
 ]
 
 // ─── キャスト用ドリンクメニュー ───
+// 指示書§3: 本カクバックは1杯400円固定
 
 export const castMenuItems: CastMenuItem[] = [
-  { id: 201, name: 'レディースドリンク (FD)', price: 1000, cost: 0, castBack: 500, category: 'cast', subcategory: 'fd', backType: 'FD' },
-  { id: 202, name: 'レディースカクテル (本カク)', price: 1500, cost: 0, castBack: 800, category: 'cast', subcategory: 'honkaku', backType: '本カク' },
-  { id: 203, name: 'レディースショット (本D)', price: 2000, cost: 0, castBack: 1000, category: 'cast', subcategory: 'hond', backType: '本D' },
+  { id: 201, name: 'レディースドリンク (FD)', price: 1000, cost: 200, castBack: 200, category: 'cast', subcategory: 'fd', backType: 'FD' },
+  { id: 202, name: 'レディースカクテル (本カク)', price: 1500, cost: 300, castBack: 400, category: 'cast', subcategory: 'honkaku', backType: '本カク' },
+  { id: 203, name: 'レディースショット (本D)', price: 2000, cost: 400, castBack: 500, category: 'cast', subcategory: 'hond', backType: '本D' },
+  { id: 204, name: 'レディースピッチャー', price: 3000, cost: 700, castBack: 400, category: 'cast', subcategory: 'fd', backType: 'FD' },
+  { id: 205, name: 'レディースビール', price: 2000, cost: 500, castBack: 400, category: 'cast', subcategory: 'fd', backType: 'FD' },
+  { id: 206, name: 'キティ', price: 1500, cost: 300, castBack: 400, category: 'cast', subcategory: 'honkaku', backType: '本カク' },
+  { id: 207, name: 'ミッフィ', price: 1500, cost: 300, castBack: 400, category: 'cast', subcategory: 'honkaku', backType: '本カク' },
+  { id: 208, name: 'コカボム', price: 2500, cost: 500, castBack: 400, category: 'cast', subcategory: 'hond', backType: '本D' },
+  { id: 209, name: 'クライナー各種', price: 2500, cost: 500, castBack: 400, category: 'cast', subcategory: 'hond', backType: '本D' },
 ]
 
 export const allMenuItems: MenuItem[] = [...guestMenuItems, ...castMenuItems]
@@ -267,27 +373,38 @@ export const allMenuItems: MenuItem[] = [...guestMenuItems, ...castMenuItems]
 export const casts: Cast[] = [
   {
     id: 1, name: 'あいり', hourlyRate: 2500, guaranteeRate: 0.5, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
   },
   {
     id: 2, name: 'みく', hourlyRate: 2000, guaranteeRate: 0.45, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
   },
   {
     id: 3, name: 'れな', hourlyRate: 2500, guaranteeRate: 0.5, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
   },
   {
     id: 4, name: 'ゆい', hourlyRate: 2000, guaranteeRate: 0.4, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
   },
   {
     id: 5, name: 'りさ', hourlyRate: 3000, guaranteeRate: 0.55, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
   },
 ]
 
 // ─── ユーティリティ ───
+
+/**
+ * 注文の表示名。キャスト名が紐づいていれば「本指名あいり」「本カクみく」等を返す。
+ */
+export function displayOrderName(o: OrderItem): string {
+  if (!o.castName) return o.menuItem.name
+  // メニュー名末尾が「(FD)」「(本カク)」のような括弧付きの場合、キャスト名をその前に挿入
+  const match = o.menuItem.name.match(/^(.*)\s*\(([^)]+)\)\s*$/)
+  if (match) return `${match[1]}${o.castName} (${match[2]})`
+  return `${o.menuItem.name}${o.castName}`
+}
 
 export function getSetPriceForTime(startTime: string): number {
   // 要件定義書 Ver.20.0: 20:00〜 4000 / 22:00〜 5000 / 24:00〜LAST 6000
@@ -477,6 +594,10 @@ function generateHistoricalBillings(): BillingRecord[] {
       const cashAmount = method === 'cash' ? total : method === 'mixed' ? Math.floor(total * 0.6) : 0
       const cardAmount = method === 'card' ? total : method === 'mixed' ? total - cashAmount : 0
       const cardFee = method === 'card' || method === 'mixed' ? Math.floor(cardAmount * 0.1) : undefined
+      // キャスト5人の売上を分散(一部は本指名扱い、残りはフリー)
+      const isShimei = (id + t) % 3 === 0
+      const nominatedCastId = isShimei ? ((id + t) % 5) + 1 : undefined
+      const castsForTable = isShimei ? [['あいり', 'みく', 'れな', 'ゆい', 'りさ'][(id + t) % 5]] : []
       result.push({
         id: id++,
         tableNumber: String(((id + t) % 10) + 1),
@@ -487,6 +608,9 @@ function generateHistoricalBillings(): BillingRecord[] {
         cardFee,
         timestamp: `${20 + Math.floor(t / 3)}:${String((t * 15) % 60).padStart(2, '0')}`,
         date: dateStr,
+        nominatedCastId,
+        subtotalBeforeTax: Math.floor(total / 1.2),  // TAX 20%相当を除いた推定小計
+        castNamesSnapshot: castsForTable,
       })
     }
   }

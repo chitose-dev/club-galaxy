@@ -3,7 +3,7 @@ import { useStore } from '../store'
 import { sampleDailyWork, type BackType } from '../data/mock'
 
 type Granularity = 'day' | 'month' | 'year'
-type ViewMode = 'today' | 'trend' | 'cast'
+type ViewMode = 'today' | 'trend' | 'calendar' | 'cast'
 
 function flColor(rate: number) {
   if (rate <= 60) return 'text-emerald-400'
@@ -24,16 +24,16 @@ export default function ProfitPage() {
     <div className="p-4 space-y-4">
       <h2 className="text-lg font-bold text-[#d4af37]" style={{ fontFamily: 'var(--font-display)' }}>利益管理</h2>
 
-      <div className="flex border-b border-white/10">
-        {(['today', 'trend', 'cast'] as ViewMode[]).map((m) => (
+      <div className="flex border-b border-white/10 overflow-x-auto">
+        {(['today', 'trend', 'calendar', 'cast'] as ViewMode[]).map((m) => (
           <button
             key={m}
             onClick={() => setViewMode(m)}
-            className={`flex-1 px-4 py-2.5 text-sm font-bold tracking-wide transition-colors relative ${
+            className={`flex-1 min-w-[80px] px-3 py-2.5 text-sm font-bold tracking-wide transition-colors relative ${
               viewMode === m ? 'text-white' : 'text-gray-500'
             }`}
           >
-            {m === 'today' ? '本日' : m === 'trend' ? '店舗推移' : 'キャスト推移'}
+            {m === 'today' ? '本日' : m === 'trend' ? '店舗推移' : m === 'calendar' ? 'カレンダー' : 'キャスト推移'}
             {viewMode === m && (
               <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-white rounded-full" />
             )}
@@ -43,6 +43,7 @@ export default function ProfitPage() {
 
       {viewMode === 'today' && <TodayView />}
       {viewMode === 'trend' && <StoreTrendView />}
+      {viewMode === 'calendar' && <CalendarView />}
       {viewMode === 'cast' && <CastTrendView />}
     </div>
   )
@@ -479,8 +480,192 @@ function CastTrendView() {
             ))}
           </tbody>
         </table>
-        <p className="text-[10px] text-gray-600 mt-2">※給与 = MAX(時給×時間+バック, 売上×保証率{Math.round(cast.guaranteeRate * 100)}%)</p>
+        <p className="text-[10px] text-gray-600 mt-2">※給与 = (時給×時間+バック) × 0.9 (指示書§4.1)</p>
       </div>
+    </div>
+  )
+}
+
+// ─── カレンダービュー (らくな会計簿風) ───
+
+function CalendarView() {
+  const { billingRecords, casts, expenses } = useStore()
+  const today = new Date()
+  const [year, setYear] = useState(today.getFullYear())
+  const [month, setMonth] = useState(today.getMonth() + 1)  // 1-12
+  const [selectedDay, setSelectedDay] = useState<string | null>(null)
+
+  const monthPrefix = `${year}-${String(month).padStart(2, '0')}`
+  const firstDay = new Date(year, month - 1, 1)
+  const daysInMonth = new Date(year, month, 0).getDate()
+  const startWeekday = firstDay.getDay()
+
+  const dayData = useMemo(() => {
+    const map = new Map<string, { sales: number; expense: number; count: number }>()
+    for (let d = 1; d <= daysInMonth; d++) {
+      const ds = `${monthPrefix}-${String(d).padStart(2, '0')}`
+      map.set(ds, { sales: 0, expense: 0, count: 0 })
+    }
+    for (const r of billingRecords) {
+      const d = r.date ?? today.toISOString().slice(0, 10)
+      if (!d.startsWith(monthPrefix)) continue
+      const b = map.get(d)
+      if (b) {
+        b.sales += r.total
+        b.count += 1
+      }
+    }
+    for (const e of expenses) {
+      if (!e.date.startsWith(monthPrefix)) continue
+      const b = map.get(e.date)
+      if (b) b.expense += e.amount
+    }
+    return map
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [billingRecords, expenses, monthPrefix, daysInMonth])
+
+  const monthTotal = useMemo(() => {
+    let s = 0, e = 0
+    for (const [, v] of dayData) { s += v.sales; e += v.expense }
+    return { sales: s, expense: e }
+  }, [dayData])
+
+  const dayDetail = useMemo(() => {
+    if (!selectedDay) return null
+    const records = billingRecords.filter((r) => (r.date ?? '') === selectedDay)
+    // 担当キャスト別にグループ化
+    const grouped = new Map<string, typeof records>()
+    for (const r of records) {
+      const key = r.nominatedCastId
+        ? (casts.find((c) => c.id === r.nominatedCastId)?.name ?? 'フリー')
+        : 'フリー'
+      if (!grouped.has(key)) grouped.set(key, [])
+      grouped.get(key)!.push(r)
+    }
+    return { records, grouped }
+  }, [selectedDay, billingRecords, casts])
+
+  const cells: (string | null)[] = []
+  for (let i = 0; i < startWeekday; i++) cells.push(null)
+  for (let d = 1; d <= daysInMonth; d++) cells.push(`${monthPrefix}-${String(d).padStart(2, '0')}`)
+
+  const changeMonth = (delta: number) => {
+    let m = month + delta
+    let y = year
+    if (m < 1) { m = 12; y -= 1 }
+    if (m > 12) { m = 1; y += 1 }
+    setMonth(m)
+    setYear(y)
+    setSelectedDay(null)
+  }
+
+  const weekdayColor = (i: number) => (i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : 'text-gray-400')
+
+  return (
+    <div className="space-y-4">
+      {/* 月ナビ */}
+      <div className="flex items-center justify-between bg-white/5 rounded-lg p-3">
+        <button onClick={() => changeMonth(-1)} className="bg-white/5 border border-white/10 px-3 py-1 rounded text-sm">← 前月</button>
+        <span className="text-lg font-bold">{year}年{month}月</span>
+        <button onClick={() => changeMonth(+1)} className="bg-white/5 border border-white/10 px-3 py-1 rounded text-sm">翌月 →</button>
+      </div>
+
+      {/* 月サマリ */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-white/5 rounded-lg p-3">
+          <div className="text-xs text-gray-500 mb-1">{month}月 売上</div>
+          <div className="text-base font-bold text-[#d4af37] tabular-nums">¥{monthTotal.sales.toLocaleString()}</div>
+        </div>
+        <div className="bg-white/5 rounded-lg p-3">
+          <div className="text-xs text-gray-500 mb-1">{month}月 経費</div>
+          <div className="text-base font-bold text-red-400 tabular-nums">¥{monthTotal.expense.toLocaleString()}</div>
+        </div>
+        <div className="bg-white/5 rounded-lg p-3">
+          <div className="text-xs text-gray-500 mb-1">差引(概算)</div>
+          <div className={`text-base font-bold tabular-nums ${monthTotal.sales - monthTotal.expense >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+            ¥{(monthTotal.sales - monthTotal.expense).toLocaleString()}
+          </div>
+        </div>
+      </div>
+
+      {/* カレンダーグリッド */}
+      <div className="bg-white/5 rounded-lg p-3">
+        <div className="grid grid-cols-7 gap-1 mb-2 text-xs text-center">
+          {['日', '月', '火', '水', '木', '金', '土'].map((w, i) => (
+            <div key={w} className={`py-1 font-bold ${weekdayColor(i)}`}>{w}</div>
+          ))}
+        </div>
+        <div className="grid grid-cols-7 gap-1">
+          {cells.map((ds, i) => {
+            if (!ds) return <div key={`empty-${i}`} className="aspect-square" />
+            const data = dayData.get(ds)
+            const day = parseInt(ds.slice(-2), 10)
+            const isToday = ds === today.toISOString().slice(0, 10)
+            const isSelected = ds === selectedDay
+            const hasData = data && data.sales > 0
+            return (
+              <button
+                key={ds}
+                onClick={() => setSelectedDay(ds === selectedDay ? null : ds)}
+                className={`aspect-square rounded p-1 text-left transition-all ${
+                  isSelected ? 'bg-[#d4af37]/20 border border-[#d4af37]/50' :
+                  isToday ? 'bg-blue-500/10 border border-blue-500/30' :
+                  hasData ? 'bg-white/5 hover:bg-white/10' : 'bg-white/[0.02]'
+                }`}
+              >
+                <div className="text-xs font-bold">{day}</div>
+                {data && data.sales > 0 && (
+                  <div className="text-[9px] text-[#d4af37] tabular-nums leading-tight mt-0.5">
+                    ¥{(data.sales / 1000).toFixed(0)}k
+                  </div>
+                )}
+                {data && data.expense > 0 && (
+                  <div className="text-[9px] text-red-400/80 tabular-nums leading-tight">
+                    -¥{(data.expense / 1000).toFixed(0)}k
+                  </div>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* 日の内訳 */}
+      {selectedDay && dayDetail && (
+        <div className="bg-white/5 rounded-lg p-4">
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="text-base font-bold text-[#d4af37]">
+              {selectedDay.replace(/-/g, '/')} の内訳
+            </h3>
+            <button onClick={() => setSelectedDay(null)} className="text-gray-500 hover:text-white text-sm">閉じる</button>
+          </div>
+          {dayDetail.records.length === 0 ? (
+            <p className="text-sm text-gray-500">この日の会計記録はありません</p>
+          ) : (
+            <div className="space-y-3">
+              {Array.from(dayDetail.grouped.entries()).map(([castName, records]) => {
+                const total = records.reduce((s, r) => s + r.total, 0)
+                return (
+                  <div key={castName} className="bg-white/5 rounded-lg p-3">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="font-bold text-sm">{castName}</span>
+                      <span className="text-[#d4af37] font-bold tabular-nums">¥{total.toLocaleString()}</span>
+                    </div>
+                    <div className="space-y-1">
+                      {records.map((r) => (
+                        <div key={r.id} className="flex justify-between text-xs text-gray-400">
+                          <span>卓{r.tableNumber} ({r.timestamp}) {r.paymentMethod === 'cash' ? '現金' : r.paymentMethod === 'card' ? 'カード' : '現金+カード'}</span>
+                          <span className="tabular-nums">¥{r.total.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

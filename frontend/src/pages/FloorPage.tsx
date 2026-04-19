@@ -10,9 +10,11 @@ import {
   EXTENSION_OPTIONS,
   SET_DURATION_MINUTES,
   chargeItems,
+  displayOrderName,
 } from '../data/mock'
-import { Clock, Users, Plus, Printer, RotateCcw, ChevronRight, X, FileText, CreditCard } from 'lucide-react'
+import { Clock, Users, Plus, Printer, RotateCcw, ChevronRight, X, FileText, CreditCard, Undo2 } from 'lucide-react'
 import { openPrintWindow } from '../utils/print'
+import ConfirmDialog from '../components/ConfirmDialog'
 
 const statusStyle: Record<TableStatus, { border: string; bg: string; badge: string }> = {
   empty: { border: 'border-gray-700', bg: 'bg-white/[0.02]', badge: 'bg-gray-700 text-gray-400' },
@@ -40,7 +42,7 @@ const defaultStartTime = () => {
   return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
 }
 
-function calcRemainingMinutes(startTime: string, setCount: number): number {
+function calcRemainingMinutes(startTime: string, setCount: number, timeAdjustment: number = 0): number {
   const [h, m] = startTime.split(':').map(Number)
   const now = new Date()
   const startDate = new Date()
@@ -50,7 +52,7 @@ function calcRemainingMinutes(startTime: string, setCount: number): number {
   }
   const totalSetMinutes = setCount * SET_DURATION_MINUTES
   const endTime = new Date(startDate.getTime() + totalSetMinutes * 60 * 1000)
-  return Math.ceil((endTime.getTime() - now.getTime()) / (60 * 1000))
+  return Math.ceil((endTime.getTime() - now.getTime()) / (60 * 1000)) + timeAdjustment
 }
 
 function calcElapsedMinutes(startTime: string): number {
@@ -90,7 +92,7 @@ export default function FloorPage() {
   const checkStatuses = useCallback(() => {
     for (const table of tables) {
       if (table.status === 'empty' || !table.startTime) continue
-      const remaining = calcRemainingMinutes(table.startTime, table.setCount)
+      const remaining = calcRemainingMinutes(table.startTime, table.setCount, table.timeAdjustmentMinutes ?? 0)
       const elapsed = calcElapsedMinutes(table.startTime)
 
       if (remaining <= 5 && table.status !== 'ending') {
@@ -127,13 +129,45 @@ export default function FloorPage() {
 
   const confirmCheckIn = () => {
     if (!selected) return
-    const singleChargeItem = chargeItems.find((c) => c.id === 'single-charge')
-    const singleChargeOrder = singleChargeItem ? [{
-      menuItem: { id: 900, name: `シングルチャージ（¥${singleChargeItem.price.toLocaleString()} × ${ciGuests}名）`, price: singleChargeItem.price * ciGuests, cost: (singleChargeItem.cost ?? 300) * ciGuests, castBack: 0, category: 'guest' as const, subcategory: 'warimono' as const },
-      quantity: 1,
-    }] : []
-
     const assignedNames = ciCastNames.length > 0 ? ciCastNames : [activeCasts[0]?.name ?? '']
+    const autoOrders: Table['orders'] = []
+
+    // 指示書§1.2: シングルチャージは 1 名様のみ自動付与
+    if (ciGuests === 1) {
+      const singleChargeItem = chargeItems.find((c) => c.id === 'single-charge')
+      if (singleChargeItem) {
+        autoOrders.push({
+          menuItem: {
+            id: 900, name: 'シングルチャージ', price: singleChargeItem.price,
+            cost: singleChargeItem.cost ?? 300, castBack: 0,
+            category: 'guest' as const, subcategory: 'warimono' as const,
+          },
+          quantity: 1,
+        })
+      }
+    }
+
+    // 指示書§2.3: 指名タイプに応じて担当キャスト名付きで自動追加
+    if (ciNomination && ciNomination !== 'free') {
+      const chargeId = ciNomination === 'shimei' ? 'shimei' : ciNomination === 'banai' ? 'banai' : 'douhan'
+      const chargeItem = chargeItems.find((c) => c.id === chargeId)
+      if (chargeItem) {
+        for (const name of assignedNames) {
+          if (!name) continue
+          autoOrders.push({
+            menuItem: {
+              id: 901 + autoOrders.length,
+              name: chargeItem.label, price: chargeItem.price,
+              cost: chargeItem.cost ?? 300, castBack: 0,
+              category: 'guest' as const, subcategory: 'warimono' as const,
+            },
+            quantity: 1,
+            castName: name,
+          })
+        }
+      }
+    }
+
     updateTable(selected.id, {
       status: 'occupied',
       guestCount: ciGuests,
@@ -141,7 +175,10 @@ export default function FloorPage() {
       castNames: assignedNames,
       nomination: ciNomination,
       setCount: 1,
-      orders: singleChargeOrder,
+      orders: autoOrders,
+      setDiscountPerSet: 0,
+      timeAdjustmentMinutes: 0,
+      extensionHistory: [],
     })
     const now = new Date().toISOString()
     setCasts((prev) => prev.map((c) => assignedNames.includes(c.name) ? { ...c, lastAssignedAt: now } : c))
@@ -149,14 +186,47 @@ export default function FloorPage() {
     setSelected(null)
   }
 
-  const confirmExtend = (minutes: number) => {
+  // 延長確認ダイアログ用 (指示書§6.2.3: 確認ダイアログ必須)
+  const [pendingExtend, setPendingExtend] = useState<30 | 60 | null>(null)
+
+  const requestExtend = (minutes: 30 | 60) => {
     if (!selected) return
+    setPendingExtend(minutes)
+  }
+
+  const confirmExtend = () => {
+    if (!selected || !pendingExtend) return
+    const minutes = pendingExtend
+    const extDelta = minutes === 60 ? 1 : 0.5
+    const newEntry = { id: Date.now(), minutes, timestamp: new Date().toISOString() } as const
     updateTable(selected.id, {
-      setCount: selected.setCount + (minutes === 60 ? 1 : 0.5),
+      setCount: selected.setCount + extDelta,
       status: 'occupied',
+      extensionHistory: [...(selected.extensionHistory ?? []), newEntry],
     })
+    setPendingExtend(null)
     setShowExtend(false)
     setSelected(null)
+  }
+
+  // 延長取消 (指示書§6.2.4)
+  const handleUndoExtension = (entryId: number) => {
+    if (!selected) return
+    const entry = selected.extensionHistory?.find((e) => e.id === entryId)
+    if (!entry) return
+    const delta = entry.minutes === 60 ? 1 : 0.5
+    updateTable(selected.id, {
+      setCount: Math.max(1, selected.setCount - delta),
+      extensionHistory: (selected.extensionHistory ?? []).filter((e) => e.id !== entryId),
+    })
+  }
+
+  // 微調整 ±10分 (指示書§6.2.2: 残り時間補正、setCountには影響しない)
+  const handleTimeAdjust = (delta: number) => {
+    if (!selected) return
+    updateTable(selected.id, {
+      timeAdjustmentMinutes: (selected.timeAdjustmentMinutes ?? 0) + delta,
+    })
   }
 
   const handlePrintCheckTicket = (table: Table) => {
@@ -172,7 +242,7 @@ export default function FloorPage() {
       <div class="row"><span>人数:</span><span>${table.guestCount}名</span></div>
       <div class="divider"></div>
       <div class="row"><span>セット料金:</span><span>&yen;${(setPrice * table.guestCount * table.setCount).toLocaleString()}</span></div>
-      ${table.orders.map(o => `<div class="row"><span>${o.menuItem.name} x${o.quantity}</span><span>${o.menuItem.price === 0 ? 'セット内' : '&yen;' + (o.menuItem.price * o.quantity).toLocaleString()}</span></div>`).join('')}
+      ${table.orders.map(o => `<div class="row"><span>${displayOrderName(o)} x${o.quantity}</span><span>${o.menuItem.price === 0 ? 'セット内' : '&yen;' + (o.menuItem.price * o.quantity).toLocaleString()}</span></div>`).join('')}
       <div class="divider"></div>
       <div class="row total"><span>ドリンク小計:</span><span>&yen;${drinkTotal.toLocaleString()}</span></div>
       <div class="footer">※中間確認用 - 正式な領収書ではありません</div>
@@ -276,12 +346,12 @@ export default function FloorPage() {
           if (a.status !== 'empty' && b.status === 'empty') return -1
           if (a.status === 'empty' && b.status === 'empty') return a.id - b.id
           // 使用中卓は残り時間昇順(終了間近を左上)
-          const remA = a.startTime ? calcRemainingMinutes(a.startTime, a.setCount) : Infinity
-          const remB = b.startTime ? calcRemainingMinutes(b.startTime, b.setCount) : Infinity
+          const remA = a.startTime ? calcRemainingMinutes(a.startTime, a.setCount, a.timeAdjustmentMinutes ?? 0) : Infinity
+          const remB = b.startTime ? calcRemainingMinutes(b.startTime, b.setCount, b.timeAdjustmentMinutes ?? 0) : Infinity
           if (remA !== remB) return remA - remB
           return a.id - b.id
         }).map((table) => {
-          const remaining = table.startTime ? calcRemainingMinutes(table.startTime, table.setCount) : null
+          const remaining = table.startTime ? calcRemainingMinutes(table.startTime, table.setCount, table.timeAdjustmentMinutes ?? 0) : null
           const elapsed = table.startTime ? calcElapsedMinutes(table.startTime) : 0
           const style = statusStyle[table.status]
           return (
@@ -343,7 +413,7 @@ export default function FloorPage() {
             </div>
 
             {selected.startTime && (() => {
-              const rem = calcRemainingMinutes(selected.startTime, selected.setCount)
+              const rem = calcRemainingMinutes(selected.startTime, selected.setCount, selected.timeAdjustmentMinutes ?? 0)
               return (
                 <div className={`text-center py-3 rounded-lg mb-4 font-bold text-lg ${rem <= 5 ? 'bg-red-500/10 text-red-300 border border-red-500/30' : rem <= 10 ? 'bg-amber-500/10 text-amber-300 border border-amber-500/30' : 'bg-white/10 text-white border border-white/20'}`}>
                   残り {rem > 0 ? `${rem}分` : '終了'}
@@ -371,13 +441,32 @@ export default function FloorPage() {
               <div className="bg-white/5 rounded-lg p-3">
                 <div className="text-gray-500 text-xs mb-1">セット料金</div>
                 <div className="font-medium">
-                  {selected.startTime ? `¥${getSetPriceForTime(selected.startTime).toLocaleString()}` : '-'}
+                  {selected.startTime ? `¥${Math.max(0, getSetPriceForTime(selected.startTime) - (selected.setDiscountPerSet ?? 0)).toLocaleString()}` : '-'}
+                  {(selected.setDiscountPerSet ?? 0) > 0 && (
+                    <span className="text-[10px] text-amber-300 ml-1">(値引¥{selected.setDiscountPerSet!.toLocaleString()})</span>
+                  )}
                 </div>
                 <div className="text-gray-600 text-xs">{selected.startTime ? getSetPriceLabel(selected.startTime) : ''}</div>
               </div>
               <div className="bg-white/5 rounded-lg p-3">
                 <div className="text-gray-500 text-xs mb-1">セット数</div>
                 <div className="font-medium">{selected.setCount}</div>
+              </div>
+            </div>
+            {/* セット料金値引き (指示書§1.1) */}
+            <div className="mt-3 bg-white/5 rounded-lg p-3">
+              <label className="text-xs text-gray-500 block mb-1.5">セット料金値引き (1セットあたりの割引額)</label>
+              <div className="flex gap-2 items-center">
+                <input
+                  type="number"
+                  value={selected.setDiscountPerSet ?? 0}
+                  onChange={(e) => updateTable(selected.id, { setDiscountPerSet: Math.max(0, Number(e.target.value)) })}
+                  min={0}
+                  step={100}
+                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm"
+                  placeholder="0"
+                />
+                <span className="text-xs text-gray-500">円 / セット</span>
               </div>
             </div>
 
@@ -415,9 +504,30 @@ export default function FloorPage() {
 
             <div className="flex gap-2 mt-5">
               {EXTENSION_OPTIONS.map((min) => (
-                <button key={min} onClick={() => confirmExtend(min)} className="flex-1 bg-white/5 border border-white/10 py-3 rounded-lg font-bold text-sm transition-colors">+{min}分</button>
+                <button key={min} onClick={() => requestExtend(min as 30 | 60)} className="flex-1 bg-white/5 border border-white/10 py-3 rounded-lg font-bold text-sm transition-colors">
+                  延長 +{min}分
+                </button>
               ))}
             </div>
+            <div className="flex gap-2 mt-2 items-center text-xs">
+              <span className="text-gray-500">残り時間微調整:</span>
+              <button onClick={() => handleTimeAdjust(-10)} className="flex-1 bg-white/5 border border-white/10 py-2 rounded-lg font-bold">-10分</button>
+              <button onClick={() => handleTimeAdjust(+10)} className="flex-1 bg-white/5 border border-white/10 py-2 rounded-lg font-bold">+10分</button>
+              {(selected.timeAdjustmentMinutes ?? 0) !== 0 && (
+                <button onClick={() => updateTable(selected.id, { timeAdjustmentMinutes: 0 })} className="text-gray-500 underline">リセット({selected.timeAdjustmentMinutes! > 0 ? '+' : ''}{selected.timeAdjustmentMinutes}分)</button>
+              )}
+            </div>
+            {selected.extensionHistory && selected.extensionHistory.length > 0 && (
+              <div className="mt-2 bg-white/5 rounded-lg p-2">
+                <div className="text-xs text-gray-500 mb-1">延長履歴</div>
+                {selected.extensionHistory.map((ex) => (
+                  <div key={ex.id} className="flex justify-between items-center text-xs py-0.5">
+                    <span className="text-gray-400">+{ex.minutes}分 ({new Date(ex.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })})</span>
+                    <button onClick={() => handleUndoExtension(ex.id)} className="text-red-400 flex items-center gap-1"><Undo2 size={10} /> 取消</button>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div className="flex gap-2 mt-2">
               <button onClick={() => { setSelected(null); navigate(`/order?table=${selected.id}`) }} className="flex-1 bg-white/5 border border-white/10 py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-1.5 transition-colors">
@@ -528,7 +638,7 @@ export default function FloorPage() {
             <p className="text-sm text-gray-400 mb-4">現在: {selected.setCount}セット</p>
             <div className="space-y-3">
               {EXTENSION_OPTIONS.map((min) => (
-                <button key={min} onClick={() => confirmExtend(min)} className="w-full bg-white/5 border border-white/10 py-3 rounded-lg font-bold transition-colors">+{min}分延長</button>
+                <button key={min} onClick={() => requestExtend(min as 30 | 60)} className="w-full bg-white/5 border border-white/10 py-3 rounded-lg font-bold transition-colors">+{min}分延長</button>
               ))}
             </div>
             <button onClick={() => { setShowExtend(false); setSelected(null) }} className="w-full mt-3 bg-white/5 border border-white/10 py-3 rounded-lg font-bold text-gray-500">キャンセル</button>
@@ -565,6 +675,17 @@ export default function FloorPage() {
           </div>
         </div>
       )}
+
+      {/* 延長確認ダイアログ (指示書§6.2.3) */}
+      <ConfirmDialog
+        open={pendingExtend !== null}
+        title="延長の確認"
+        message={`セットを +${pendingExtend ?? 0}分 延長します。\nよろしいですか?`}
+        confirmLabel="延長する"
+        destructive={false}
+        onConfirm={confirmExtend}
+        onCancel={() => setPendingExtend(null)}
+      />
     </div>
   )
 }
