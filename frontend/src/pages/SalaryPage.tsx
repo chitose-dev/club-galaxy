@@ -51,6 +51,9 @@ export default function SalaryPage() {
   const [deductionSource, setDeductionSource] = useState<'register' | 'transfer'>('register')
 
   const cast = casts.find((c) => c.id === selectedCastId)
+  // TODO(backend): バックエンド実装後、billingRecords + attendanceRecords から日次集計を生成する関数に差し替える
+  // 現状はデモ用 sampleDailyWork(静的データ)を参照。実運用では以下で置換:
+  //   const dailyWork = aggregateCastDailyWork(selectedCastId, billingRecords, attendanceRecords, period)
   const dailyWork: DailyWork[] = sampleDailyWork[selectedCastId] ?? []
 
   const filteredWork = useMemo(() => {

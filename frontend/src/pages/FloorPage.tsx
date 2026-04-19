@@ -231,6 +231,8 @@ export default function FloorPage() {
 
   const handlePrintCheckTicket = (table: Table) => {
     const setPrice = table.startTime ? getSetPriceForTime(table.startTime) : 0
+    const discountPerSet = table.setDiscountPerSet ?? 0
+    const adjustedSetPrice = Math.max(0, setPrice - discountPerSet)
     const drinkTotal = table.orders.reduce((sum, o) => sum + o.menuItem.price * o.quantity, 0)
 
     const body = `
@@ -241,7 +243,7 @@ export default function FloorPage() {
       <div class="row"><span>入店:</span><span>${table.startTime}</span></div>
       <div class="row"><span>人数:</span><span>${table.guestCount}名</span></div>
       <div class="divider"></div>
-      <div class="row"><span>セット料金:</span><span>&yen;${(setPrice * table.guestCount * table.setCount).toLocaleString()}</span></div>
+      <div class="row"><span>セット料金:</span><span>&yen;${(adjustedSetPrice * table.guestCount * table.setCount).toLocaleString()}${discountPerSet > 0 ? ` <small>(値引-&yen;${discountPerSet.toLocaleString()}/セット)</small>` : ''}</span></div>
       ${table.orders.map(o => `<div class="row"><span>${displayOrderName(o)} x${o.quantity}</span><span>${o.menuItem.price === 0 ? 'セット内' : '&yen;' + (o.menuItem.price * o.quantity).toLocaleString()}</span></div>`).join('')}
       <div class="divider"></div>
       <div class="row total"><span>ドリンク小計:</span><span>&yen;${drinkTotal.toLocaleString()}</span></div>

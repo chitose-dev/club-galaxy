@@ -35,7 +35,7 @@ export interface GuestMenuItem {
   cost: number        // 原価
   castBack: number    // キャストバック
   category: 'guest'
-  subcategory: 'shochu' | 'whisky' | 'brandy' | 'champagne' | 'shot' | 'pitcher' | 'beer' | 'warimono'
+  subcategory: 'shochu' | 'whisky' | 'brandy' | 'champagne' | 'wine' | 'shot' | 'pitcher' | 'beer' | 'warimono'
 }
 
 export interface CastMenuItem {
@@ -336,19 +336,19 @@ export const guestMenuItems: GuestMenuItem[] = [
   { id: 606, name: 'マーテル コルドンブルー', price: 75000, cost: 30000, castBack: 0, category: 'guest', subcategory: 'brandy' },
 
   // ─── ワイン(赤)(指示書§7.2) ───
-  { id: 701, name: 'ドルーアンラローズ ジュヴレ シャンベルタン', price: 28000, cost: 12000, castBack: 0, category: 'guest', subcategory: 'warimono' },
-  { id: 702, name: 'サン テステフ ド カロン セギュール', price: 18000, cost: 8000, castBack: 0, category: 'guest', subcategory: 'warimono' },
-  { id: 703, name: 'ルイ ジャド ソンジュ ド バッカス ピノノワール', price: 18000, cost: 8000, castBack: 0, category: 'guest', subcategory: 'warimono' },
-  { id: 704, name: 'ワイ バイ ヨンキ カベルネ ソーヴィニヨン', price: 26000, cost: 10000, castBack: 0, category: 'guest', subcategory: 'warimono' },
+  { id: 701, name: 'ドルーアンラローズ ジュヴレ シャンベルタン', price: 28000, cost: 12000, castBack: 0, category: 'guest', subcategory: 'wine' },
+  { id: 702, name: 'サン テステフ ド カロン セギュール', price: 18000, cost: 8000, castBack: 0, category: 'guest', subcategory: 'wine' },
+  { id: 703, name: 'ルイ ジャド ソンジュ ド バッカス ピノノワール', price: 18000, cost: 8000, castBack: 0, category: 'guest', subcategory: 'wine' },
+  { id: 704, name: 'ワイ バイ ヨンキ カベルネ ソーヴィニヨン', price: 26000, cost: 10000, castBack: 0, category: 'guest', subcategory: 'wine' },
 
   // ─── ワイン(白)(指示書§7.2) ───
-  { id: 705, name: 'ルイ ジャド ソンジュ ド バッカス シャルドネ', price: 18000, cost: 8000, castBack: 0, category: 'guest', subcategory: 'warimono' },
-  { id: 706, name: 'レザルム ド ラグランジュ', price: 23000, cost: 10000, castBack: 0, category: 'guest', subcategory: 'warimono' },
-  { id: 707, name: 'ルイ ジャド シャブリ セリエ デュ ヴァルヴァン', price: 20000, cost: 8000, castBack: 0, category: 'guest', subcategory: 'warimono' },
-  { id: 708, name: 'ウィリアム フェーブル シャブリ 1er クリュ ヴァイヨン', price: 23000, cost: 10000, castBack: 0, category: 'guest', subcategory: 'warimono' },
-  { id: 709, name: 'ワイ バイ ヨンキ シャルドネ アンコール', price: 26000, cost: 10000, castBack: 0, category: 'guest', subcategory: 'warimono' },
-  { id: 710, name: 'KENZO EST. あさつゆ', price: 70000, cost: 28000, castBack: 0, category: 'guest', subcategory: 'warimono' },
-  { id: 711, name: 'オーパスワン', price: 180000, cost: 72000, castBack: 0, category: 'guest', subcategory: 'warimono' },
+  { id: 705, name: 'ルイ ジャド ソンジュ ド バッカス シャルドネ', price: 18000, cost: 8000, castBack: 0, category: 'guest', subcategory: 'wine' },
+  { id: 706, name: 'レザルム ド ラグランジュ', price: 23000, cost: 10000, castBack: 0, category: 'guest', subcategory: 'wine' },
+  { id: 707, name: 'ルイ ジャド シャブリ セリエ デュ ヴァルヴァン', price: 20000, cost: 8000, castBack: 0, category: 'guest', subcategory: 'wine' },
+  { id: 708, name: 'ウィリアム フェーブル シャブリ 1er クリュ ヴァイヨン', price: 23000, cost: 10000, castBack: 0, category: 'guest', subcategory: 'wine' },
+  { id: 709, name: 'ワイ バイ ヨンキ シャルドネ アンコール', price: 26000, cost: 10000, castBack: 0, category: 'guest', subcategory: 'wine' },
+  { id: 710, name: 'KENZO EST. あさつゆ', price: 70000, cost: 28000, castBack: 0, category: 'guest', subcategory: 'wine' },
+  { id: 711, name: 'オーパスワン', price: 180000, cost: 72000, castBack: 0, category: 'guest', subcategory: 'wine' },
 ]
 
 // ─── キャスト用ドリンクメニュー ───
@@ -594,10 +594,11 @@ function generateHistoricalBillings(): BillingRecord[] {
       const cashAmount = method === 'cash' ? total : method === 'mixed' ? Math.floor(total * 0.6) : 0
       const cardAmount = method === 'card' ? total : method === 'mixed' ? total - cashAmount : 0
       const cardFee = method === 'card' || method === 'mixed' ? Math.floor(cardAmount * 0.1) : undefined
-      // キャスト5人の売上を分散(一部は本指名扱い、残りはフリー)
+      // キャスト5人の売上を分散(一部は本指名扱い、残りはフリーだが担当は記録)
       const isShimei = (id + t) % 3 === 0
+      const castName = ['あいり', 'みく', 'れな', 'ゆい', 'りさ'][(id + t) % 5]
       const nominatedCastId = isShimei ? ((id + t) % 5) + 1 : undefined
-      const castsForTable = isShimei ? [['あいり', 'みく', 'れな', 'ゆい', 'りさ'][(id + t) % 5]] : []
+      const castsForTable = [castName]  // 本指名/フリー問わず担当を記録
       result.push({
         id: id++,
         tableNumber: String(((id + t) % 10) + 1),

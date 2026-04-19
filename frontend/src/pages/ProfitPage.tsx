@@ -360,9 +360,8 @@ function CastTrendView() {
 
     return labels.map((l) => {
       const b = map.get(l)!
-      // 最終的な給与(期間内のMAX(A, B))
-      const guaranteed = Math.floor(b.sales * cast.guaranteeRate)
-      const salary = Math.max(b.gross, guaranteed)
+      // 指示書§4.1: (時給+バック) × 0.9
+      const salary = Math.floor(b.gross * 0.9)
       return { label: l, sales: b.sales, hours: b.hours, back: b.back, salary }
     })
   }, [cast, granularity])
@@ -536,9 +535,10 @@ function CalendarView() {
     // 担当キャスト別にグループ化
     const grouped = new Map<string, typeof records>()
     for (const r of records) {
+      // 本指名なら nominatedCastId、そうでなければ castNamesSnapshot[0] を担当として扱う
       const key = r.nominatedCastId
         ? (casts.find((c) => c.id === r.nominatedCastId)?.name ?? 'フリー')
-        : 'フリー'
+        : (r.castNamesSnapshot && r.castNamesSnapshot.length > 0 ? r.castNamesSnapshot[0] : 'フリー')
       if (!grouped.has(key)) grouped.set(key, [])
       grouped.get(key)!.push(r)
     }
