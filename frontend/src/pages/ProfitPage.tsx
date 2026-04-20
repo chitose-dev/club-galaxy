@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useStore } from '../store'
 import { sampleDailyWork, type BackType } from '../data/mock'
+import ContextualHeader from '../components/ContextualHeader'
 
 type Granularity = 'day' | 'month' | 'year'
 type ViewMode = 'today' | 'trend' | 'calendar' | 'cast'
@@ -19,10 +20,23 @@ function flBg(rate: number) {
 
 export default function ProfitPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('today')
+  const { flMetrics } = useStore()
 
   return (
-    <div className="p-4 space-y-4">
-      <h2 className="text-lg font-bold text-[#d4af37]" style={{ fontFamily: 'var(--font-display)' }}>利益管理</h2>
+    <div className="flex flex-col min-h-full">
+      <ContextualHeader
+        title="利益管理"
+        backTo="/top"
+        right={
+          <div className="hidden md:flex items-center gap-3 text-xs">
+            <span className="text-gray-400">本日利益:</span>
+            <span className="tabular-nums font-bold text-[#d4af37]">¥{flMetrics.todayProfit.toLocaleString()}</span>
+            <span className="text-gray-400">FL:</span>
+            <span className={`tabular-nums font-bold ${flColor(flMetrics.flRate)}`}>{flMetrics.flRate.toFixed(1)}%</span>
+          </div>
+        }
+      />
+      <div className="p-4 space-y-4 flex-1">
 
       <div className="flex border-b border-white/10 overflow-x-auto">
         {(['today', 'trend', 'calendar', 'cast'] as ViewMode[]).map((m) => (
@@ -45,6 +59,7 @@ export default function ProfitPage() {
       {viewMode === 'trend' && <StoreTrendView />}
       {viewMode === 'calendar' && <CalendarView />}
       {viewMode === 'cast' && <CastTrendView />}
+      </div>
     </div>
   )
 }

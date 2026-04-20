@@ -5,9 +5,156 @@
   --color-secondary: #16213e;
   --color-gold: #d4af37;
   --color-gold-light: #e8c952;
+  --color-gold-dark: #b8891f;
   --color-accent: #e94560;
+  --color-panel: rgba(255, 255, 255, 0.05);
+  --color-panel-border: rgba(255, 255, 255, 0.1);
   --font-display: 'Cormorant Garamond', serif;
   --font-body: 'Noto Sans JP', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
+  --shadow-bevel: 0 2px 0 rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  --shadow-pressed: inset 0 2px 4px rgba(0, 0, 0, 0.4);
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+}
+
+/* ─── Buttons (TRUST風: ゴールドグラデ + ベベル) ─── */
+.btn-gold {
+  background: linear-gradient(180deg, var(--color-gold-light) 0%, var(--color-gold) 55%, var(--color-gold-dark) 100%);
+  color: #1a1a2e;
+  font-weight: 700;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-bevel);
+  padding: 0.65rem 1.25rem;
+  min-height: 44px;
+  transition: transform 0.05s ease, box-shadow 0.1s ease, opacity 0.15s ease;
+  cursor: pointer;
+  letter-spacing: 0.03em;
+}
+.btn-gold:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: var(--shadow-pressed);
+}
+.btn-gold:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-danger {
+  background: linear-gradient(180deg, #f06577 0%, var(--color-accent) 55%, #b32e45 100%);
+  color: #fff;
+  font-weight: 700;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-bevel);
+  padding: 0.65rem 1.25rem;
+  min-height: 44px;
+  transition: transform 0.05s ease, box-shadow 0.1s ease, opacity 0.15s ease;
+  cursor: pointer;
+  letter-spacing: 0.03em;
+}
+.btn-danger:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: var(--shadow-pressed);
+}
+.btn-danger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-dark {
+  background: linear-gradient(180deg, #2d2d44 0%, #1a1a2e 100%);
+  color: #fff;
+  font-weight: 600;
+  border: 1px solid rgba(212, 175, 55, 0.35);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-bevel);
+  padding: 0.65rem 1.25rem;
+  min-height: 44px;
+  transition: transform 0.05s ease, box-shadow 0.1s ease, opacity 0.15s ease;
+  cursor: pointer;
+  letter-spacing: 0.03em;
+}
+.btn-dark:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: var(--shadow-pressed);
+}
+.btn-dark:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--color-gold);
+  font-weight: 500;
+  border: 1px solid rgba(212, 175, 55, 0.4);
+  border-radius: var(--radius-md);
+  padding: 0.5rem 1rem;
+  min-height: 40px;
+  transition: background-color 0.15s ease;
+  cursor: pointer;
+}
+.btn-ghost:hover:not(:disabled) {
+  background: rgba(212, 175, 55, 0.1);
+}
+.btn-ghost:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ─── Panel (情報表示: 半透明白 + ボーダー) ─── */
+.panel {
+  background: var(--color-panel);
+  border: 1px solid var(--color-panel-border);
+  border-radius: var(--radius-lg);
+}
+
+.panel-gold {
+  background: linear-gradient(180deg, rgba(232, 201, 82, 0.18) 0%, rgba(212, 175, 55, 0.08) 100%);
+  border: 1px solid rgba(212, 175, 55, 0.4);
+  border-radius: var(--radius-lg);
+}
+
+/* ─── グローバルナビバッジ ─── */
+.nav-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9999px;
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+/* ─── Cast chip (ひらがな名) ─── */
+.cast-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 0.85rem;
+  min-height: 44px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, #3d2a1a 0%, #2a1e12 100%);
+  border: 1px solid rgba(212, 175, 55, 0.25);
+  color: #fff;
+  font-weight: 500;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+.cast-chip.is-selected {
+  border-color: var(--color-gold);
+  background: linear-gradient(180deg, #5a3f26 0%, #3d2a1a 100%);
+  box-shadow: 0 0 0 1px var(--color-gold), inset 0 1px 0 rgba(255, 255, 255, 0.15);
 }
 
 body {
@@ -84,5 +231,10 @@ input:focus, select:focus, textarea:focus, button:focus-visible {
 
   .print-receipt * {
     color: #000 !important;
+  }
+
+  /* 明細なしで印刷: 明細行 (.print-detail-lines) をスキップ */
+  body.print-summary-mode .print-detail-lines {
+    display: none !important;
   }
 }

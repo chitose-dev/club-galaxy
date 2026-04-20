@@ -1,9 +1,14 @@
 import { useState, useMemo } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../store'
-import type { MenuItem, CastMenuItem, BackType, OrderItem } from '../data/mock'
+import type { MenuItem, CastMenuItem, OrderItem } from '../data/mock'
 import { displayOrderName, chargeItems } from '../data/mock'
-import { Minus, Plus, Trash2, Wine, X } from 'lucide-react'
+import { Minus, Plus, Trash2, Wine, CreditCard, Printer, X } from 'lucide-react'
+import ContextualHeader from '../components/ContextualHeader'
+import BottomActionBar from '../components/BottomActionBar'
+import CastChip from '../components/CastChip'
+import { GoldButton, DangerButton, DarkButton, GhostButton } from '../components/Buttons'
+import { openPrintWindow } from '../utils/print'
 
 const HELP_BACK_ITEM: CastMenuItem = {
   id: 999,
@@ -16,20 +21,50 @@ const HELP_BACK_ITEM: CastMenuItem = {
   backType: 'ヘルプ',
 }
 
-const drinkTabs = [
-  { key: 'guest' as const, label: 'ゲスト用' },
-  { key: 'cast' as const, label: 'キャスト用' },
-  { key: 'bottle' as const, label: 'ボトル' },
+type CategoryKey =
+  | 'all'
+  | 'cast-drink'
+  | 'shot-pitcher'
+  | 'champagne'
+  | 'whisky'
+  | 'shochu'
+  | 'brandy'
+  | 'wine'
+  | 'charge'
+  | 'bottle'
+
+const categories: Array<{ key: CategoryKey; label: string }> = [
+  { key: 'all', label: '全ての商品' },
+  { key: 'cast-drink', label: 'キャストドリンク' },
+  { key: 'shot-pitcher', label: '単品ドリンク' },
+  { key: 'champagne', label: 'シャンパン' },
+  { key: 'whisky', label: 'ウイスキー' },
+  { key: 'shochu', label: '焼酎' },
+  { key: 'brandy', label: 'ブランデー' },
+  { key: 'wine', label: 'ワイン' },
+  { key: 'charge', label: '指名料・同伴' },
+  { key: 'bottle', label: 'ボトルキープ' },
 ]
 
+/**
+ * TRUST 準拠の 4 カラム注文画面。
+ * [カテゴリー | メニュー | 誰に | 注文明細]
+ */
 export default function OrderPage() {
-  const { tables, guestMenu, castMenu, addOrderToTable, removeOrderFromTable, bottleKeeps, addBottleKeep, updateBottleKeep, removeBottleKeep } = useStore()
+  const {
+    tables, guestMenu, castMenu, storeSettings,
+    addOrderToTable, removeOrderFromTable,
+    bottleKeeps, addBottleKeep, updateBottleKeep, removeBottleKeep,
+  } = useStore()
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
 
   const occupiedTables = tables.filter((t) => t.status !== 'empty')
   const initialTableId = Number(searchParams.get('table')) || occupiedTables[0]?.id || 0
   const [selectedTableId, setSelectedTableId] = useState<number>(initialTableId)
-  const [activeTab, setActiveTab] = useState<'guest' | 'cast' | 'bottle'>('guest')
+  const [activeCategory, setActiveCategory] = useState<CategoryKey>('all')
+  const [selectedCastName, setSelectedCastName] = useState<string | null>(null)
+  const [recipient, setRecipient] = useState<'guest' | 'staff'>('guest')
 
   const [showAddBottle, setShowAddBottle] = useState(false)
   const [bottleName, setBottleName] = useState('')
@@ -37,39 +72,61 @@ export default function OrderPage() {
   const [bottleStorage, setBottleStorage] = useState('')
   const [bottleCustomer, setBottleCustomer] = useState('')
 
-  // キャスト選択モーダル(本カク等、cast系メニュー選択時に誰に紐付けるか選ぶ)
-  const [castSelectTarget, setCastSelectTarget] = useState<CastMenuItem | null>(null)
-  // 指名料チャージ追加用(本指名/場内指名/同伴/Help)
-  const [chargeSelectTarget, setChargeSelectTarget] = useState<{ id: string; label: string; price: number; cost: number } | null>(null)
-
   const selectedTable = tables.find((t) => t.id === selectedTableId)
   const orders = selectedTable?.orders ?? []
 
-  const menuItems: MenuItem[] = activeTab === 'guest' ? guestMenu : activeTab === 'cast' ? castMenu : []
+  const menuItems: MenuItem[] = useMemo(() => {
+    const all = [...guestMenu, ...castMenu]
+    switch (activeCategory) {
+      case 'all':
+        return all
+      case 'cast-drink':
+        return castMenu
+      case 'shot-pitcher':
+        return guestMenu.filter((i) => ['shot', 'pitcher', 'beer', 'warimono'].includes(i.subcategory))
+      case 'champagne':
+        return guestMenu.filter((i) => i.subcategory === 'champagne')
+      case 'whisky':
+        return guestMenu.filter((i) => i.subcategory === 'whisky')
+      case 'shochu':
+        return guestMenu.filter((i) => i.subcategory === 'shochu')
+      case 'brandy':
+        return guestMenu.filter((i) => i.subcategory === 'brandy')
+      case 'wine':
+        return guestMenu.filter((i) => i.subcategory === 'wine')
+      default:
+        return []
+    }
+  }, [activeCategory, guestMenu, castMenu])
 
   const handleAdd = (item: MenuItem) => {
-    if (!selectedTableId) return
-    // 指示書§2.3: cast系メニューはキャスト選択モーダルで担当を選ぶ
-    if (item.category === 'cast' && selectedTable && selectedTable.castNames.length > 0) {
-      setCastSelectTarget(item as CastMenuItem)
+    if (!selectedTableId || !selectedTable) return
+    // cast メニューはキャスト紐付け必須
+    if (item.category === 'cast') {
+      if (!selectedCastName) {
+        alert('キャストドリンクはキャストを選択してから追加してください')
+        return
+      }
+      addOrderToTable(selectedTableId, { menuItem: item, quantity: 1, castName: selectedCastName })
       return
     }
-    addOrderToTable(selectedTableId, { menuItem: item, quantity: 1 })
+    // guest メニューは選択中キャストがいればバック付与、なければ紐付けなし
+    addOrderToTable(selectedTableId, {
+      menuItem: item,
+      quantity: 1,
+      castName: selectedCastName ?? undefined,
+    })
   }
 
-  const handleAddForCast = (item: CastMenuItem, castName: string) => {
-    if (!selectedTableId) return
-    addOrderToTable(selectedTableId, { menuItem: item, quantity: 1, castName })
-    setCastSelectTarget(null)
-  }
-
-  // 指名料チャージをキャスト紐付きで追加 (B-6: 場内指名/同伴をメニューから追加)
-  const handleAddCharge = (charge: { id: string; label: string; price: number; cost: number }, castName: string) => {
-    if (!selectedTableId) return
-    // 固有のmenuItem.idを使って複数のキャストに別エントリで追加できるようにする
+  const handleAddCharge = (charge: { id: string; label: string; price: number; cost: number }) => {
+    if (!selectedTableId || !selectedTable) return
+    if (!selectedCastName) {
+      alert('指名料はキャストを選択してから追加してください')
+      return
+    }
     const order: OrderItem = {
       menuItem: {
-        id: 3000 + Math.floor(Math.random() * 1000000),
+        id: 3000 + Math.floor(Math.random() * 1_000_000),
         name: charge.label,
         price: charge.price,
         cost: charge.cost,
@@ -78,10 +135,18 @@ export default function OrderPage() {
         subcategory: 'warimono',
       },
       quantity: 1,
-      castName,
+      castName: selectedCastName,
     }
     addOrderToTable(selectedTableId, order)
-    setChargeSelectTarget(null)
+  }
+
+  const handleAddHelp = () => {
+    if (!selectedTableId) return
+    if (!selectedCastName) {
+      alert('ヘルプバックはキャストを選択してから追加してください')
+      return
+    }
+    addOrderToTable(selectedTableId, { menuItem: HELP_BACK_ITEM, quantity: 1, castName: selectedCastName })
   }
 
   const handleRemove = (itemId: number, castName?: string) => {
@@ -89,8 +154,13 @@ export default function OrderPage() {
     removeOrderFromTable(selectedTableId, itemId, castName)
   }
 
+  const handleIncrement = (o: OrderItem) => {
+    if (!selectedTableId) return
+    addOrderToTable(selectedTableId, { menuItem: o.menuItem, quantity: 1, castName: o.castName })
+  }
+
   const handleDelete = (itemId: number, castName?: string) => {
-    if (!selectedTableId || !selectedTable) return
+    if (!selectedTableId) return
     const order = orders.find((o) => o.menuItem.id === itemId && o.castName === castName)
     if (!order) return
     for (let i = 0; i < order.quantity; i++) {
@@ -98,21 +168,16 @@ export default function OrderPage() {
     }
   }
 
-  const total = orders.reduce((sum, o) => sum + o.menuItem.price * o.quantity, 0)
-
-  // 指名料・同伴は自動追加オーダーに含まれているので、ここでは castMenu のバックだけ集計
-  const backSummary = useMemo(() => {
-    const summary: Partial<Record<BackType, number>> = {}
-    for (const order of orders) {
-      if (order.menuItem.category === 'cast') {
-        const castItem = order.menuItem as CastMenuItem
-        summary[castItem.backType] = (summary[castItem.backType] ?? 0) + order.quantity
-      }
-    }
-    return summary
-  }, [orders])
-
-  const sortedBottleKeeps = [...bottleKeeps].sort((a, b) => a.remaining - b.remaining)
+  const subtotal = orders.reduce((sum, o) => sum + o.menuItem.price * o.quantity, 0)
+  const setPrice = selectedTable?.startTime
+    ? (() => {
+        const h = parseInt(selectedTable.startTime.split(':')[0], 10)
+        return h < 4 ? 6000 : h < 22 ? 4000 : h < 24 ? 5000 : 6000
+      })()
+    : 0
+  const adjustedSetPrice = Math.max(0, setPrice - (selectedTable?.setDiscountPerSet ?? 0))
+  const setSubtotal = selectedTable ? adjustedSetPrice * selectedTable.guestCount * selectedTable.setCount : 0
+  const grandTotal = subtotal + setSubtotal + Math.round((subtotal + setSubtotal) * storeSettings.taxRate)
 
   const handleAddBottleKeep = () => {
     if (!bottleName || !bottleCustomer) return
@@ -123,7 +188,7 @@ export default function OrderPage() {
       storageLocation: bottleStorage,
       customerName: bottleCustomer,
       tableNumber: selectedTable?.number,
-      createdAt: new Date().toISOString().split('T')[0],
+      createdAt: new Date().toISOString().slice(0, 10),
     })
     setBottleName('')
     setBottleRemaining(100)
@@ -132,323 +197,384 @@ export default function OrderPage() {
     setShowAddBottle(false)
   }
 
+  const handlePrintOrder = () => {
+    if (!selectedTable || orders.length === 0) return
+    const body = `
+      <div class="header">${storeSettings.storeName} 注文票</div>
+      <div class="row"><span>卓:</span><span>${selectedTable.number}</span></div>
+      <div class="row"><span>時刻:</span><span>${new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}</span></div>
+      <div class="divider"></div>
+      ${orders.map((o) => `<div class="row"><span>${displayOrderName(o)} x${o.quantity}</span><span>&yen;${(o.menuItem.price * o.quantity).toLocaleString()}</span></div>`).join('')}
+      <div class="divider"></div>
+      <div class="row total"><span>小計:</span><span>&yen;${subtotal.toLocaleString()}</span></div>
+    `
+    const extraStyles = `
+      body { max-width: 300px; margin: 0 auto; }
+      .header { text-align: center; font-size: 18px; font-weight: bold; margin-bottom: 10px; }
+      .row { display: flex; justify-content: space-between; font-size: 13px; margin: 4px 0; }
+      .divider { border-top: 1px dashed #ccc; margin: 8px 0; }
+      .total { font-size: 16px; font-weight: bold; }
+    `
+    openPrintWindow(body, '注文票', { width: 350, height: 500, extraStyles })
+  }
+
+  if (!selectedTable) {
+    return (
+      <div className="p-8 text-center text-gray-400">
+        <p>卓が選択されていません</p>
+        <div className="mt-4">
+          <GhostButton onClick={() => navigate('/floor')}>ホールへ戻る</GhostButton>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col h-full">
-      {/* Table selector */}
-      <div className="px-4 pt-3 pb-2 flex items-center gap-2">
-        <span className="text-xs text-gray-500">卓:</span>
-        <select
-          value={selectedTableId}
-          onChange={(e) => setSelectedTableId(Number(e.target.value))}
-          className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm"
-        >
-          {occupiedTables.length === 0 && <option value={0}>卓なし</option>}
-          {occupiedTables.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.number} ({t.castNames.join(',')})
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* Category tabs */}
-      <div className="flex border-b border-white/10">
-        {drinkTabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`flex-1 py-3 text-sm font-bold tracking-wide transition-colors relative ${
-              activeTab === tab.key
-                ? 'text-white'
-                : 'text-gray-500'
-            }`}
+      <ContextualHeader
+        title={`注文入力 — 卓 ${selectedTable.number}`}
+        backTo="/floor"
+        right={
+          <select
+            value={selectedTableId}
+            onChange={(e) => setSelectedTableId(Number(e.target.value))}
+            className="bg-white/5 border border-[#d4af37]/30 rounded-lg px-3 py-1.5 text-sm text-white"
           >
-            {tab.label}
-            {activeTab === tab.key && (
-              <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-0.5 bg-white rounded-full" />
-            )}
-          </button>
-        ))}
-      </div>
+            {occupiedTables.map((t) => (
+              <option key={t.id} value={t.id}>
+                卓 {t.number} ({t.castNames.join(',') || '-'})
+              </option>
+            ))}
+          </select>
+        }
+      />
 
-      {/* Bottle tab content */}
-      {activeTab === 'bottle' ? (
-        <div className="flex-1 overflow-y-auto p-3">
-          <div className="flex justify-between items-center mb-3">
-            <h3 className="text-sm font-bold text-gray-400">ボトルキープ一覧</h3>
-            <button onClick={() => setShowAddBottle(true)} className="text-xs bg-white text-black px-3 py-1.5 rounded-lg font-bold flex items-center gap-1">
-              <Plus size={12} /> キープ登録
+      <div className="flex-1 overflow-hidden grid grid-cols-1 md:grid-cols-[160px_minmax(0,1fr)_170px_minmax(0,1.3fr)]">
+        {/* ── Column 1: カテゴリー ── */}
+        <div className="border-r border-white/10 overflow-y-auto bg-[#14141f]">
+          {categories.map((cat) => (
+            <button
+              key={cat.key}
+              onClick={() => setActiveCategory(cat.key)}
+              className={`w-full text-left px-4 py-3 text-sm border-b border-white/5 transition-colors ${
+                activeCategory === cat.key
+                  ? 'bg-[#d4af37]/15 text-[#d4af37] font-bold'
+                  : 'text-gray-400 hover:bg-white/5'
+              }`}
+            >
+              {cat.label}
             </button>
-          </div>
+          ))}
+        </div>
 
-          {/* Current table's bottles */}
-          {selectedTable && (() => {
-            const tableBottles = bottleKeeps.filter((b) => b.tableNumber === selectedTable.number)
-            if (tableBottles.length === 0) return null
-            return (
-              <div className="bg-amber-900/10 border border-amber-700/30 rounded-lg p-3 mb-4">
-                <div className="text-xs text-amber-400 font-bold mb-2">この卓のキープボトル</div>
-                {tableBottles.map((b) => (
-                  <div key={b.id} className="flex justify-between text-sm mb-1">
-                    <span>{b.bottleName} ({b.customerName})</span>
-                    <span className={b.remaining <= 20 ? 'text-red-400 font-bold' : ''}>{b.remaining}%</span>
-                  </div>
-                ))}
-              </div>
-            )
-          })()}
-
-          {/* All bottles */}
-          <div className="space-y-2">
-            {sortedBottleKeeps.map((b) => (
-              <div key={b.id} className={`bg-white/5 rounded-lg p-3 ${b.remaining <= 20 ? 'border border-red-500/30' : ''}`}>
-                <div className="flex justify-between items-start mb-2">
-                  <div>
-                    <div className="font-bold text-sm">{b.bottleName}</div>
-                    <div className="text-xs text-gray-500">{b.customerName} / {b.storageLocation || '場所未設定'}</div>
-                    {b.tableNumber && <div className="text-xs text-gray-600">卓: {b.tableNumber}</div>}
-                  </div>
-                  <span className={`text-sm font-bold tabular-nums ${b.remaining <= 20 ? 'text-red-400' : b.remaining <= 50 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                    {b.remaining}%
-                  </span>
-                </div>
-                <div className="w-full bg-white/5 rounded-full h-1.5 mb-2">
-                  <div
-                    className={`h-1.5 rounded-full transition-all ${b.remaining <= 20 ? 'bg-red-500' : b.remaining <= 50 ? 'bg-amber-500' : 'bg-emerald-500'}`}
-                    style={{ width: `${b.remaining}%` }}
-                  />
-                </div>
-                <div className="flex gap-2 items-center">
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={b.remaining}
-                    onChange={(e) => updateBottleKeep(b.id, { remaining: Number(e.target.value) })}
-                    className="flex-1"
-                  />
-                  <button onClick={() => removeBottleKeep(b.id)} className="text-xs bg-red-500/10 border border-red-500/20 px-2 py-1 rounded text-red-400">
-                    <Trash2 size={12} />
+        {/* ── Column 2: メニュー ── */}
+        <div className="overflow-y-auto p-3 border-r border-white/10">
+          {activeCategory === 'charge' ? (
+            <div className="grid grid-cols-2 gap-2 content-start">
+              {chargeItems.filter((c) => c.id !== 'single-charge').map((c) => (
+                <button key={c.id} onClick={() => handleAddCharge(c)} className="btn-gold text-left p-3 block">
+                  <div className="text-sm font-bold">{c.label}</div>
+                  <div className="text-xs tabular-nums mt-1">¥{c.price.toLocaleString()}</div>
+                </button>
+              ))}
+              <button onClick={handleAddHelp} className="btn-dark text-left p-3 block border border-[#d4af37]/40">
+                <div className="text-sm font-bold">ヘルプ</div>
+                <div className="text-xs text-gray-400 mt-1">バック記録のみ</div>
+              </button>
+            </div>
+          ) : activeCategory === 'bottle' ? (
+            <BottleSection
+              bottleKeeps={bottleKeeps}
+              selectedTable={selectedTable}
+              onOpenAdd={() => setShowAddBottle(true)}
+              onUpdate={updateBottleKeep}
+              onRemove={removeBottleKeep}
+            />
+          ) : (
+            <div className="grid grid-cols-2 gap-2 content-start">
+              {menuItems.map((item) => {
+                const orderedQty = orders.filter((o) => o.menuItem.id === item.id).reduce((s, o) => s + o.quantity, 0)
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => handleAdd(item)}
+                    className={`relative text-left p-3 rounded-lg border transition-colors ${
+                      item.category === 'cast'
+                        ? 'bg-[#d4af37]/10 border-[#d4af37]/40 hover:bg-[#d4af37]/20'
+                        : 'bg-white/5 border-white/10 hover:bg-white/10'
+                    }`}
+                  >
+                    <div className="text-sm font-medium text-white truncate">{item.name}</div>
+                    <div className="text-sm tabular-nums text-[#d4af37] mt-1">
+                      {item.price === 0 ? 'セット内' : `¥${item.price.toLocaleString()}`}
+                    </div>
+                    {item.category === 'cast' && (
+                      <div className="text-[10px] text-gray-400 mt-0.5">Back: {(item as CastMenuItem).backType}</div>
+                    )}
+                    {orderedQty > 0 && (
+                      <span className="absolute -top-2 -right-2 bg-[#e94560] text-white text-xs w-6 h-6 rounded-full flex items-center justify-center font-bold">
+                        {orderedQty}
+                      </span>
+                    )}
                   </button>
-                </div>
-              </div>
+                )
+              })}
+              {menuItems.length === 0 && (
+                <div className="col-span-2 text-center text-gray-500 text-sm py-8">該当商品なし</div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ── Column 3: 誰に ── */}
+        <div className="overflow-y-auto p-3 border-r border-white/10 bg-[#14141f]">
+          <div className="flex mb-3 bg-white/5 rounded-lg p-0.5">
+            {(['guest', 'staff'] as const).map((r) => (
+              <button
+                key={r}
+                onClick={() => setRecipient(r)}
+                className={`flex-1 py-1.5 text-xs rounded-md font-semibold tracking-wider transition-colors ${
+                  recipient === r ? 'bg-[#d4af37] text-[#1a1a2e]' : 'text-gray-400'
+                }`}
+              >
+                {r === 'guest' ? 'お客さま' : 'スタッフ'}
+              </button>
             ))}
           </div>
 
-          {sortedBottleKeeps.length === 0 && (
-            <div className="text-center text-gray-600 mt-12">
-              <Wine size={32} className="mx-auto mb-2 opacity-30" />
-              <p className="text-sm">ボトルキープはありません</p>
-            </div>
-          )}
+          <div className="text-[10px] text-gray-500 mb-2 tracking-wider">キャスト選択</div>
+          <div className="grid grid-cols-1 gap-1.5">
+            <CastChip
+              name="指名なし"
+              selected={selectedCastName === null}
+              onClick={() => setSelectedCastName(null)}
+            />
+            {selectedTable.castNames.map((name) => (
+              <CastChip
+                key={name}
+                name={name}
+                selected={selectedCastName === name}
+                onClick={() => setSelectedCastName(name)}
+              />
+            ))}
+          </div>
 
-          {/* Add bottle modal */}
-          {showAddBottle && (
-            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowAddBottle(false)}>
-              <div className="bg-[#1a1a2e] rounded-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
-                <div className="flex justify-between items-center mb-4">
-                  <h2 className="text-lg font-bold">ボトルキープ登録</h2>
-                  <button onClick={() => setShowAddBottle(false)} className="text-gray-500 hover:text-white"><X size={18} /></button>
-                </div>
-                <div className="space-y-3 mb-4">
-                  <div>
-                    <label className="text-xs text-gray-500 block mb-1">ボトル名</label>
-                    <input type="text" value={bottleName} onChange={(e) => setBottleName(e.target.value)} placeholder="例: 響 17年" className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm" />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500 block mb-1">残量: {bottleRemaining}%</label>
-                    <input type="range" min="0" max="100" value={bottleRemaining} onChange={(e) => setBottleRemaining(Number(e.target.value))} className="w-full" />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500 block mb-1">保管場所</label>
-                    <input type="text" value={bottleStorage} onChange={(e) => setBottleStorage(e.target.value)} placeholder="例: A-3" className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm" />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500 block mb-1">担当客名</label>
-                    <input type="text" value={bottleCustomer} onChange={(e) => setBottleCustomer(e.target.value)} placeholder="例: 田中様" className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm" />
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={() => setShowAddBottle(false)} className="flex-1 bg-white/5 border border-white/10 py-3 rounded-lg font-bold text-gray-500">キャンセル</button>
-                  <button onClick={handleAddBottleKeep} disabled={!bottleName || !bottleCustomer} className="flex-1 bg-white text-black py-3 rounded-lg font-bold disabled:opacity-40">登録</button>
-                </div>
-              </div>
+          {recipient === 'guest' && (
+            <div className="mt-3 text-[10px] text-gray-500 leading-relaxed">
+              選択したキャストに<br />バック・売上が帰属します
             </div>
           )}
         </div>
-      ) : (
-        <>
-          {/* 指名料・同伴 追加チップ (B-6: cast タブでのみ表示) */}
-          {activeTab === 'cast' && selectedTable && selectedTable.castNames.length > 0 && (
-            <div className="px-3 pt-2 pb-1 border-b border-white/5">
-              <div className="text-[10px] text-gray-500 mb-1">指名料・同伴 追加</div>
-              <div className="flex gap-2 flex-wrap">
-                {chargeItems.filter((c) => c.id !== 'single-charge').map((c) => (
-                  <button
-                    key={c.id}
-                    onClick={() => setChargeSelectTarget(c)}
-                    className="bg-[#d4af37]/10 border border-[#d4af37]/30 text-[#d4af37] text-xs px-3 py-1.5 rounded-full font-bold"
-                  >
-                    + {c.label} ¥{c.price.toLocaleString()}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
 
-          {/* Menu grid */}
-          <div className="flex-1 overflow-y-auto p-3 grid grid-cols-2 gap-2 content-start">
-            {menuItems.map((item) => {
-              // 同じメニューがキャスト別に複数あっても合計で表示
-              const orderedQty = orders.filter((o) => o.menuItem.id === item.id).reduce((s, o) => s + o.quantity, 0)
-              const ordered = orderedQty > 0 ? { quantity: orderedQty } : null
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => handleAdd(item)}
-                  className="bg-white/5 rounded-lg p-3 text-left active:bg-white/[0.08] transition-colors relative"
-                >
-                  <div className="text-sm font-medium mb-1">{item.name}</div>
-                  <div className="text-sm tabular-nums">
-                    {item.price === 0 ? 'セット内' : `¥${item.price.toLocaleString()}`}
-                  </div>
-                  {item.category === 'cast' && (
-                    <div className="text-xs text-gray-600 mt-0.5">Back: {(item as CastMenuItem).backType}</div>
-                  )}
-                  {ordered && (
-                    <span className="absolute -top-2 -right-2 bg-white text-black text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold">
-                      {ordered.quantity}
-                    </span>
-                  )}
-                </button>
-              )
-            })}
-            {activeTab === 'cast' && (() => {
-              const helpQty = orders.filter((o) => o.menuItem.id === HELP_BACK_ITEM.id).reduce((s, o) => s + o.quantity, 0)
-              const helpOrdered = helpQty > 0 ? { quantity: helpQty } : null
-              return (
-                <button
-                  onClick={() => handleAdd(HELP_BACK_ITEM)}
-                  className="bg-orange-500/5 border border-orange-500/20 rounded-lg p-3 text-left active:bg-orange-500/10 transition-colors relative"
-                >
-                  <div className="text-sm font-medium mb-1">ヘルプ</div>
-                  <div className="text-orange-300 text-sm">バック記録</div>
-                  <div className="text-xs text-gray-600 mt-0.5">Back: ヘルプ</div>
-                  {helpOrdered && (
-                    <span className="absolute -top-2 -right-2 bg-white text-black text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold">
-                      {helpOrdered.quantity}
-                    </span>
-                  )}
-                </button>
-              )
-            })()}
+        {/* ── Column 4: 注文明細 ── */}
+        <div className="overflow-y-auto p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs text-gray-400 tracking-wider">注文明細</span>
+            <span className="text-[10px] text-gray-500">{orders.length} 品</span>
           </div>
 
-          {/* Back summary */}
-          {Object.keys(backSummary).length > 0 && (
-            <div className="bg-purple-500/5 border-t border-purple-500/20 px-4 py-2">
-              <div className="text-xs text-purple-400 mb-1">バック集計</div>
-              <div className="flex flex-wrap gap-2">
-                {(Object.entries(backSummary) as [BackType, number][]).map(([type, count]) => (
-                  <span key={type} className="bg-purple-500/10 text-purple-300 text-xs px-2 py-0.5 rounded">
-                    {type}: {count}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Order list */}
-          {orders.length > 0 && (
-            <div className="bg-[#1a1a2e] border-t border-white/10 p-4">
-              <div className="max-h-40 overflow-y-auto mb-3 space-y-1.5">
-                {orders.map((o, idx) => (
-                  <div key={`${o.menuItem.id}-${o.castName ?? ''}-${idx}`} className="flex items-center justify-between text-sm">
-                    <span className="flex-1 truncate text-gray-300">{displayOrderName(o)}</span>
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => handleRemove(o.menuItem.id, o.castName)} className="text-gray-400 bg-white/5 border border-white/10 rounded w-7 h-7 flex items-center justify-center">
-                        <Minus size={14} />
-                      </button>
-                      <span className="w-6 text-center font-bold tabular-nums">{o.quantity}</span>
-                      <button onClick={() => {
-                        if (o.castName) addOrderToTable(selectedTableId, { menuItem: o.menuItem, quantity: 1, castName: o.castName })
-                        else handleAdd(o.menuItem)
-                      }} className="text-gray-400 bg-white/5 border border-white/10 rounded w-7 h-7 flex items-center justify-center">
-                        <Plus size={14} />
-                      </button>
-                      <span className="w-20 text-right text-gray-400 tabular-nums">
-                        {o.menuItem.price === 0 ? 'セット内' : `¥${(o.menuItem.price * o.quantity).toLocaleString()}`}
-                      </span>
-                      <button onClick={() => handleDelete(o.menuItem.id, o.castName)} className="text-red-400 bg-red-500/10 border border-red-500/20 rounded p-1 ml-1">
-                        <Trash2 size={12} />
-                      </button>
+          {orders.length === 0 ? (
+            <div className="text-center text-gray-500 text-sm py-12">注文なし</div>
+          ) : (
+            <div className="space-y-1.5">
+              {orders.map((o, idx) => (
+                <div
+                  key={`${o.menuItem.id}-${o.castName ?? ''}-${idx}`}
+                  className="panel p-2.5 flex items-center gap-2"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm text-white truncate">{displayOrderName(o)}</div>
+                    <div className="text-[10px] text-gray-400 tabular-nums">
+                      ¥{o.menuItem.price.toLocaleString()} × {o.quantity}
                     </div>
                   </div>
-                ))}
-              </div>
-              <div className="flex items-center justify-between border-t border-white/10 pt-3">
-                <span className="text-lg font-bold">合計</span>
-                <span className="text-lg font-bold text-[#d4af37] tabular-nums">¥{total.toLocaleString()}</span>
-              </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={() => handleRemove(o.menuItem.id, o.castName)} className="w-7 h-7 flex items-center justify-center bg-white/5 rounded-md text-gray-300">
+                      <Minus size={14} />
+                    </button>
+                    <span className="w-6 text-center font-bold tabular-nums text-sm">{o.quantity}</span>
+                    <button onClick={() => handleIncrement(o)} className="w-7 h-7 flex items-center justify-center bg-white/5 rounded-md text-gray-300">
+                      <Plus size={14} />
+                    </button>
+                    <button onClick={() => handleDelete(o.menuItem.id, o.castName)} className="w-7 h-7 flex items-center justify-center bg-red-500/10 rounded-md text-red-400 ml-1">
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
-        </>
-      )}
 
-      {/* 指名料チャージ追加時のキャスト選択モーダル (B-6) */}
-      {chargeSelectTarget && selectedTable && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setChargeSelectTarget(null)}>
-          <div className="bg-[#1a1a2e] rounded-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-3">
-              <h2 className="text-base font-bold">「{chargeSelectTarget.label}」を誰に?</h2>
-              <button onClick={() => setChargeSelectTarget(null)} className="text-gray-500 hover:text-white"><X size={18} /></button>
+          {/* subtotal inside column 4 */}
+          <div className="mt-3 panel-gold p-3 space-y-1">
+            <div className="flex justify-between text-xs">
+              <span className="text-gray-300">セット料金</span>
+              <span className="tabular-nums">¥{setSubtotal.toLocaleString()}</span>
             </div>
-            <p className="text-xs text-gray-500 mb-4">¥{chargeSelectTarget.price.toLocaleString()} を担当キャストに紐付けて追加</p>
-            <div className="space-y-2">
-              {selectedTable.castNames.map((name) => (
-                <button
-                  key={name}
-                  onClick={() => handleAddCharge(chargeSelectTarget, name)}
-                  className="w-full bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg py-3 px-4 text-left font-bold transition-colors"
-                >
-                  {name}
-                </button>
-              ))}
+            <div className="flex justify-between text-xs">
+              <span className="text-gray-300">注文小計</span>
+              <span className="tabular-nums">¥{subtotal.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between pt-1 border-t border-[#d4af37]/30">
+              <span className="text-sm font-bold text-[#d4af37]">総合計 (税込)</span>
+              <span className="tabular-nums font-bold text-[#d4af37]">¥{grandTotal.toLocaleString()}</span>
             </div>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* Cast 選択モーダル(cast系メニューを誰の紐付けにするか) */}
-      {castSelectTarget && selectedTable && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setCastSelectTarget(null)}>
-          <div className="bg-[#1a1a2e] rounded-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-3">
-              <h2 className="text-base font-bold">「{castSelectTarget.name}」を誰に?</h2>
-              <button onClick={() => setCastSelectTarget(null)} className="text-gray-500 hover:text-white"><X size={18} /></button>
-            </div>
-            <p className="text-xs text-gray-500 mb-4">指示書§2.3: バック付与の担当キャストを選択してください</p>
-            <div className="space-y-2">
-              {selectedTable.castNames.map((name) => (
-                <button
-                  key={name}
-                  onClick={() => handleAddForCast(castSelectTarget, name)}
-                  className="w-full bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg py-3 px-4 text-left font-bold transition-colors"
-                >
-                  {name}
-                </button>
-              ))}
-              {/* キャスト紐付けなしで追加 */}
-              <button
-                onClick={() => { addOrderToTable(selectedTableId, { menuItem: castSelectTarget, quantity: 1 }); setCastSelectTarget(null) }}
-                className="w-full bg-white/5 border border-white/10 rounded-lg py-2 text-xs text-gray-500"
+      <BottomActionBar
+        leftLabel="注文小計"
+        leftValue={`¥${subtotal.toLocaleString()}`}
+        center={
+          <DangerButton
+            onClick={() => navigate(`/table/${selectedTable.id}`)}
+            className="text-base px-6 flex items-center gap-2"
+          >
+            <CreditCard size={18} /> 利用明細へ
+          </DangerButton>
+        }
+        right={
+          <DarkButton onClick={handlePrintOrder} disabled={orders.length === 0} className="text-sm flex items-center gap-1">
+            <Printer size={15} /> 注文印刷
+          </DarkButton>
+        }
+      />
+
+      {showAddBottle && (
+        <AddBottleModal
+          bottleName={bottleName} setBottleName={setBottleName}
+          bottleRemaining={bottleRemaining} setBottleRemaining={setBottleRemaining}
+          bottleStorage={bottleStorage} setBottleStorage={setBottleStorage}
+          bottleCustomer={bottleCustomer} setBottleCustomer={setBottleCustomer}
+          onClose={() => setShowAddBottle(false)}
+          onSave={handleAddBottleKeep}
+        />
+      )}
+    </div>
+  )
+}
+
+function BottleSection({
+  bottleKeeps, selectedTable, onOpenAdd, onUpdate, onRemove,
+}: {
+  bottleKeeps: ReturnType<typeof useStore>['bottleKeeps']
+  selectedTable: { number: string } | null
+  onOpenAdd: () => void
+  onUpdate: (id: number, patch: Partial<{ remaining: number }>) => void
+  onRemove: (id: number) => void
+}) {
+  const sorted = [...bottleKeeps].sort((a, b) => a.remaining - b.remaining)
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-xs text-gray-400 tracking-wider">ボトルキープ一覧</span>
+        <GoldButton onClick={onOpenAdd} className="text-xs px-3 py-1.5">
+          <Plus size={12} className="inline mr-1" /> キープ登録
+        </GoldButton>
+      </div>
+      <div className="space-y-2">
+        {sorted.map((b) => (
+          <div
+            key={b.id}
+            className={`panel p-3 ${b.remaining <= 20 ? 'border-red-500/40' : ''}`}
+          >
+            <div className="flex justify-between items-start mb-2">
+              <div className="min-w-0">
+                <div className="text-sm font-bold truncate">{b.bottleName}</div>
+                <div className="text-xs text-gray-400">{b.customerName} / {b.storageLocation || '場所未設定'}</div>
+                {b.tableNumber && <div className="text-[10px] text-gray-500">卓: {b.tableNumber}{selectedTable?.number === b.tableNumber ? ' (本卓)' : ''}</div>}
+              </div>
+              <span
+                className={`text-sm font-bold tabular-nums shrink-0 ml-2 ${
+                  b.remaining <= 20 ? 'text-red-400' : b.remaining <= 50 ? 'text-amber-400' : 'text-emerald-400'
+                }`}
               >
-                担当なしで追加
+                {b.remaining}%
+              </span>
+            </div>
+            <div className="w-full bg-white/5 rounded-full h-1.5 mb-2">
+              <div
+                className={`h-1.5 rounded-full transition-all ${
+                  b.remaining <= 20 ? 'bg-red-500' : b.remaining <= 50 ? 'bg-amber-500' : 'bg-emerald-500'
+                }`}
+                style={{ width: `${b.remaining}%` }}
+              />
+            </div>
+            <div className="flex gap-2 items-center">
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={b.remaining}
+                onChange={(e) => onUpdate(b.id, { remaining: Number(e.target.value) })}
+                className="flex-1"
+              />
+              <button onClick={() => onRemove(b.id)} className="text-xs bg-red-500/10 border border-red-500/20 px-2 py-1 rounded text-red-400">
+                <Trash2 size={12} />
               </button>
             </div>
           </div>
-        </div>
-      )}
+        ))}
+        {sorted.length === 0 && (
+          <div className="text-center text-gray-600 mt-12">
+            <Wine size={32} className="mx-auto mb-2 opacity-30" />
+            <p className="text-sm">ボトルキープはありません</p>
+          </div>
+        )}
+      </div>
     </div>
+  )
+}
+
+function AddBottleModal({
+  bottleName, setBottleName, bottleRemaining, setBottleRemaining, bottleStorage, setBottleStorage,
+  bottleCustomer, setBottleCustomer, onClose, onSave,
+}: {
+  bottleName: string; setBottleName: (v: string) => void
+  bottleRemaining: number; setBottleRemaining: (v: number) => void
+  bottleStorage: string; setBottleStorage: (v: string) => void
+  bottleCustomer: string; setBottleCustomer: (v: string) => void
+  onClose: () => void; onSave: () => void
+}) {
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-[#1a1a2e] rounded-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-bold">ボトルキープ登録</h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-white"><X size={18} /></button>
+        </div>
+        <div className="space-y-3 mb-4">
+          <Field label="ボトル名">
+            <input type="text" value={bottleName} onChange={(e) => setBottleName(e.target.value)} placeholder="例: 響 17年" className="field-input" />
+          </Field>
+          <Field label={`残量: ${bottleRemaining}%`}>
+            <input type="range" min="0" max="100" value={bottleRemaining} onChange={(e) => setBottleRemaining(Number(e.target.value))} className="w-full" />
+          </Field>
+          <Field label="保管場所">
+            <input type="text" value={bottleStorage} onChange={(e) => setBottleStorage(e.target.value)} placeholder="例: A-3" className="field-input" />
+          </Field>
+          <Field label="担当客名">
+            <input type="text" value={bottleCustomer} onChange={(e) => setBottleCustomer(e.target.value)} placeholder="例: 田中様" className="field-input" />
+          </Field>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onClose} className="flex-1 btn-dark py-2.5 text-sm">キャンセル</button>
+          <button onClick={onSave} disabled={!bottleName || !bottleCustomer} className="flex-1 btn-gold py-2.5 text-sm">
+            登録
+          </button>
+        </div>
+      </div>
+      <style>{`.field-input { width: 100%; background: rgba(0,0,0,0.3); border: 1px solid rgba(212,175,55,0.3); border-radius: 8px; padding: 0.5rem 0.75rem; color: white; font-size: 0.875rem; }`}</style>
+    </div>
+  )
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="block text-xs text-gray-400 mb-1">{label}</span>
+      {children}
+    </label>
   )
 }
