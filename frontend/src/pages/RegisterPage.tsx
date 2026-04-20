@@ -4,6 +4,7 @@ import { useAuth } from '../auth'
 import { Pencil, X, Trash2, Printer, Download } from 'lucide-react'
 import { openPrintWindow } from '../utils/print'
 import type { DailyReport } from '../data/mock'
+import ContextualHeader from '../components/ContextualHeader'
 
 type RegisterTab = 'closing' | 'history'
 
@@ -11,9 +12,9 @@ export default function RegisterPage() {
   const [activeTab, setActiveTab] = useState<RegisterTab>('closing')
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col min-h-full">
+      <ContextualHeader title="レジ" backTo="/top" />
       <div className="px-4 pt-4">
-        <h2 className="text-lg font-bold mb-3 text-[#d4af37]">レジ</h2>
         <div className="flex border-b border-white/10 mb-4">
           <button
             onClick={() => setActiveTab('closing')}

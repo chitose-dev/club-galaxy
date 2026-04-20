@@ -6,6 +6,7 @@ import type { AttendanceRecord, Expense, ExpenseCategory, AdvancePayment, Archiv
 import { Pencil, Trash2, Plus, Save, Download, ChevronUp, ChevronDown, GripVertical, Clock, Printer } from 'lucide-react'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { openPrintWindow } from '../utils/print'
+import ContextualHeader from '../components/ContextualHeader'
 
 type AdminTab = 'menu' | 'cast' | 'price' | 'tables' | 'settings' | 'export' | 'users' | 'attendance' | 'expense' | 'advance' | 'archive'
 
@@ -41,8 +42,9 @@ export default function AdminPage() {
   ]
 
   return (
-    <div className="p-4">
-      <h2 className="text-lg font-bold mb-4" style={{ fontFamily: "var(--font-display)" }}>管理メニュー</h2>
+    <div className="flex flex-col min-h-full">
+      <ContextualHeader title="管理メニュー" backTo="/top" />
+      <div className="p-4 flex-1">
 
       {/* Scrollable horizontal tabs */}
       <div className="flex border-b border-white/10 mb-4 overflow-x-auto scrollbar-none -mx-4 px-4">
@@ -73,6 +75,7 @@ export default function AdminPage() {
       {activeTab === 'export' && <DataExport billingRecords={billingRecords} casts={casts} dailyPayRequests={dailyPayRequests} discountLogs={discountLogs} deductions={deductions} advancePayments={advancePayments} attendanceRecords={attendanceRecords} userAccounts={userAccounts} />}
       {activeTab === 'archive' && <ArchiveManager archivedData={archivedData} archiveOldData={archiveOldData} billingRecords={billingRecords} />}
       {activeTab === 'users' && <UserManager userAccounts={userAccounts} addUser={addUser} updateUser={updateUser} deleteUser={deleteUser} casts={casts} />}
+      </div>
     </div>
   )
 }

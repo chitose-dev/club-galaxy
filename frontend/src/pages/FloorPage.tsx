@@ -15,6 +15,8 @@ import {
 } from '../data/mock'
 import { Clock, Users, Plus, Printer, RotateCcw, ChevronRight, X, FileText, CreditCard, Undo2 } from 'lucide-react'
 import { openPrintWindow } from '../utils/print'
+import BottomActionBar from '../components/BottomActionBar'
+import { GoldButton, DangerButton } from '../components/Buttons'
 
 const statusStyle: Record<TableStatus, { border: string; bg: string; badge: string }> = {
   empty: { border: 'border-gray-700', bg: 'bg-white/[0.02]', badge: 'bg-gray-700 text-gray-400' },
@@ -338,8 +340,11 @@ export default function FloorPage() {
     setSelected(null)
   }
 
+  const occupiedCount = tables.filter((t) => t.status !== 'empty').length
+
   return (
-    <div className="p-4">
+    <div className="flex flex-col min-h-full">
+    <div className="p-4 flex-1">
       {/* Legend */}
       <div className="flex items-center gap-4 mb-4 text-xs">
         {(Object.keys(statusDot) as TableStatus[]).map((key) => (
@@ -710,6 +715,28 @@ export default function FloorPage() {
         </div>
       )}
 
+    </div>
+    <BottomActionBar
+      leftLabel="本日売上"
+      leftValue={`¥${flMetrics.todaySales.toLocaleString()}`}
+      center={
+        <span className="text-sm text-gray-400 tabular-nums">
+          使用中 {occupiedCount} / {tables.length} 卓
+        </span>
+      }
+      right={
+        pendingCheckTickets.length > 0 ? (
+          <DangerButton onClick={handlePrintPendingChecks} className="text-sm flex items-center gap-1">
+            <Printer size={15} /> チェック票 {pendingCheckTickets.length}件
+          </DangerButton>
+        ) : (
+          <GoldButton onClick={() => navigate('/waiting')} className="text-sm flex items-center gap-1">
+            <Users size={15} /> 待機キャスト
+          </GoldButton>
+        )
+      }
+    />
+
       {/* 延長確認ダイアログ (指示書§6.2.3 + §G-9 指名選択) */}
       {pendingExtend && selected && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60] p-4" onClick={() => setPendingExtend(null)}>
@@ -761,3 +788,4 @@ export default function FloorPage() {
     </div>
   )
 }
+

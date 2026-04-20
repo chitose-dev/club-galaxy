@@ -6,6 +6,7 @@ import { Plus, Trash2, X } from 'lucide-react'
 import { openPrintWindow } from '../utils/print'
 import { getPaymentDate, formatPaymentDate } from '../utils/paymentDate'
 import { printCastLedger } from '../utils/castLedger'
+import ContextualHeader from '../components/ContextualHeader'
 
 type Period = 'first' | 'second'
 type StaffType = 'cast' | 'boy'
@@ -174,7 +175,8 @@ export default function SalaryPage() {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col min-h-full">
+      <ContextualHeader title="給与計算" backTo="/top" />
       {/* Staff type toggle (owner/staff only) */}
       {user?.role !== 'cast' && (
         <div className="px-4 pt-3 pb-1 flex gap-2">
@@ -685,7 +687,8 @@ function BoySalaryView({ period, setPeriod, staffType, setStaffType, userAccount
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col min-h-full">
+      <ContextualHeader title="給与計算 (ボーイ)" backTo="/top" />
       <div className="px-4 pt-3 pb-1 flex gap-2">
         <button onClick={() => setStaffType('cast')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-colors ${staffType === 'cast' ? 'bg-[#d4af37]/20 border border-[#d4af37]/40 text-[#d4af37]' : 'bg-white/5 border border-white/10 text-gray-500'}`}>
           キャスト
