@@ -79,7 +79,11 @@ function flColor(rate: number) {
 export default function FloorPage() {
   const { tables, casts, setCasts, updateTable, bottleKeeps, flMetrics, storeSettings } = useStore()
   const navigate = useNavigate()
-  const [selected, setSelected] = useState<Table | null>(null)
+  // selected は ID のみ保持し、tables からの dynamic reference で最新状態を反映
+  // (updateTable 後に selected が stale になるバグを防ぐ)
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const selected = selectedId !== null ? tables.find((t) => t.id === selectedId) ?? null : null
+  const setSelected = (t: Table | null) => setSelectedId(t?.id ?? null)
 
   const [showCheckIn, setShowCheckIn] = useState(false)
   const [ciTime, setCiTime] = useState(defaultStartTime)
@@ -520,9 +524,9 @@ export default function FloorPage() {
             {selected.orders.length > 0 && (
               <div className="mt-4 bg-white/5 rounded-lg p-3">
                 <div className="text-gray-500 text-xs mb-2">注文 ({selected.orders.length}品)</div>
-                {selected.orders.slice(0, 5).map((o) => (
-                  <div key={o.menuItem.id} className="flex justify-between text-sm py-0.5">
-                    <span className="text-gray-300">{o.menuItem.name} x{o.quantity}</span>
+                {selected.orders.slice(0, 5).map((o, idx) => (
+                  <div key={`${o.menuItem.id}-${o.castName ?? ''}-${idx}`} className="flex justify-between text-sm py-0.5">
+                    <span className="text-gray-300">{displayOrderName(o)} x{o.quantity}</span>
                     <span>¥{(o.menuItem.price * o.quantity).toLocaleString()}</span>
                   </div>
                 ))}

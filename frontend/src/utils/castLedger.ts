@@ -97,7 +97,7 @@ export function printCastLedger(params: CastLedgerParams): void {
 
   const body = `
     <div class="ledger-header">
-      <div class="store-name">${escapeHtml(storeSettings.storeName || "Heaven's Garden")}</div>
+      <div class="store-name">${escapeHtml(storeSettings.storeName || "CLUB GALAXY")}</div>
       <div class="title">月次日経表 ${year}年${month}月分</div>
       <div class="info-grid">
         <div><span class="label">源氏名:</span> <span class="value">${escapeHtml(cast.name)}</span></div>

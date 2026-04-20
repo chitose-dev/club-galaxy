@@ -648,7 +648,7 @@ export const defaultStoreSettings: StoreSettings = {
   cardProcessingFeeRate: 0.035,
   initialCash: 100000,
   closingDay: 15,
-  storeName: "Heaven's Garden",
+  storeName: "CLUB GALAXY",
   storeAddress: '',
   storePhone: '',
   invoiceNumber: 'T5390001005970',

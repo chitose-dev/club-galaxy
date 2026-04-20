@@ -382,7 +382,7 @@ function HistoryView() {
 
   const handlePrintReport = (r: DailyReport) => {
     const body = `
-      <h2>${storeSettings.storeName || "Heaven's Garden"} レジ日報</h2>
+      <h2>${storeSettings.storeName || "CLUB GALAXY"} レジ日報</h2>
       <div class="center muted">${r.date} / 登録者: ${r.operator}</div>
       <table>
         <tr><th>レジ初期値</th><td>¥${r.initialCash.toLocaleString()}</td></tr>
