@@ -99,7 +99,8 @@ export default function FloorPage() {
   const [showRotation, setShowRotation] = useState(false)
   const [, setTick] = useState(0)
 
-  const activeCasts = casts.filter((c) => c.active)
+  // 休憩中は付け回し候補から除外、ただし入店時の castNames リストなどで表示したい場合は別途 c.active を直接参照
+  const activeCasts = casts.filter((c) => c.active && !c.onBreak)
 
   const checkStatuses = useCallback(() => {
     for (const table of tables) {

@@ -78,6 +78,8 @@ export interface Cast {
   backRates: Partial<Record<BackType, number>>
   guaranteeRate: number // 売上保証率 (0.0〜1.0)
   active: boolean
+  /** 休憩中フラグ (active=true のときのみ有効、待機カウント対象外) */
+  onBreak?: boolean
   /** 最後に卓にアサインされた時刻 (付け回しの待機時間順表示用) */
   lastAssignedAt?: string | null
 }

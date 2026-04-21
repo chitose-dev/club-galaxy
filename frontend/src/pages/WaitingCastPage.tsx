@@ -33,8 +33,26 @@ export default function WaitingCastPage() {
     })
   }, [casts, assignedNames, sortMode])
 
-  const toggleActive = (id: number) => {
-    setCasts((prev) => prev.map((c) => (c.id === id ? { ...c, active: !c.active } : c)))
+  type AttendanceStatus = 'working' | 'break' | 'off'
+
+  const getStatus = (c: Cast): AttendanceStatus => {
+    if (!c.active) return 'off'
+    if (c.onBreak) return 'break'
+    return 'working'
+  }
+
+  const setStatus = (id: number, status: AttendanceStatus) => {
+    setCasts((prev) =>
+      prev.map((c) =>
+        c.id === id
+          ? {
+              ...c,
+              active: status !== 'off',
+              onBreak: status === 'break',
+            }
+          : c,
+      ),
+    )
   }
 
   const deleteCast = () => {
@@ -44,9 +62,10 @@ export default function WaitingCastPage() {
   }
 
   const waitingLabel = (c: Cast): string => {
-    // 「本日休み (active=false)」が最優先 — 卓アサインより先に判定
+    // 休み > 接客中 > 休憩 > 待機
     if (!c.active) return '本日休み'
     if (assignedNames.has(c.name)) return '接客中'
+    if (c.onBreak) return '休憩中'
     if (!c.lastAssignedAt) return '待機中'
     const ms = Date.now() - new Date(c.lastAssignedAt).getTime()
     const min = Math.max(0, Math.floor(ms / 60000))
@@ -89,17 +108,28 @@ export default function WaitingCastPage() {
                   {c.name.slice(0, 1)}
                 </div>
 
-                {/* 出勤トグル */}
-                <button
-                  onClick={() => toggleActive(c.id)}
-                  className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold tracking-wider transition-colors ${
-                    c.active
-                      ? 'bg-gold text-primary'
-                      : 'bg-white/5 border border-white/20 text-gray-400'
-                  }`}
-                >
-                  {c.active ? '本日出勤' : '本日休み'}
-                </button>
+                {/* 出勤・休憩・休み 3択 */}
+                <div className="shrink-0 flex rounded-full bg-white/5 border border-white/10 overflow-hidden text-xs font-semibold tracking-wider">
+                  {(['working', 'break', 'off'] as const).map((s) => {
+                    const labelMap = { working: '出勤', break: '休憩', off: '休み' } as const
+                    const active = getStatus(c) === s
+                    const activeCls =
+                      s === 'working'
+                        ? 'bg-gold text-primary'
+                        : s === 'break'
+                        ? 'bg-amber-400/90 text-primary'
+                        : 'bg-white/10 text-gray-200'
+                    return (
+                      <button
+                        key={s}
+                        onClick={() => setStatus(c.id, s)}
+                        className={`px-3 py-1.5 transition-colors ${active ? activeCls : 'text-gray-400 hover:text-white'}`}
+                      >
+                        {labelMap[s]}
+                      </button>
+                    )
+                  })}
+                </div>
 
                 {/* 編集・削除 */}
                 <button
@@ -183,6 +213,7 @@ function CastEditModal({ initial, onClose, onSave }: ModalProps) {
       hourlyRate,
       guaranteeRate,
       active: initial?.active ?? true,
+      onBreak: initial?.onBreak ?? false,
       backRates:
         initial?.backRates ?? {
           FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800,

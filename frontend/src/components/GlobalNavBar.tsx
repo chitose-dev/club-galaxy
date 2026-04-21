@@ -11,7 +11,7 @@ export default function GlobalNavBar() {
   // バッジ: アラート卓数(残5分以下 or 超過)、待機キャスト(出勤中で未アサイン)
   const alertTables = tables.filter((t) => t.status === 'ending' || t.status === 'alert').length
   const assignedNames = new Set(tables.flatMap((t) => t.castNames))
-  const waitingCasts = casts.filter((c) => c.active && !assignedNames.has(c.name)).length
+  const waitingCasts = casts.filter((c) => c.active && !c.onBreak && !assignedNames.has(c.name)).length
 
   if (!user) return null
 
