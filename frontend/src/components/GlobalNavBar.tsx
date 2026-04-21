@@ -20,7 +20,7 @@ export default function GlobalNavBar() {
     { to: '/order', label: '注文', Icon: ClipboardList, roles: ['owner', 'staff'] },
     { to: '/waiting', label: '待機', Icon: Users, badge: waitingCasts, roles: ['owner', 'staff'] },
     { to: '/admin', label: '設定', Icon: Settings, roles: ['owner'] },
-    { to: '/top', label: 'トップ', Icon: Home, roles: ['owner', 'staff', 'cast'] },
+    { to: '/top', label: 'トップ', Icon: Home, roles: ['owner', 'staff'] },
   ]
 
   const visible = items.filter((i) => i.roles.includes(user.role))

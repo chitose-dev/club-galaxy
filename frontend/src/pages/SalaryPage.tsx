@@ -180,7 +180,7 @@ export default function SalaryPage() {
 
   return (
     <div className="flex flex-col min-h-full">
-      <ContextualHeader title="給与計算" backTo="/top" />
+      <ContextualHeader title="給与計算" backTo="/top" showBack={user?.role !== 'cast'} />
       {/* Staff type toggle (owner/staff only) */}
       {user?.role !== 'cast' && (
         <div className="px-4 pt-3 pb-1">

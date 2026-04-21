@@ -16,7 +16,11 @@ import UsageDetailPage from './pages/UsageDetailPage'
 function AuthGuard({ children, allowedRoles }: { children: React.ReactNode; allowedRoles: string[] }) {
   const { user } = useAuth()
   if (!user) return <Navigate to="/login" replace />
-  if (!allowedRoles.includes(user.role)) return <Navigate to="/top" replace />
+  if (!allowedRoles.includes(user.role)) {
+    // cast は /top にアクセスできないので /salary にフォールバック
+    const fallback = user.role === 'cast' ? '/salary' : '/top'
+    return <Navigate to={fallback} replace />
+  }
   return <>{children}</>
 }
 
@@ -39,7 +43,7 @@ function App() {
       <Route path="/login" element={<Navigate to={defaultRoute} replace />} />
       <Route element={<Layout />}>
         <Route path="/" element={<Navigate to={defaultRoute} replace />} />
-        <Route path="/top" element={<AuthGuard allowedRoles={['owner', 'staff', 'cast']}><TopPage /></AuthGuard>} />
+        <Route path="/top" element={<AuthGuard allowedRoles={['owner', 'staff']}><TopPage /></AuthGuard>} />
         <Route path="/floor" element={<AuthGuard allowedRoles={['owner', 'staff']}><FloorPage /></AuthGuard>} />
         <Route path="/waiting" element={<AuthGuard allowedRoles={['owner', 'staff']}><WaitingCastPage /></AuthGuard>} />
         <Route path="/order" element={<AuthGuard allowedRoles={['owner', 'staff']}><OrderPage /></AuthGuard>} />
