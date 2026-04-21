@@ -409,7 +409,7 @@ export default function FloorPage() {
             >
               <span className={`absolute top-0 left-0 right-0 h-1 ${style.accent}`} />
               <div className="flex justify-between items-start">
-                <span className="text-xl font-bold tracking-wide" style={{ fontFamily: 'var(--font-display)' }}>{table.number}</span>
+                <span className="text-xl font-bold tracking-wide" style={{ fontFamily: 'var(--font-body)' }}>{table.number}</span>
                 {table.status === 'empty' ? (
                   <span className="text-gray-600"><Plus size={16} /></span>
                 ) : remaining !== null ? (
