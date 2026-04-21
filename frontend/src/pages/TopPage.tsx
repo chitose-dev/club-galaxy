@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store'
 import { useAuth } from '../auth'
-import { LayoutGrid, Users, Archive, TrendingUp } from 'lucide-react'
+import { LayoutGrid, Users, Archive, TrendingUp, Wallet } from 'lucide-react'
 
 /** ログイン後のホーム。TRUST の「会計管理をはじめる」画面相当。 */
 export default function TopPage() {
@@ -12,16 +12,22 @@ export default function TopPage() {
   const occupied = tables.filter((t) => t.status !== 'empty').length
   const totalTables = tables.length
   const activeCasts = casts.filter((c) => c.active).length
+  const isCast = user?.role === 'cast'
+
+  const roleLabel =
+    user?.role === 'owner' ? 'Owner' : user?.role === 'cast' ? 'Cast' : 'Staff'
 
   return (
     <div className="min-h-full flex flex-col">
-      {/* 本日売上赤帯 — ヘッダーと視覚的に連続させる (h-12 相当) */}
-      <div className="bg-gradient-to-r from-[#c9303f] via-accent to-[#c9303f] text-white px-4 h-[56px] flex items-center justify-between shadow-[inset_0_-1px_0_rgba(0,0,0,0.25)]">
-        <span className="text-sm tracking-wider">本日の売上</span>
-        <span className="text-2xl font-bold tabular-nums leading-none" style={{ fontFamily: 'var(--font-display)' }}>
-          ¥{flMetrics.todaySales.toLocaleString()}
-        </span>
-      </div>
+      {/* 本日売上赤帯 — オーナー/黒服のみ表示 (キャストは店舗売上非公開) */}
+      {!isCast && (
+        <div className="bg-gradient-to-r from-[#c9303f] via-accent to-[#c9303f] text-white px-4 h-[56px] flex items-center justify-between shadow-[inset_0_-1px_0_rgba(0,0,0,0.25)]">
+          <span className="text-sm tracking-wider">本日の売上</span>
+          <span className="text-2xl font-bold tabular-nums leading-none" style={{ fontFamily: 'var(--font-display)' }}>
+            ¥{flMetrics.todaySales.toLocaleString()}
+          </span>
+        </div>
+      )}
 
       {/* 中央 */}
       <div className="flex-1 flex flex-col items-center justify-center gap-8 px-6 py-10">
@@ -34,40 +40,60 @@ export default function TopPage() {
           </h2>
           <div className="h-px bg-gold/60 w-24 mx-auto mb-2" />
           <p className="text-[11px] text-gray-400 tracking-[0.25em] uppercase">
-            Sales Manager {user && `/ ${user.displayName}`}
+            {roleLabel} {user && `/ ${user.displayName}`}
           </p>
         </div>
 
-        <button
-          onClick={() => navigate('/floor')}
-          className="btn-gold text-lg px-10 py-4 tracking-wider"
-        >
-          会計管理をはじめる
-        </button>
-
-        {/* クイックアクション */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full max-w-2xl mt-4">
-          <QuickAction
-            icon={LayoutGrid}
-            label="ホール"
-            hint={`${occupied} / ${totalTables} 卓`}
+        {isCast ? (
+          <button
+            onClick={() => navigate('/salary')}
+            className="btn-gold text-lg px-10 py-4 tracking-wider"
+          >
+            給与を確認する
+          </button>
+        ) : (
+          <button
             onClick={() => navigate('/floor')}
-          />
-          <QuickAction
-            icon={Users}
-            label="待機キャスト"
-            hint={`出勤 ${activeCasts} 名`}
-            onClick={() => navigate('/waiting')}
-          />
-          {user?.role === 'owner' && (
+            className="btn-gold text-lg px-10 py-4 tracking-wider"
+          >
+            会計管理をはじめる
+          </button>
+        )}
+
+        {/* クイックアクション — role 別 */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full max-w-2xl mt-4">
+          {isCast ? (
+            <QuickAction
+              icon={Wallet}
+              label="給与明細"
+              hint="自分の勤怠・給与"
+              onClick={() => navigate('/salary')}
+            />
+          ) : (
             <>
               <QuickAction
-                icon={TrendingUp}
-                label="利益"
-                hint={`本日 ¥${flMetrics.todayProfit.toLocaleString()}`}
-                onClick={() => navigate('/profit')}
+                icon={LayoutGrid}
+                label="ホール"
+                hint={`${occupied} / ${totalTables} 卓`}
+                onClick={() => navigate('/floor')}
               />
-              <QuickAction icon={Archive} label="レジ締め" onClick={() => navigate('/register')} />
+              <QuickAction
+                icon={Users}
+                label="待機キャスト"
+                hint={`出勤 ${activeCasts} 名`}
+                onClick={() => navigate('/waiting')}
+              />
+              {user?.role === 'owner' && (
+                <>
+                  <QuickAction
+                    icon={TrendingUp}
+                    label="利益"
+                    hint={`本日 ¥${flMetrics.todayProfit.toLocaleString()}`}
+                    onClick={() => navigate('/profit')}
+                  />
+                  <QuickAction icon={Archive} label="レジ締め" onClick={() => navigate('/register')} />
+                </>
+              )}
             </>
           )}
         </div>
