@@ -13,16 +13,18 @@ import {
   displayOrderName,
   EXTENSION_CHARGES,
 } from '../data/mock'
-import { Clock, Users, Plus, Printer, RotateCcw, ChevronRight, X, FileText, CreditCard, Undo2 } from 'lucide-react'
+import { Clock, Users, Plus, Printer, RotateCcw, ChevronRight, FileText, CreditCard, Undo2 } from 'lucide-react'
 import { openPrintWindow } from '../utils/print'
 import BottomActionBar from '../components/BottomActionBar'
-import { GoldButton, DangerButton } from '../components/Buttons'
+import { GoldButton, DangerButton, GhostButton, DarkButton } from '../components/Buttons'
+import Modal from '../components/Modal'
+import CastChip from '../components/CastChip'
 
-const statusStyle: Record<TableStatus, { border: string; bg: string; badge: string }> = {
-  empty: { border: 'border-gray-700', bg: 'bg-white/[0.02]', badge: 'bg-gray-700 text-gray-400' },
-  occupied: { border: 'border-[#d4af37]/60', bg: 'bg-[#d4af37]/[0.04]', badge: 'bg-[#d4af37]/20 text-white' },
-  ending: { border: 'border-amber-500/60', bg: 'bg-amber-500/[0.06]', badge: 'bg-amber-500/20 text-amber-300' },
-  alert: { border: 'border-red-500/60', bg: 'bg-red-500/[0.06]', badge: 'bg-red-500/20 text-red-300' },
+const statusStyle: Record<TableStatus, { border: string; bg: string; badge: string; accent: string }> = {
+  empty: { border: 'border-white/10', bg: 'bg-white/[0.02]', badge: 'bg-white/5 text-gray-400', accent: 'bg-transparent' },
+  occupied: { border: 'border-gold/50', bg: 'bg-gold/[0.04]', badge: 'bg-gold/20 text-white', accent: 'bg-gold' },
+  ending: { border: 'border-amber-500/60', bg: 'bg-amber-500/[0.06]', badge: 'bg-amber-500/20 text-amber-300', accent: 'bg-amber-400' },
+  alert: { border: 'border-accent/60', bg: 'bg-accent/[0.06]', badge: 'bg-accent/20 text-red-300', accent: 'bg-accent' },
 }
 
 const statusLabel: Record<TableStatus, string> = {
@@ -372,7 +374,7 @@ export default function FloorPage() {
       )}
 
       {/* Profit Widget */}
-      <div className="flex items-center justify-between bg-white/5 rounded-lg px-4 py-2.5 mb-4 text-sm tabular-nums">
+      <div className="panel flex items-center justify-between px-4 py-2.5 mb-4 text-sm tabular-nums">
         <span>本日 <span className="font-bold">¥{flMetrics.todayProfit.toLocaleString()}</span> <span className={`text-xs ${flColor(flMetrics.flRate)}`}>(FL {flMetrics.flRate.toFixed(1)}%)</span></span>
         <span>今月 <span className="font-bold">¥{flMetrics.monthlyProfit.toLocaleString()}</span> <span className={`text-xs ${flColor(flMetrics.monthlyFlRate)}`}>(FL {flMetrics.monthlyFlRate.toFixed(1)}%)</span></span>
       </div>
@@ -403,14 +405,15 @@ export default function FloorPage() {
                   setSelected(table)
                 }
               }}
-              className={`${style.bg} ${style.border} border rounded-lg p-4 text-left transition-all active:scale-[0.97]`}
+              className={`relative overflow-hidden ${style.bg} ${style.border} border rounded-[14px] p-4 pt-[18px] text-left transition-all active:scale-[0.97]`}
             >
+              <span className={`absolute top-0 left-0 right-0 h-1 ${style.accent}`} />
               <div className="flex justify-between items-start">
-                <span className="text-xl font-bold tracking-wide">{table.number}</span>
+                <span className="text-xl font-bold tracking-wide" style={{ fontFamily: 'var(--font-display)' }}>{table.number}</span>
                 {table.status === 'empty' ? (
                   <span className="text-gray-600"><Plus size={16} /></span>
                 ) : remaining !== null ? (
-                  <span className={`text-xs font-bold tabular-nums ${remaining <= 5 ? 'text-red-400' : remaining <= 10 ? 'text-amber-300' : 'text-white'}`}>
+                  <span className={`text-xs font-bold tabular-nums ${remaining <= 5 ? 'text-accent' : remaining <= 10 ? 'text-amber-300' : 'text-white'}`}>
                     {remaining > 0 ? `${remaining}m` : 'END'}
                   </span>
                 ) : null}
@@ -426,12 +429,12 @@ export default function FloorPage() {
                     <span>{table.startTime}〜</span>
                   </div>
                   {table.nomination && (
-                    <span className="inline-block text-xs bg-white/5 text-gray-400 px-1.5 py-0.5 rounded mt-0.5">
+                    <span className="inline-block text-xs bg-gold/10 text-gold border border-gold/20 px-1.5 py-0.5 rounded mt-0.5">
                       {nominationLabels[table.nomination]}
                     </span>
                   )}
                   {elapsed >= 50 && (
-                    <div className="text-xs text-red-400 font-bold mt-0.5">50分経過</div>
+                    <div className="text-xs text-accent font-bold mt-0.5">50分経過</div>
                   )}
                 </div>
               )}
@@ -441,43 +444,41 @@ export default function FloorPage() {
       </div>
 
       {/* Detail Modal for occupied tables */}
-      {selected && !showCheckIn && !showExtend && !showRotation && selected.status !== 'empty' && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end justify-center z-50" onClick={() => setSelected(null)}>
-          <div className="bg-[#1a1a2e] rounded-t-2xl w-full max-w-lg p-6 pb-8 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-bold tracking-wide">卓 {selected.number}</h2>
-              <button onClick={() => setSelected(null)} className="text-gray-500 hover:text-white transition-colors">
-                <X size={20} />
-              </button>
-            </div>
-
+      <Modal
+        open={!!selected && !showCheckIn && !showExtend && !showRotation && !!selected && selected.status !== 'empty'}
+        onClose={() => setSelected(null)}
+        title={selected ? `卓 ${selected.number}` : ''}
+        size="lg"
+      >
+        {selected && selected.status !== 'empty' && (
+          <>
             {selected.startTime && (() => {
               const rem = calcRemainingMinutes(selected.startTime, selected.setCount, selected.timeAdjustmentMinutes ?? 0, totalExtensionMinutes(selected))
               return (
-                <div className={`text-center py-3 rounded-lg mb-4 font-bold text-lg ${rem <= 5 ? 'bg-red-500/10 text-red-300 border border-red-500/30' : rem <= 10 ? 'bg-amber-500/10 text-amber-300 border border-amber-500/30' : 'bg-white/10 text-white border border-white/20'}`}>
+                <div className={`text-center py-3 rounded-[10px] mb-4 font-bold text-lg ${rem <= 5 ? 'bg-accent/10 text-red-300 border border-accent/30' : rem <= 10 ? 'bg-amber-500/10 text-amber-300 border border-amber-500/30' : 'panel-gold'}`}>
                   残り {rem > 0 ? `${rem}分` : '終了'}
                 </div>
               )
             })()}
 
             <div className="grid grid-cols-2 gap-3 text-sm">
-              <div className="bg-white/5 rounded-lg p-3">
+              <div className="panel p-3">
                 <div className="text-gray-500 text-xs mb-1">担当</div>
                 <div className="font-medium">{selected.castNames.join(', ')}</div>
               </div>
-              <div className="bg-white/5 rounded-lg p-3">
+              <div className="panel p-3">
                 <div className="text-gray-500 text-xs mb-1">指名タイプ</div>
                 <div className="font-medium">{selected.nomination ? nominationLabels[selected.nomination] : '-'}</div>
               </div>
-              <div className="bg-white/5 rounded-lg p-3">
+              <div className="panel p-3">
                 <div className="text-gray-500 text-xs mb-1">入店時刻</div>
                 <div className="font-medium">{selected.startTime}</div>
               </div>
-              <div className="bg-white/5 rounded-lg p-3">
+              <div className="panel p-3">
                 <div className="text-gray-500 text-xs mb-1">人数</div>
                 <div className="font-medium">{selected.guestCount}名</div>
               </div>
-              <div className="bg-white/5 rounded-lg p-3">
+              <div className="panel p-3">
                 <div className="text-gray-500 text-xs mb-1">セット料金</div>
                 <div className="font-medium">
                   {selected.startTime ? `¥${Math.max(0, getSetPriceForTime(selected.startTime) - (selected.setDiscountPerSet ?? 0)).toLocaleString()}` : '-'}
@@ -487,13 +488,13 @@ export default function FloorPage() {
                 </div>
                 <div className="text-gray-600 text-xs">{selected.startTime ? getSetPriceLabel(selected.startTime) : ''}</div>
               </div>
-              <div className="bg-white/5 rounded-lg p-3">
+              <div className="panel p-3">
                 <div className="text-gray-500 text-xs mb-1">セット数</div>
                 <div className="font-medium">{selected.setCount}</div>
               </div>
             </div>
             {/* セット料金値引き (指示書§1.1) */}
-            <div className="mt-3 bg-white/5 rounded-lg p-3">
+            <div className="mt-3 panel p-3">
               <label className="text-xs text-gray-500 block mb-1.5">セット料金値引き (1セットあたりの割引額)</label>
               <div className="flex gap-2 items-center">
                 <input
@@ -502,7 +503,7 @@ export default function FloorPage() {
                   onChange={(e) => updateTable(selected.id, { setDiscountPerSet: Math.max(0, Number(e.target.value)) })}
                   min={0}
                   step={100}
-                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm"
+                  className="flex-1 bg-primary-dark/60 border border-gold/20 rounded-md px-3 py-2 text-sm focus:border-gold focus:outline-none"
                   placeholder="0"
                 />
                 <span className="text-xs text-gray-500">円 / セット</span>
@@ -514,12 +515,12 @@ export default function FloorPage() {
               const keeps = bottleKeeps.filter((b) => b.tableNumber === selected.number)
               if (keeps.length === 0) return null
               return (
-                <div className="mt-4 bg-amber-900/10 border border-amber-700/30 rounded-lg p-3">
-                  <div className="text-xs text-amber-400 font-bold mb-2">キープボトル</div>
+                <div className="mt-4 panel-gold p-3">
+                  <div className="text-xs text-gold font-bold mb-2">キープボトル</div>
                   {keeps.map((k) => (
                     <div key={k.id} className="flex justify-between text-sm mb-1">
                       <span>{k.bottleName} ({k.customerName})</span>
-                      <span className={k.remaining <= 20 ? 'text-red-400 font-bold' : ''}>{k.remaining}%</span>
+                      <span className={k.remaining <= 20 ? 'text-accent font-bold' : ''}>{k.remaining}%</span>
                     </div>
                   ))}
                 </div>
@@ -527,7 +528,7 @@ export default function FloorPage() {
             })()}
 
             {selected.orders.length > 0 && (
-              <div className="mt-4 bg-white/5 rounded-lg p-3">
+              <div className="mt-4 panel p-3">
                 <div className="text-gray-500 text-xs mb-2">注文 ({selected.orders.length}品)</div>
                 {selected.orders.slice(0, 5).map((o, idx) => (
                   <div key={`${o.menuItem.id}-${o.castName ?? ''}-${idx}`} className="flex justify-between text-sm py-0.5">
@@ -543,38 +544,38 @@ export default function FloorPage() {
 
             <div className="flex gap-2 mt-5">
               {EXTENSION_OPTIONS.map((min) => (
-                <button key={min} onClick={() => requestExtend(min as 30 | 60)} className="flex-1 bg-white/5 border border-white/10 py-3 rounded-lg font-bold text-sm transition-colors">
+                <DarkButton key={min} onClick={() => requestExtend(min as 30 | 60)} className="flex-1 text-sm">
                   延長 +{min}分
-                </button>
+                </DarkButton>
               ))}
             </div>
             <div className="flex gap-2 mt-2 items-center text-xs">
               <span className="text-gray-500">残り時間微調整:</span>
-              <button onClick={() => handleTimeAdjust(-10)} className="flex-1 bg-white/5 border border-white/10 py-2 rounded-lg font-bold">-10分</button>
-              <button onClick={() => handleTimeAdjust(+10)} className="flex-1 bg-white/5 border border-white/10 py-2 rounded-lg font-bold">+10分</button>
+              <button onClick={() => handleTimeAdjust(-10)} className="flex-1 panel py-2 rounded-[10px] font-bold hover:bg-white/10 transition-colors">-10分</button>
+              <button onClick={() => handleTimeAdjust(+10)} className="flex-1 panel py-2 rounded-[10px] font-bold hover:bg-white/10 transition-colors">+10分</button>
               {(selected.timeAdjustmentMinutes ?? 0) !== 0 && (
                 <button onClick={() => updateTable(selected.id, { timeAdjustmentMinutes: 0 })} className="text-gray-500 underline">リセット({selected.timeAdjustmentMinutes! > 0 ? '+' : ''}{selected.timeAdjustmentMinutes}分)</button>
               )}
             </div>
             {selected.extensionHistory && selected.extensionHistory.length > 0 && (
-              <div className="mt-2 bg-white/5 rounded-lg p-2">
+              <div className="mt-2 panel p-2">
                 <div className="text-xs text-gray-500 mb-1">延長履歴</div>
                 {selected.extensionHistory.map((ex) => (
                   <div key={ex.id} className="flex justify-between items-center text-xs py-0.5">
                     <span className="text-gray-400">+{ex.minutes}分 ({new Date(ex.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })})</span>
-                    <button onClick={() => handleUndoExtension(ex.id)} className="text-red-400 flex items-center gap-1"><Undo2 size={10} /> 取消</button>
+                    <button onClick={() => handleUndoExtension(ex.id)} className="text-accent flex items-center gap-1"><Undo2 size={10} /> 取消</button>
                   </div>
                 ))}
               </div>
             )}
 
-            <div className="flex gap-2 mt-2">
-              <button onClick={() => { setSelected(null); navigate(`/order?table=${selected.id}`) }} className="flex-1 bg-white/5 border border-white/10 py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-1.5 transition-colors">
+            <div className="flex gap-2 mt-3">
+              <DarkButton onClick={() => { const id = selected.id; setSelected(null); navigate(`/order?table=${id}`) }} className="flex-1 text-sm flex items-center justify-center gap-1.5">
                 <FileText size={15} /> 注文
-              </button>
-              <button onClick={() => { setSelected(null); navigate(`/billing?table=${selected.id}`) }} className="flex-1 bg-white text-black py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-1.5">
+              </DarkButton>
+              <GoldButton onClick={() => { const id = selected.id; setSelected(null); navigate(`/billing?table=${id}`) }} className="flex-1 text-sm flex items-center justify-center gap-1.5">
                 <CreditCard size={15} /> 会計
-              </button>
+              </GoldButton>
             </div>
 
             <div className="flex gap-2 mt-2">
@@ -583,123 +584,134 @@ export default function FloorPage() {
                   handlePrintCheckTicket(selected)
                   updateTable(selected.id, { checkTicketPrintedAt: new Date().toISOString() })
                 }}
-                className={`flex-1 py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-1.5 transition-colors ${
+                className={`flex-1 py-3 rounded-[10px] font-bold text-sm flex items-center justify-center gap-1.5 transition-colors ${
                   selected.startTime && calcElapsedMinutes(selected.startTime) >= 50
-                    ? 'bg-red-500/10 border border-red-500/30 text-red-300'
-                    : 'bg-white/5 border border-white/10 text-gray-400'
+                    ? 'bg-accent/10 border border-accent/30 text-red-300'
+                    : 'panel text-gray-300'
                 }`}
               >
                 <Printer size={15} /> チェック票
               </button>
-              <button onClick={() => setShowRotation(true)} className="flex-1 bg-white/5 border border-white/10 py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-1.5 text-gray-300 transition-colors">
+              <button onClick={() => setShowRotation(true)} className="flex-1 panel py-3 rounded-[10px] font-bold text-sm flex items-center justify-center gap-1.5 text-gray-300 hover:bg-white/10 transition-colors">
                 <RotateCcw size={15} /> 付け回し
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
 
       {/* Check-in Modal */}
-      {showCheckIn && selected && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end justify-center z-50" onClick={() => { setShowCheckIn(false); setSelected(null) }}>
-          <div className="bg-[#1a1a2e] rounded-t-2xl w-full max-w-lg p-6 pb-8 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-bold tracking-wide">卓 {selected.number} 入店</h2>
-              <button onClick={() => { setShowCheckIn(false); setSelected(null) }} className="text-gray-500 hover:text-white transition-colors">
-                <X size={20} />
-              </button>
+      <Modal
+        open={showCheckIn && !!selected}
+        onClose={() => { setShowCheckIn(false); setSelected(null) }}
+        title={selected ? `卓 ${selected.number} 入店` : ''}
+        size="lg"
+      >
+        {selected && (
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs text-gray-400 block mb-1.5">セット開始時刻</label>
+              <div className="flex gap-2">
+                <input type="time" value={ciTime} onChange={(e) => setCiTime(e.target.value)} className="flex-1 bg-primary-dark/60 border border-gold/20 rounded-md px-3 py-2.5 text-sm focus:border-gold focus:outline-none" />
+                <button onClick={() => setCiTime(defaultStartTime())} className="btn-ghost px-4 whitespace-nowrap">今すぐ</button>
+              </div>
+              <div className="text-xs text-gold mt-1.5 tabular-nums">
+                セット料金: ¥{getSetPriceForTime(ciTime).toLocaleString()} <span className="text-gray-500">({getSetPriceLabel(ciTime)})</span>
+              </div>
             </div>
-            <div className="space-y-4">
-              <div>
-                <label className="text-xs text-gray-500 block mb-1.5">セット開始時刻</label>
-                <div className="flex gap-2">
-                  <input type="time" value={ciTime} onChange={(e) => setCiTime(e.target.value)} className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm" />
-                  <button onClick={() => setCiTime(defaultStartTime())} className="bg-white/10 border border-white/10 px-4 py-2.5 rounded-lg text-sm font-bold whitespace-nowrap">今すぐ</button>
-                </div>
-                <div className="text-xs text-gray-500 mt-1.5">
-                  セット料金: ¥{getSetPriceForTime(ciTime).toLocaleString()} ({getSetPriceLabel(ciTime)})
-                </div>
+            <div>
+              <label className="text-xs text-gray-400 block mb-1.5">来店人数</label>
+              <div className="flex gap-2">
+                {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => setCiGuests(n)}
+                    className={`flex-1 py-2.5 rounded-[10px] text-sm font-bold transition-colors ${
+                      ciGuests === n ? 'bg-gold text-primary' : 'panel text-gray-300 hover:bg-white/10'
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ))}
               </div>
-              <div>
-                <label className="text-xs text-gray-500 block mb-1.5">来店人数</label>
-                <div className="flex gap-2">
-                  {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
-                    <button key={n} onClick={() => setCiGuests(n)} className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-colors ${ciGuests === n ? 'bg-white text-black' : 'bg-white/5 border border-white/10 text-gray-400'}`}>
-                      {n}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 block mb-1.5">キャスト（複数選択可）</label>
-                <div className="flex flex-wrap gap-2">
-                  {activeCasts.map((c) => (
-                    <button
-                      key={c.id}
-                      onClick={() => toggleCast(c.name)}
-                      className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${
-                        ciCastNames.includes(c.name)
-                          ? 'bg-white text-black'
-                          : 'bg-white/5 border border-white/10 text-gray-400'
-                      }`}
-                    >
-                      {c.name}
-                    </button>
-                  ))}
-                </div>
-                {ciCastNames.length > 0 && (
-                  <div className="text-xs text-gray-500 mt-1.5">選択中: {ciCastNames.join(', ')}</div>
-                )}
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 block mb-1.5">指名タイプ</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {(['free', 'shimei', 'banai', 'douhan'] as const).map((type) => (
-                    <button key={type} onClick={() => setCiNomination(type)} className={`py-2.5 rounded-lg text-sm font-bold transition-colors ${ciNomination === type ? 'bg-white text-black' : 'bg-white/5 border border-white/10 text-gray-400'}`}>
-                      {nominationLabels[type]}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <button onClick={confirmCheckIn} className="w-full bg-white text-black py-3.5 rounded-lg font-bold text-lg mt-2 flex items-center justify-center gap-2">
-                入店開始 <ChevronRight size={18} />
-              </button>
             </div>
+            <div>
+              <label className="text-xs text-gray-400 block mb-1.5">キャスト（複数選択可）</label>
+              <div className="flex flex-wrap gap-2">
+                {activeCasts.map((c) => (
+                  <CastChip key={c.id} name={c.name} selected={ciCastNames.includes(c.name)} onClick={() => toggleCast(c.name)} />
+                ))}
+              </div>
+              {ciCastNames.length > 0 && (
+                <div className="text-xs text-gold mt-1.5">選択中: {ciCastNames.join(', ')}</div>
+              )}
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 block mb-1.5">指名タイプ</label>
+              <div className="grid grid-cols-2 gap-2">
+                {(['free', 'shimei', 'banai', 'douhan'] as const).map((type) => (
+                  <button
+                    key={type}
+                    onClick={() => setCiNomination(type)}
+                    className={`py-2.5 rounded-[10px] text-sm font-bold transition-colors ${
+                      ciNomination === type ? 'bg-gold text-primary' : 'panel text-gray-300 hover:bg-white/10'
+                    }`}
+                  >
+                    {nominationLabels[type]}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <GoldButton onClick={confirmCheckIn} className="w-full py-3.5 text-base flex items-center justify-center gap-2">
+              入店開始 <ChevronRight size={18} />
+            </GoldButton>
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
 
       {/* Extend Modal */}
-      {showExtend && selected && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => { setShowExtend(false); setSelected(null) }}>
-          <div className="bg-[#1a1a2e] rounded-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-bold mb-2">卓 {selected.number} 延長</h2>
+      <Modal
+        open={showExtend && !!selected}
+        onClose={() => { setShowExtend(false); setSelected(null) }}
+        title={selected ? `卓 ${selected.number} 延長` : ''}
+        size="sm"
+      >
+        {selected && (
+          <>
             <p className="text-sm text-gray-400 mb-4">現在: {selected.setCount}セット</p>
             <div className="space-y-3">
               {EXTENSION_OPTIONS.map((min) => (
-                <button key={min} onClick={() => requestExtend(min as 30 | 60)} className="w-full bg-white/5 border border-white/10 py-3 rounded-lg font-bold transition-colors">+{min}分延長</button>
+                <DarkButton key={min} onClick={() => requestExtend(min as 30 | 60)} className="w-full">
+                  +{min}分延長
+                </DarkButton>
               ))}
             </div>
-            <button onClick={() => { setShowExtend(false); setSelected(null) }} className="w-full mt-3 bg-white/5 border border-white/10 py-3 rounded-lg font-bold text-gray-500">キャンセル</button>
-          </div>
-        </div>
-      )}
+            <GhostButton onClick={() => { setShowExtend(false); setSelected(null) }} className="w-full mt-3">
+              キャンセル
+            </GhostButton>
+          </>
+        )}
+      </Modal>
 
       {/* Rotation Modal */}
-      {showRotation && selected && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => { setShowRotation(false); setSelected(null) }}>
-          <div className="bg-[#1a1a2e] rounded-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-bold mb-2">付け回し - 卓 {selected.number}</h2>
-            <p className="text-sm text-gray-500 mb-4">空いているキャストを選択してください</p>
+      <Modal
+        open={showRotation && !!selected}
+        onClose={() => { setShowRotation(false); setSelected(null) }}
+        title={selected ? `付け回し - 卓 ${selected.number}` : ''}
+        size="sm"
+      >
+        {selected && (
+          <>
+            <p className="text-sm text-gray-400 mb-4">空いているキャストを選択してください</p>
             {freeCasts.length === 0 ? (
-              <p className="text-sm text-gray-600 text-center py-4">現在空いているキャストはいません</p>
+              <p className="text-sm text-gray-500 text-center py-4">現在空いているキャストはいません</p>
             ) : (
               <div className="space-y-2">
                 {freeCasts.map((c) => (
                   <button
                     key={c.id}
                     onClick={() => handleAssignCast(c.name)}
-                    className="w-full bg-white/5 rounded-lg p-3 text-left transition-colors flex items-center justify-between"
+                    className="panel w-full p-3 text-left hover:bg-gold/5 hover:border-gold/40 transition-all flex items-center justify-between"
                   >
                     <div>
                       <div className="font-bold text-sm">{c.name}</div>
@@ -710,10 +722,9 @@ export default function FloorPage() {
                 ))}
               </div>
             )}
-            <button onClick={() => { setShowRotation(false); setSelected(null) }} className="w-full mt-4 bg-white/5 border border-white/10 py-3 rounded-lg font-bold text-gray-500">キャンセル</button>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
 
     </div>
     <BottomActionBar
@@ -738,53 +749,52 @@ export default function FloorPage() {
     />
 
       {/* 延長確認ダイアログ (指示書§6.2.3 + §G-9 指名選択) */}
-      {pendingExtend && selected && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60] p-4" onClick={() => setPendingExtend(null)}>
-          <div className="bg-[#1a1a2e] rounded-2xl w-full max-w-sm p-6 border border-white/10" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-bold mb-3">延長の確認</h2>
-            <div className="bg-white/5 rounded-lg p-3 mb-3 space-y-1.5">
+      <Modal
+        open={!!(pendingExtend && selected)}
+        onClose={() => setPendingExtend(null)}
+        size="sm"
+        title="延長の確認"
+        footer={
+          <>
+            <GhostButton onClick={() => setPendingExtend(null)} className="flex-1">キャンセル</GhostButton>
+            <GoldButton onClick={confirmExtend} className="flex-1">延長する</GoldButton>
+          </>
+        }
+      >
+        {pendingExtend && selected && (
+          <div className="space-y-3">
+            <div className="panel p-3 space-y-1.5">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-400">延長時間</span>
                 <span className="font-bold">+{pendingExtend.minutes}分</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-gray-400">延長料金</span>
-                <span className="font-bold text-[#d4af37] tabular-nums">¥{EXTENSION_CHARGES[pendingExtend.minutes].toLocaleString()}</span>
+                <span className="font-bold text-gold tabular-nums">¥{EXTENSION_CHARGES[pendingExtend.minutes].toLocaleString()}</span>
               </div>
             </div>
-            {/* 指名選択 (G-9) */}
-            <div className="mb-4">
+            <div>
               <label className="text-xs text-gray-500 block mb-1.5">指名(バック帰属先・任意)</label>
               <div className="flex gap-2 flex-wrap">
-                <button
+                <CastChip
+                  name="フリー"
+                  selected={!pendingExtend.castName}
                   onClick={() => setPendingExtend({ ...pendingExtend, castName: undefined })}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${!pendingExtend.castName ? 'bg-white text-black' : 'bg-white/5 border border-white/10 text-gray-400'}`}
-                >
-                  フリー
-                </button>
+                />
                 {selected.castNames.map((name) => (
-                  <button
+                  <CastChip
                     key={name}
+                    name={name}
+                    selected={pendingExtend.castName === name}
                     onClick={() => setPendingExtend({ ...pendingExtend, castName: name })}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${pendingExtend.castName === name ? 'bg-white text-black' : 'bg-white/5 border border-white/10 text-gray-400'}`}
-                  >
-                    {name}
-                  </button>
+                  />
                 ))}
               </div>
             </div>
-            <p className="text-sm text-gray-400 mb-4">延長してよろしいですか?</p>
-            <div className="flex gap-2">
-              <button onClick={() => setPendingExtend(null)} className="flex-1 bg-white/5 border border-white/10 py-3 rounded-lg font-bold text-gray-500">
-                キャンセル
-              </button>
-              <button onClick={confirmExtend} className="flex-1 bg-[#d4af37] text-black py-3 rounded-lg font-bold">
-                延長する
-              </button>
-            </div>
+            <p className="text-sm text-gray-400">延長してよろしいですか?</p>
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
     </div>
   )
 }

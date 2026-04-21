@@ -3,10 +3,12 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../store'
 import type { MenuItem, CastMenuItem, OrderItem } from '../data/mock'
 import { displayOrderName, chargeItems } from '../data/mock'
-import { Minus, Plus, Trash2, Wine, CreditCard, Printer, X } from 'lucide-react'
+import { Minus, Plus, Trash2, Wine, CreditCard, Printer } from 'lucide-react'
 import ContextualHeader from '../components/ContextualHeader'
 import BottomActionBar from '../components/BottomActionBar'
 import CastChip from '../components/CastChip'
+import Modal from '../components/Modal'
+import { Input, Field as FormField } from '../components/Input'
 import { GoldButton, DangerButton, DarkButton, GhostButton } from '../components/Buttons'
 import { openPrintWindow } from '../utils/print'
 
@@ -238,7 +240,7 @@ export default function OrderPage() {
           <select
             value={selectedTableId}
             onChange={(e) => setSelectedTableId(Number(e.target.value))}
-            className="bg-white/5 border border-[#d4af37]/30 rounded-lg px-3 py-1.5 text-sm text-white"
+            className="bg-primary-dark/60 border border-gold/30 rounded-lg px-3 py-1.5 text-sm text-white"
           >
             {occupiedTables.map((t) => (
               <option key={t.id} value={t.id}>
@@ -251,14 +253,14 @@ export default function OrderPage() {
 
       <div className="flex-1 overflow-hidden grid grid-cols-1 md:grid-cols-[160px_minmax(0,1fr)_170px_minmax(0,1.3fr)]">
         {/* ── Column 1: カテゴリー ── */}
-        <div className="border-r border-white/10 overflow-y-auto bg-[#14141f]">
+        <div className="border-r border-white/10 overflow-y-auto bg-primary-dark">
           {categories.map((cat) => (
             <button
               key={cat.key}
               onClick={() => setActiveCategory(cat.key)}
               className={`w-full text-left px-4 py-3 text-sm border-b border-white/5 transition-colors ${
                 activeCategory === cat.key
-                  ? 'bg-[#d4af37]/15 text-[#d4af37] font-bold'
+                  ? 'bg-gold/15 text-gold font-bold'
                   : 'text-gray-400 hover:bg-white/5'
               }`}
             >
@@ -277,7 +279,7 @@ export default function OrderPage() {
                   <div className="text-xs tabular-nums mt-1">¥{c.price.toLocaleString()}</div>
                 </button>
               ))}
-              <button onClick={handleAddHelp} className="btn-dark text-left p-3 block border border-[#d4af37]/40">
+              <button onClick={handleAddHelp} className="btn-dark text-left p-3 block border border-gold/40">
                 <div className="text-sm font-bold">ヘルプ</div>
                 <div className="text-xs text-gray-400 mt-1">バック記録のみ</div>
               </button>
@@ -300,19 +302,19 @@ export default function OrderPage() {
                     onClick={() => handleAdd(item)}
                     className={`relative text-left p-3 rounded-lg border transition-colors ${
                       item.category === 'cast'
-                        ? 'bg-[#d4af37]/10 border-[#d4af37]/40 hover:bg-[#d4af37]/20'
-                        : 'bg-white/5 border-white/10 hover:bg-white/10'
+                        ? 'bg-gold/10 border-gold/40 hover:bg-gold/20'
+                        : 'panel hover:bg-white/10'
                     }`}
                   >
                     <div className="text-sm font-medium text-white truncate">{item.name}</div>
-                    <div className="text-sm tabular-nums text-[#d4af37] mt-1">
+                    <div className="text-sm tabular-nums text-gold mt-1">
                       {item.price === 0 ? 'セット内' : `¥${item.price.toLocaleString()}`}
                     </div>
                     {item.category === 'cast' && (
                       <div className="text-[10px] text-gray-400 mt-0.5">Back: {(item as CastMenuItem).backType}</div>
                     )}
                     {orderedQty > 0 && (
-                      <span className="absolute -top-2 -right-2 bg-[#e94560] text-white text-xs w-6 h-6 rounded-full flex items-center justify-center font-bold">
+                      <span className="absolute -top-2 -right-2 bg-accent text-white text-xs w-6 h-6 rounded-full flex items-center justify-center font-bold">
                         {orderedQty}
                       </span>
                     )}
@@ -327,14 +329,14 @@ export default function OrderPage() {
         </div>
 
         {/* ── Column 3: 誰に ── */}
-        <div className="overflow-y-auto p-3 border-r border-white/10 bg-[#14141f]">
+        <div className="overflow-y-auto p-3 border-r border-white/10 bg-primary-dark">
           <div className="flex mb-3 bg-white/5 rounded-lg p-0.5">
             {(['guest', 'staff'] as const).map((r) => (
               <button
                 key={r}
                 onClick={() => setRecipient(r)}
                 className={`flex-1 py-1.5 text-xs rounded-md font-semibold tracking-wider transition-colors ${
-                  recipient === r ? 'bg-[#d4af37] text-[#1a1a2e]' : 'text-gray-400'
+                  recipient === r ? 'bg-gold text-primary' : 'text-gray-400'
                 }`}
               >
                 {r === 'guest' ? 'お客さま' : 'スタッフ'}
@@ -415,9 +417,9 @@ export default function OrderPage() {
               <span className="text-gray-300">注文小計</span>
               <span className="tabular-nums">¥{subtotal.toLocaleString()}</span>
             </div>
-            <div className="flex justify-between pt-1 border-t border-[#d4af37]/30">
-              <span className="text-sm font-bold text-[#d4af37]">総合計 (税込)</span>
-              <span className="tabular-nums font-bold text-[#d4af37]">¥{grandTotal.toLocaleString()}</span>
+            <div className="flex justify-between pt-1 border-t border-gold/30">
+              <span className="text-sm font-bold text-gold">総合計 (税込)</span>
+              <span className="tabular-nums font-bold text-gold">¥{grandTotal.toLocaleString()}</span>
             </div>
           </div>
         </div>
@@ -538,43 +540,32 @@ function AddBottleModal({
   onClose: () => void; onSave: () => void
 }) {
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-[#1a1a2e] rounded-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-bold">ボトルキープ登録</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-white"><X size={18} /></button>
-        </div>
-        <div className="space-y-3 mb-4">
-          <Field label="ボトル名">
-            <input type="text" value={bottleName} onChange={(e) => setBottleName(e.target.value)} placeholder="例: 響 17年" className="field-input" />
-          </Field>
-          <Field label={`残量: ${bottleRemaining}%`}>
-            <input type="range" min="0" max="100" value={bottleRemaining} onChange={(e) => setBottleRemaining(Number(e.target.value))} className="w-full" />
-          </Field>
-          <Field label="保管場所">
-            <input type="text" value={bottleStorage} onChange={(e) => setBottleStorage(e.target.value)} placeholder="例: A-3" className="field-input" />
-          </Field>
-          <Field label="担当客名">
-            <input type="text" value={bottleCustomer} onChange={(e) => setBottleCustomer(e.target.value)} placeholder="例: 田中様" className="field-input" />
-          </Field>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={onClose} className="flex-1 btn-dark py-2.5 text-sm">キャンセル</button>
-          <button onClick={onSave} disabled={!bottleName || !bottleCustomer} className="flex-1 btn-gold py-2.5 text-sm">
-            登録
-          </button>
-        </div>
+    <Modal
+      open
+      onClose={onClose}
+      size="sm"
+      title="ボトルキープ登録"
+      footer={
+        <>
+          <GhostButton onClick={onClose} className="flex-1">キャンセル</GhostButton>
+          <GoldButton onClick={onSave} disabled={!bottleName || !bottleCustomer} className="flex-1">登録</GoldButton>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <FormField label="ボトル名">
+          <Input type="text" value={bottleName} onChange={(e) => setBottleName(e.target.value)} placeholder="例: 響 17年" />
+        </FormField>
+        <FormField label={`残量: ${bottleRemaining}%`}>
+          <input type="range" min="0" max="100" value={bottleRemaining} onChange={(e) => setBottleRemaining(Number(e.target.value))} className="w-full" />
+        </FormField>
+        <FormField label="保管場所">
+          <Input type="text" value={bottleStorage} onChange={(e) => setBottleStorage(e.target.value)} placeholder="例: A-3" />
+        </FormField>
+        <FormField label="担当客名">
+          <Input type="text" value={bottleCustomer} onChange={(e) => setBottleCustomer(e.target.value)} placeholder="例: 田中様" />
+        </FormField>
       </div>
-      <style>{`.field-input { width: 100%; background: rgba(0,0,0,0.3); border: 1px solid rgba(212,175,55,0.3); border-radius: 8px; padding: 0.5rem 0.75rem; color: white; font-size: 0.875rem; }`}</style>
-    </div>
-  )
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="block text-xs text-gray-400 mb-1">{label}</span>
-      {children}
-    </label>
+    </Modal>
   )
 }

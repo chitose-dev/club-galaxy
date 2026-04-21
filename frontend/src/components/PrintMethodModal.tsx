@@ -20,7 +20,7 @@ export default function PrintMethodModal({ open, onClose, onPrintDetailed, onPri
       onClick={onClose}
     >
       <div
-        className="bg-[#1a1a2e] border border-white/10 rounded-lg w-full max-w-sm p-5 space-y-3"
+        className="bg-primary border border-white/10 rounded-lg w-full max-w-sm p-5 space-y-3"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-base font-bold text-white text-center mb-2">領収書の印刷方法</h3>

@@ -37,8 +37,8 @@ export default function NumberPad({ value, onChange, label, max = 9_999_999 }: P
   return (
     <div className="panel p-3 space-y-3">
       {label && <div className="text-xs text-gray-400 tracking-wider">{label}</div>}
-      <div className="bg-black/40 border border-[#d4af37]/30 rounded-lg px-3 py-2 text-right">
-        <span className="text-2xl font-bold text-[#d4af37] tabular-nums">¥{Number(display).toLocaleString()}</span>
+      <div className="bg-black/40 border border-gold/30 rounded-lg px-3 py-2 text-right">
+        <span className="text-2xl font-bold text-gold tabular-nums">¥{Number(display).toLocaleString()}</span>
       </div>
       <div className="grid grid-cols-3 gap-2">
         {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
