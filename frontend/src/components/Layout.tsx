@@ -17,10 +17,10 @@ export default function Layout() {
 
   return (
     <div className="flex flex-col h-dvh">
-      <header className="bg-[#1a1a2e] px-4 py-2.5 flex items-center justify-between border-b border-white/10 gap-4">
+      <header className="bg-primary px-4 py-2.5 flex items-center justify-between border-b border-white/10 gap-4">
         <div className="flex items-center gap-4 min-w-0">
           <h1
-            className="text-xl font-semibold tracking-widest text-[#d4af37] truncate"
+            className="text-xl font-semibold tracking-widest text-gold truncate"
             style={{ fontFamily: 'var(--font-display)' }}
           >
             {storeSettings.storeName}
@@ -31,20 +31,24 @@ export default function Layout() {
           </span>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <GlobalNavBar />
           {user && (
-            <button
-              onClick={logout}
-              className="text-xs text-gray-400 hover:text-white transition-colors whitespace-nowrap"
-            >
-              {user.displayName} <span className="text-gray-600 mx-1">|</span> ログアウト
-            </button>
+            <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 h-12 whitespace-nowrap">
+              <span className="text-xs text-gray-200">{user.displayName}</span>
+              <span className="text-gray-600">|</span>
+              <button
+                onClick={logout}
+                className="text-xs text-gray-400 hover:text-gold transition-colors"
+              >
+                ログアウト
+              </button>
+            </div>
           )}
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto bg-[#1a1a2e]">
+      <main className="flex-1 overflow-y-auto bg-primary">
         <Outlet />
       </main>
     </div>

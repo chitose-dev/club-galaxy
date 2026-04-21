@@ -30,7 +30,7 @@ export default function ProfitPage() {
         right={
           <div className="hidden md:flex items-center gap-3 text-xs">
             <span className="text-gray-400">本日利益:</span>
-            <span className="tabular-nums font-bold text-[#d4af37]">¥{flMetrics.todayProfit.toLocaleString()}</span>
+            <span className="tabular-nums font-bold text-gold">¥{flMetrics.todayProfit.toLocaleString()}</span>
             <span className="text-gray-400">FL:</span>
             <span className={`tabular-nums font-bold ${flColor(flMetrics.flRate)}`}>{flMetrics.flRate.toFixed(1)}%</span>
           </div>
@@ -229,7 +229,7 @@ function StoreTrendView() {
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-white/5 rounded-lg p-3">
           <div className="text-xs text-gray-500 mb-1">売上合計</div>
-          <div className="text-base font-bold text-[#d4af37] tabular-nums">¥{totals.sales.toLocaleString()}</div>
+          <div className="text-base font-bold text-gold tabular-nums">¥{totals.sales.toLocaleString()}</div>
         </div>
         <div className="bg-white/5 rounded-lg p-3">
           <div className="text-xs text-gray-500 mb-1">経費合計</div>
@@ -255,7 +255,7 @@ function StoreTrendView() {
                   {b.sales > 0 ? `¥${(b.sales / 1000).toFixed(0)}k` : ''}
                 </span>
                 <div
-                  className="w-full rounded-t bg-[#d4af37]/80"
+                  className="w-full rounded-t bg-gold/80"
                   style={{ height: `${Math.max(h, 2)}%`, opacity: b.sales > 0 ? 1 : 0.2 }}
                 />
                 <span className="text-[10px] text-gray-500 mt-1">{shortLabel(b.label)}</span>
@@ -444,7 +444,7 @@ function CastTrendView() {
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-white/5 rounded-lg p-3">
           <div className="text-xs text-gray-500 mb-1">売上合計</div>
-          <div className="text-base font-bold text-[#d4af37] tabular-nums">¥{totals.sales.toLocaleString()}</div>
+          <div className="text-base font-bold text-gold tabular-nums">¥{totals.sales.toLocaleString()}</div>
         </div>
         <div className="bg-white/5 rounded-lg p-3">
           <div className="text-xs text-gray-500 mb-1">勤務時間</div>
@@ -468,7 +468,7 @@ function CastTrendView() {
                   {b.sales > 0 ? `¥${(b.sales / 1000).toFixed(0)}k` : ''}
                 </span>
                 <div
-                  className="w-full rounded-t bg-purple-400/80"
+                  className="w-full rounded-t bg-gold/80"
                   style={{ height: `${Math.max(h, 2)}%`, opacity: b.sales > 0 ? 1 : 0.2 }}
                 />
                 <span className="text-[10px] text-gray-500 mt-1">{shortLabel(b.label)}</span>
@@ -598,7 +598,7 @@ function CalendarView() {
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-white/5 rounded-lg p-3">
           <div className="text-xs text-gray-500 mb-1">{month}月 売上</div>
-          <div className="text-base font-bold text-[#d4af37] tabular-nums">¥{monthTotal.sales.toLocaleString()}</div>
+          <div className="text-base font-bold text-gold tabular-nums">¥{monthTotal.sales.toLocaleString()}</div>
         </div>
         <div className="bg-white/5 rounded-lg p-3">
           <div className="text-xs text-gray-500 mb-1">{month}月 経費</div>
@@ -632,14 +632,14 @@ function CalendarView() {
                 key={ds}
                 onClick={() => setSelectedDay(ds === selectedDay ? null : ds)}
                 className={`aspect-square rounded p-1 text-left transition-all ${
-                  isSelected ? 'bg-[#d4af37]/20 border border-[#d4af37]/50' :
+                  isSelected ? 'bg-gold/20 border border-gold/50' :
                   isToday ? 'bg-blue-500/10 border border-blue-500/30' :
                   hasData ? 'bg-white/5 hover:bg-white/10' : 'bg-white/[0.02]'
                 }`}
               >
                 <div className="text-xs font-bold">{day}</div>
                 {data && data.sales > 0 && (
-                  <div className="text-[9px] text-[#d4af37] tabular-nums leading-tight mt-0.5">
+                  <div className="text-[9px] text-gold tabular-nums leading-tight mt-0.5">
                     ¥{(data.sales / 1000).toFixed(0)}k
                   </div>
                 )}
@@ -658,7 +658,7 @@ function CalendarView() {
       {selectedDay && dayDetail && (
         <div className="bg-white/5 rounded-lg p-4">
           <div className="flex justify-between items-center mb-3">
-            <h3 className="text-base font-bold text-[#d4af37]">
+            <h3 className="text-base font-bold text-gold">
               {selectedDay.replace(/-/g, '/')} の内訳
             </h3>
             <button onClick={() => setSelectedDay(null)} className="text-gray-500 hover:text-white text-sm">閉じる</button>
@@ -673,7 +673,7 @@ function CalendarView() {
                   <div key={castName} className="bg-white/5 rounded-lg p-3">
                     <div className="flex justify-between items-center mb-2">
                       <span className="font-bold text-sm">{castName}</span>
-                      <span className="text-[#d4af37] font-bold tabular-nums">¥{total.toLocaleString()}</span>
+                      <span className="text-gold font-bold tabular-nums">¥{total.toLocaleString()}</span>
                     </div>
                     <div className="space-y-1">
                       {records.map((r) => (

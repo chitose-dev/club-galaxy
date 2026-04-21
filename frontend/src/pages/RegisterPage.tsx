@@ -1,10 +1,14 @@
 import { useState, useMemo } from 'react'
 import { useStore } from '../store'
 import { useAuth } from '../auth'
-import { Pencil, X, Trash2, Printer, Download } from 'lucide-react'
+import { Pencil, Trash2, Printer, Download } from 'lucide-react'
 import { openPrintWindow } from '../utils/print'
 import type { DailyReport } from '../data/mock'
 import ContextualHeader from '../components/ContextualHeader'
+import Tabs from '../components/Tabs'
+import Modal from '../components/Modal'
+import { Input, Textarea, Field } from '../components/Input'
+import { GoldButton, GhostButton } from '../components/Buttons'
 
 type RegisterTab = 'closing' | 'history'
 
@@ -15,30 +19,15 @@ export default function RegisterPage() {
     <div className="flex flex-col min-h-full">
       <ContextualHeader title="レジ" backTo="/top" />
       <div className="px-4 pt-4">
-        <div className="flex border-b border-white/10 mb-4">
-          <button
-            onClick={() => setActiveTab('closing')}
-            className={`flex-1 px-4 py-3 text-sm font-bold tracking-wide transition-colors relative ${
-              activeTab === 'closing' ? 'text-white' : 'text-gray-500'
-            }`}
-          >
-            締め処理
-            {activeTab === 'closing' && (
-              <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-white rounded-full" />
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('history')}
-            className={`flex-1 px-4 py-3 text-sm font-bold tracking-wide transition-colors relative ${
-              activeTab === 'history' ? 'text-white' : 'text-gray-500'
-            }`}
-          >
-            日報履歴
-            {activeTab === 'history' && (
-              <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-white rounded-full" />
-            )}
-          </button>
-        </div>
+        <Tabs<RegisterTab>
+          value={activeTab}
+          onChange={setActiveTab}
+          items={[
+            { key: 'closing', label: '締め処理' },
+            { key: 'history', label: '日報履歴' },
+          ]}
+          className="mb-4"
+        />
       </div>
 
       {activeTab === 'closing' ? <ClosingView /> : <HistoryView />}
@@ -146,16 +135,16 @@ function ClosingView() {
                 <div className="text-xs text-gray-500 mb-1">レジ初期値</div>
                 <div className="text-lg font-bold tabular-nums">¥{initialCash.toLocaleString()}</div>
               </div>
-              <button
+              <GhostButton
                 onClick={() => { setShowEditInitial(true); setTempInitial(String(initialCash)) }}
-                className="bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg text-sm text-gray-400 flex items-center gap-1.5 transition-colors"
+                className="text-sm"
               >
                 <Pencil size={12} /> 変更
-              </button>
+              </GhostButton>
             </div>
           </div>
 
-          <div className="bg-white/5 rounded-lg p-4 mb-4">
+          <div className="panel p-4 mb-4">
             <h3 className="text-sm font-bold mb-3 text-gray-400">本日の売上</h3>
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
@@ -174,13 +163,13 @@ function ClosingView() {
               )}
               <div className="border-t border-white/10 pt-2 flex justify-between text-sm font-bold">
                 <span>売上合計</span>
-                <span className="text-[#d4af37] tabular-nums">¥{salesSummary.total.toLocaleString()}</span>
+                <span className="text-gold tabular-nums">¥{salesSummary.total.toLocaleString()}</span>
               </div>
             </div>
           </div>
 
           {billingRecords.length > 0 && (
-            <div className="bg-white/5 rounded-lg p-4 mb-4">
+            <div className="panel p-4 mb-4">
               <h3 className="text-sm font-bold mb-3 text-gray-400">会計明細</h3>
               <div className="divide-y divide-white/5">
                 {billingRecords.map((r) => (
@@ -190,7 +179,7 @@ function ClosingView() {
                       <span className={`text-xs px-1.5 py-0.5 rounded ${
                         r.paymentMethod === 'cash' ? 'bg-emerald-500/10 text-emerald-400' :
                         r.paymentMethod === 'card' ? 'bg-blue-500/10 text-blue-400' :
-                        'bg-purple-500/10 text-purple-400'
+                        'bg-gold/10 text-gold'
                       }`}>
                         {paymentMethodLabel(r.paymentMethod)}
                       </span>
@@ -202,7 +191,7 @@ function ClosingView() {
             </div>
           )}
 
-          <div className="bg-white/5 rounded-lg p-4 mb-4">
+          <div className="panel p-4 mb-4">
             <h3 className="text-sm font-bold mb-3 text-gray-400">日払い支払</h3>
             {dailyPayRequests.length === 0 ? (
               <p className="text-sm text-gray-600">日払いなし</p>
@@ -224,8 +213,8 @@ function ClosingView() {
         </div>
 
         <div>
-          <div className="bg-white/10 rounded-lg p-4 mb-4 space-y-2">
-            <h3 className="text-sm font-bold mb-2 text-gray-400">レジ計算</h3>
+          <div className="panel-gold p-4 mb-4 space-y-2">
+            <h3 className="text-sm font-bold mb-2 text-gold">レジ計算</h3>
             <div className="flex justify-between text-sm">
               <span className="text-gray-500">レジ初期値</span>
               <span className="tabular-nums">¥{initialCash.toLocaleString()}</span>
@@ -252,19 +241,21 @@ function ClosingView() {
             )}
             <div className="border-t border-white/10 pt-2 flex justify-between">
               <span className="font-bold">理論有高</span>
-              <span className="font-bold text-xl text-[#d4af37] tabular-nums">¥{theoreticalCash.toLocaleString()}</span>
+              <span className="font-bold text-xl text-gold tabular-nums">¥{theoreticalCash.toLocaleString()}</span>
             </div>
           </div>
 
-          <div className="bg-white/5 rounded-lg p-4 mb-4">
-            <label className="text-xs text-gray-500 block mb-1.5">実有高（実際のレジ内金額）</label>
-            <input
-              type="number"
-              value={actualCash}
-              onChange={(e) => setActualCash(e.target.value)}
-              placeholder="金額を入力"
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-3 text-lg font-bold"
-            />
+          <div className="panel p-4 mb-4">
+            <Field label="実有高（実際のレジ内金額）">
+              <Input
+                type="number"
+                value={actualCash}
+                onChange={(e) => setActualCash(e.target.value)}
+                placeholder="金額を入力"
+                size="lg"
+                className="font-bold"
+              />
+            </Field>
           </div>
 
           {hasActualInput && (
@@ -281,23 +272,24 @@ function ClosingView() {
             </div>
           )}
 
-          <div className="bg-white/5 rounded-lg p-4 mb-4">
+          <div className="panel p-4 mb-4">
             <h3 className="text-sm font-bold mb-3 text-gray-400">日報登録</h3>
-            <label className="text-xs text-gray-500 block mb-1.5">備考・メモ（過不足の理由など）</label>
-            <textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="例：釣銭間違い、両替ミス、特記事項など"
-              rows={3}
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm mb-3 resize-none"
-            />
-            <button
+            <Field label="備考・メモ（過不足の理由など）">
+              <Textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="例：釣銭間違い、両替ミス、特記事項など"
+                rows={3}
+                className="resize-none"
+              />
+            </Field>
+            <GoldButton
               onClick={handleSaveDailyReport}
               disabled={!hasActualInput}
-              className="w-full bg-[#d4af37] disabled:bg-white/10 disabled:text-gray-600 text-black py-3 rounded-lg font-bold"
+              className="w-full mt-3"
             >
               日報を登録
-            </button>
+            </GoldButton>
             {!hasActualInput && (
               <p className="text-xs text-gray-600 mt-2 text-center">実有高を入力すると登録できます</p>
             )}
@@ -308,26 +300,29 @@ function ClosingView() {
         </div>
       </div>
 
-      {showEditInitial && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowEditInitial(false)}>
-          <div className="bg-[#1a1a2e] rounded-lg w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-bold">レジ初期値変更</h2>
-              <button onClick={() => setShowEditInitial(false)} className="text-gray-500 hover:text-white"><X size={18} /></button>
-            </div>
-            <input
-              type="number"
-              value={tempInitial}
-              onChange={(e) => setTempInitial(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm mb-4"
-            />
-            <div className="flex gap-2">
-              <button onClick={() => setShowEditInitial(false)} className="flex-1 bg-white/5 border border-white/10 py-3 rounded-lg font-bold text-gray-500">キャンセル</button>
-              <button onClick={() => { setInitialCash(Number(tempInitial) || 100000); setShowEditInitial(false) }} className="flex-1 bg-white text-black py-3 rounded-lg font-bold">変更</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Modal
+        open={showEditInitial}
+        onClose={() => setShowEditInitial(false)}
+        size="sm"
+        title="レジ初期値変更"
+        footer={
+          <>
+            <GhostButton onClick={() => setShowEditInitial(false)} className="flex-1">キャンセル</GhostButton>
+            <GoldButton
+              onClick={() => { setInitialCash(Number(tempInitial) || 100000); setShowEditInitial(false) }}
+              className="flex-1"
+            >
+              変更
+            </GoldButton>
+          </>
+        }
+      >
+        <Input
+          type="number"
+          value={tempInitial}
+          onChange={(e) => setTempInitial(e.target.value)}
+        />
+      </Modal>
     </div>
   )
 }
@@ -434,14 +429,14 @@ function HistoryView() {
   return (
     <div className="flex-1 overflow-y-auto px-4 pb-6">
       {/* フィルタ */}
-      <div className="bg-white/5 rounded-lg p-3 mb-4">
+      <div className="panel p-3 mb-4">
         <div className="flex gap-2 mb-2 flex-wrap">
           {(['today', 'week', 'month', 'all', 'custom'] as RangeKey[]).map((k) => (
             <button
               key={k}
               onClick={() => setRange(k)}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
-                range === k ? 'bg-white text-black' : 'bg-white/5 border border-white/10 text-gray-400'
+                range === k ? 'bg-gold text-primary' : 'bg-white/5 border border-white/10 text-gray-400 hover:bg-white/10'
               }`}
             >
               {rangeLabel(k)}
@@ -450,24 +445,24 @@ function HistoryView() {
         </div>
         {range === 'custom' && (
           <div className="flex gap-2 items-center">
-            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs" />
+            <Input type="date" size="sm" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
             <span className="text-gray-500 text-xs">〜</span>
-            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs" />
+            <Input type="date" size="sm" value={toDate} onChange={(e) => setToDate(e.target.value)} />
           </div>
         )}
       </div>
 
       {/* サマリ */}
       <div className="grid grid-cols-2 gap-3 mb-4">
-        <div className="bg-white/5 rounded-lg p-3">
+        <div className="panel p-3">
           <div className="text-xs text-gray-500 mb-1">対象件数</div>
           <div className="text-lg font-bold tabular-nums">{summary.count}件</div>
         </div>
-        <div className="bg-white/5 rounded-lg p-3">
+        <div className="panel p-3">
           <div className="text-xs text-gray-500 mb-1">売上合計</div>
-          <div className="text-lg font-bold text-[#d4af37] tabular-nums">¥{summary.totalSales.toLocaleString()}</div>
+          <div className="text-lg font-bold text-gold tabular-nums">¥{summary.totalSales.toLocaleString()}</div>
         </div>
-        <div className="bg-white/5 rounded-lg p-3">
+        <div className="panel p-3">
           <div className="text-xs text-gray-500 mb-1">現金売上合計</div>
           <div className="text-lg font-bold tabular-nums">¥{summary.cashSales.toLocaleString()}</div>
         </div>
@@ -481,23 +476,20 @@ function HistoryView() {
 
       {/* CSV出力 */}
       {filtered.length > 0 && (
-        <button
-          onClick={handleExportCSV}
-          className="w-full bg-white/5 border border-white/10 rounded-lg py-2.5 mb-4 text-sm text-gray-400 flex items-center justify-center gap-2 transition-colors"
-        >
+        <GhostButton onClick={handleExportCSV} className="w-full mb-4 text-sm">
           <Download size={14} /> CSV出力（{filtered.length}件）
-        </button>
+        </GhostButton>
       )}
 
       {/* 日報一覧 */}
       {filtered.length === 0 ? (
-        <div className="bg-white/5 rounded-lg p-8 text-center text-sm text-gray-600">
+        <div className="panel p-8 text-center text-sm text-gray-600">
           対象期間に日報がありません
         </div>
       ) : (
         <div className="space-y-3">
           {filtered.map((r) => (
-            <div key={r.id} className="bg-white/5 rounded-lg p-4">
+            <div key={r.id} className="panel p-4">
               <div className="flex justify-between items-start mb-3">
                 <div>
                   <div className="text-base font-bold">{r.date}</div>

@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react'
 import { useStore } from '../store'
 import ContextualHeader from '../components/ContextualHeader'
-import { GoldButton, DarkButton } from '../components/Buttons'
+import { GoldButton, DarkButton, GhostButton } from '../components/Buttons'
 import ConfirmDialog from '../components/ConfirmDialog'
+import Modal from '../components/Modal'
+import { Input, Field } from '../components/Input'
 import { Plus, ArrowUpDown, Edit2, Trash2 } from 'lucide-react'
 import type { Cast } from '../data/mock'
 
@@ -42,8 +44,9 @@ export default function WaitingCastPage() {
   }
 
   const waitingLabel = (c: Cast): string => {
+    // 「本日休み (active=false)」が最優先 — 卓アサインより先に判定
+    if (!c.active) return '本日休み'
     if (assignedNames.has(c.name)) return '接客中'
-    if (!c.active) return '休憩'
     if (!c.lastAssignedAt) return '待機中'
     const ms = Date.now() - new Date(c.lastAssignedAt).getTime()
     const min = Math.max(0, Math.floor(ms / 60000))
@@ -82,7 +85,7 @@ export default function WaitingCastPage() {
                 style={{ background: busy ? 'rgba(212, 175, 55, 0.08)' : undefined }}
               >
                 {/* アバター (イニシャル) */}
-                <div className="shrink-0 w-12 h-12 rounded-full bg-gradient-to-br from-[#d4af37] to-[#8e6b1e] flex items-center justify-center text-[#1a1a2e] font-bold text-lg">
+                <div className="shrink-0 w-12 h-12 rounded-full bg-gradient-to-br from-gold to-gold-dark flex items-center justify-center text-primary font-bold text-lg">
                   {c.name.slice(0, 1)}
                 </div>
 
@@ -91,17 +94,17 @@ export default function WaitingCastPage() {
                   onClick={() => toggleActive(c.id)}
                   className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold tracking-wider transition-colors ${
                     c.active
-                      ? 'bg-[#d4af37] text-[#1a1a2e]'
+                      ? 'bg-gold text-primary'
                       : 'bg-white/5 border border-white/20 text-gray-400'
                   }`}
                 >
-                  {c.active ? '本日出勤' : '休憩'}
+                  {c.active ? '本日出勤' : '本日休み'}
                 </button>
 
                 {/* 編集・削除 */}
                 <button
                   onClick={() => setEditing(c)}
-                  className="shrink-0 p-2 rounded-md bg-white/5 hover:bg-white/10 text-[#d4af37]"
+                  className="shrink-0 p-2 rounded-md bg-white/5 hover:bg-white/10 text-gold"
                   aria-label="編集"
                 >
                   <Edit2 size={14} />
@@ -191,58 +194,48 @@ function CastEditModal({ initial, onClose, onSave }: ModalProps) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-[#1a1a2e] border border-white/10 rounded-lg p-5 max-w-md w-full space-y-3" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-base font-bold text-white mb-1">{initial ? 'キャスト編集' : 'キャスト追加'}</h3>
-
+    <Modal
+      open
+      onClose={onClose}
+      title={initial ? 'キャスト編集' : 'キャスト追加'}
+      size="md"
+      footer={
+        <>
+          <GhostButton onClick={onClose} className="flex-1">キャンセル</GhostButton>
+          <GoldButton onClick={save} disabled={!canSave} className="flex-1">保存</GoldButton>
+        </>
+      }
+    >
+      <div className="space-y-3">
         <Field label="源氏名 (必須)">
-          <input value={name} onChange={(e) => setName(e.target.value)} className="field-input" autoFocus />
+          <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
         </Field>
         <Field label="時給 (円)">
-          <input
+          <Input
             type="number"
             value={hourlyRate}
             onChange={(e) => setHourlyRate(parseInt(e.target.value || '0', 10))}
-            className="field-input tabular-nums"
+            className="tabular-nums"
           />
         </Field>
         <Field label="売上保証率 (0.0〜1.0)">
-          <input
+          <Input
             type="number"
             step="0.05"
             min="0"
             max="1"
             value={guaranteeRate}
             onChange={(e) => setGuaranteeRate(parseFloat(e.target.value || '0'))}
-            className="field-input tabular-nums"
+            className="tabular-nums"
           />
         </Field>
         <Field label="本名 (税理士提出用・任意)">
-          <input value={realName} onChange={(e) => setRealName(e.target.value)} className="field-input" />
+          <Input value={realName} onChange={(e) => setRealName(e.target.value)} />
         </Field>
         <Field label="住所 (税理士提出用・任意)">
-          <input value={address} onChange={(e) => setAddress(e.target.value)} className="field-input" />
+          <Input value={address} onChange={(e) => setAddress(e.target.value)} />
         </Field>
-
-        <div className="flex gap-2 pt-2">
-          <button onClick={onClose} className="flex-1 btn-dark py-2.5 text-sm">
-            キャンセル
-          </button>
-          <button onClick={save} disabled={!canSave} className="flex-1 btn-gold py-2.5 text-sm">
-            保存
-          </button>
-        </div>
       </div>
-      <style>{`.field-input { width: 100%; background: rgba(0,0,0,0.3); border: 1px solid rgba(212,175,55,0.3); border-radius: 8px; padding: 0.5rem 0.75rem; color: white; font-size: 0.875rem; }`}</style>
-    </div>
-  )
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="block text-xs text-gray-400 mb-1 tracking-wide">{label}</span>
-      {children}
-    </label>
+    </Modal>
   )
 }

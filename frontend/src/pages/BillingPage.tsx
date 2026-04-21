@@ -3,20 +3,23 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useStore } from '../store'
 import { useAuth } from '../auth'
 import { getSetPriceForTime, getSetPriceLabel, nominationLabels, displayOrderName } from '../data/mock'
-import type { DiscountLog } from '../data/mock'
+import type { DiscountLog, BillingRecord } from '../data/mock'
 import { Printer, CheckCircle, ArrowLeft, CreditCard } from 'lucide-react'
 import ContextualHeader from '../components/ContextualHeader'
 import BottomActionBar from '../components/BottomActionBar'
 import { DangerButton, DarkButton, GhostButton } from '../components/Buttons'
 import PrintMethodModal from '../components/PrintMethodModal'
+import Modal from '../components/Modal'
+import Tabs from '../components/Tabs'
+import { Input, Field } from '../components/Input'
 
 const DISCOUNT_REASON_PRESETS = ['端数カット', 'VIP値引', '店長承認', 'クーポン', 'その他'] as const
 
 type PaymentMethod = 'cash' | 'card' | 'mixed'
-type BillingTab = 'total' | 'individual' | 'audit'
+type BillingTab = 'total' | 'individual' | 'audit' | 'history'
 
 export default function BillingPage() {
-  const { tables, resetTable, discountLogs, addDiscountLog, addBillingRecord, storeSettings, getNextReceiptNumber, casts } = useStore()
+  const { tables, resetTable, discountLogs, addDiscountLog, addBillingRecord, billingRecords, storeSettings, getNextReceiptNumber, casts } = useStore()
   const { user } = useAuth()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -61,6 +64,82 @@ export default function BillingPage() {
           </div>
         </div>
         {billingTab === 'audit' && <AuditLogView logs={discountLogs} onClose={() => setBillingTab('total')} />}
+
+        {/* 会計完了後、次の卓がなくこの分岐に来た場合もポップアップを表示できるようにする */}
+        <Modal
+          open={showReceipt && !!lastBillingData}
+          onClose={() => { setShowReceipt(false); setLastBillingData(null) }}
+          size="sm"
+          dismissible={false}
+          title="会計完了"
+          footer={
+            <GhostButton onClick={() => { setShowReceipt(false); setLastBillingData(null); navigate('/floor') }} className="flex-1">閉じる</GhostButton>
+          }
+        >
+          {lastBillingData && (
+            <div className="space-y-4">
+              <div className="text-center">
+                <CheckCircle size={40} className="mx-auto mb-2 text-emerald-400" />
+                <p className="text-xs text-gray-400 tracking-wider mb-1">お支払い額</p>
+                <p className="text-3xl font-extrabold text-gold tabular-nums">¥{lastBillingData.total.toLocaleString()}</p>
+                <p className="text-xs text-gray-500 mt-1">卓 {lastBillingData.tableNumber} / 伝票No. {lastBillingData.receiptNumber}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => doPrint('summary')} className="btn-gold py-3 flex items-center justify-center gap-2 text-sm">
+                  <Printer size={16} /> 領収書印刷
+                </button>
+                <button onClick={() => doPrint('detailed')} className="btn-dark py-3 flex items-center justify-center gap-2 text-sm">
+                  <Printer size={16} /> 明細再印刷
+                </button>
+              </div>
+            </div>
+          )}
+        </Modal>
+
+        {/* 印刷用 HTML (画面非表示) */}
+        {lastBillingData && (
+          <div className="print-only">
+            <div ref={receiptRef} className="bg-white text-black rounded-lg p-6 mb-4 print-receipt">
+              <div className="text-center mb-4 border-b border-gray-300 pb-3">
+                <h2 className="text-xl font-bold" style={{ fontFamily: 'var(--font-display)' }}>{storeSettings.storeName}</h2>
+                {storeSettings.storeAddress && <p className="text-xs text-gray-500">{storeSettings.storeAddress}</p>}
+                {storeSettings.storePhone && <p className="text-xs text-gray-500">TEL: {storeSettings.storePhone}</p>}
+                <p className="text-xs text-gray-500 mt-1">登録番号: {storeSettings.invoiceNumber}</p>
+              </div>
+              <div className="text-sm space-y-1 mb-3 border-b border-gray-200 pb-3">
+                <div className="flex justify-between"><span>日時:</span><span>{new Date().toLocaleString('ja-JP')}</span></div>
+                <div className="flex justify-between"><span>卓番号:</span><span>{lastBillingData.tableNumber}</span></div>
+                <div className="flex justify-between"><span>伝票No:</span><span>{lastBillingData.receiptNumber}</span></div>
+              </div>
+              <div className="text-sm mb-3 border-b border-gray-200 pb-3">
+                <div className="flex justify-between"><span>宛名:</span><span>{lastBillingData.receiptName || '　　　　　　　　　'}様</span></div>
+                <div className="flex justify-between"><span>但書:</span><span>{lastBillingData.receiptPurpose}</span></div>
+              </div>
+              <div className="text-sm space-y-1 mb-3 border-b border-gray-200 pb-3 print-detail-lines">
+                <div className="font-bold mb-1">明細</div>
+                <div className="flex justify-between"><span>セット料金</span><span>¥{lastBillingData.setFee.toLocaleString()}</span></div>
+                {lastBillingData.orders.map((o, idx) => (
+                  <div key={`${o.menuItem.id}-${idx}`} className="flex justify-between">
+                    <span>{o.castName ? `${o.menuItem.name}${o.castName}` : o.menuItem.name} x{o.quantity}</span>
+                    <span>{o.menuItem.price === 0 ? 'セット内' : `¥${(o.menuItem.price * o.quantity).toLocaleString()}`}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="text-sm space-y-1 mb-3 border-b border-gray-200 pb-3">
+                <div className="flex justify-between"><span>注文小計(内税)</span><span>¥{lastBillingData.subtotal.toLocaleString()}</span></div>
+                <div className="flex justify-between"><span>セット料金(内税)</span><span>¥{lastBillingData.setFee.toLocaleString()}</span></div>
+                <div className="flex justify-between"><span>TAX ({(storeSettings.taxRate * 100).toFixed(0)}%)</span><span>¥{lastBillingData.tax.toLocaleString()}</span></div>
+                <div className="flex justify-between text-xs text-gray-500"><span>※消費税10%(内税内訳)</span><span>¥{lastBillingData.consumptionTax.toLocaleString()}</span></div>
+                {lastBillingData.discount > 0 && <div className="flex justify-between text-red-600"><span>値引き</span><span>-¥{lastBillingData.discount.toLocaleString()}</span></div>}
+              </div>
+              <div className="text-center mb-3 border-b border-gray-200 pb-3">
+                <div className="text-xs text-gray-500 mb-1">合計金額</div>
+                <div className="font-bold text-2xl">¥ {lastBillingData.total.toLocaleString()} -</div>
+              </div>
+              <p className="text-center text-xs text-gray-500 mt-3">本日もご来店いただき、誠にありがとうございました。</p>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -119,6 +198,8 @@ export default function BillingPage() {
       ? casts.find((c) => c.name === table.castNames[0])?.id
       : undefined
 
+    const receiptNumberForRecord = getNextReceiptNumber()
+
     addBillingRecord({
       id: Date.now(),
       tableNumber: table.number,
@@ -132,6 +213,21 @@ export default function BillingPage() {
       nominatedCastId,
       subtotalBeforeTax: subtotalAll,
       castNamesSnapshot: [...table.castNames],
+      // 再印刷用スナップショット
+      receiptSnapshot: {
+        receiptNumber: receiptNumberForRecord,
+        receiptName,
+        receiptPurpose,
+        subtotal,
+        setFee,
+        tax,
+        consumptionTax,
+        discount,
+        orders: table.orders.map((o) => ({ menuItem: { id: o.menuItem.id, name: o.menuItem.name, price: o.menuItem.price }, quantity: o.quantity, castName: o.castName })),
+        startTime: table.startTime,
+        nominationLabel: table.nomination ? nominationLabels[table.nomination] : '',
+        completedAt: new Date().toLocaleString('ja-JP'),
+      },
     })
 
     setLastBillingData({
@@ -150,21 +246,27 @@ export default function BillingPage() {
       startTime: table.startTime,
       cashAmount: paymentMethod === 'cash' ? finalTotal : paymentMethod === 'mixed' ? mixedCashAmount : 0,
       cardAmount: paymentMethod === 'card' ? finalTotal : paymentMethod === 'mixed' ? mixedCardAmount : 0,
-      receiptNumber: getNextReceiptNumber(),
+      receiptNumber: receiptNumberForRecord,
       receiptName,
       receiptPurpose,
     })
 
+    const nextOccupied = occupiedTables.find((t) => t.id !== table.id)
     resetTable(table.id)
     setShowConfirm(false)
     setShowReceipt(true)
     setDiscount(0)
     setDiscountReason('')
     setSplitCount(0)
+    // 会計完了後、次の卓があれば自動選択 (ポップアップを閉じたらそのまま次の卓の会計画面へ)
+    if (nextOccupied) setSelectedTableId(nextOccupied.id)
   }
 
-  const handlePrintReceipt = () => {
-    setShowPrintChooser(true)
+  const handleDismissReceipt = () => {
+    setShowReceipt(false)
+    setLastBillingData(null)
+    // 次の卓もなければホールに戻る
+    if (occupiedTables.length === 0) navigate('/floor')
   }
 
   const doPrint = (mode: 'detailed' | 'summary') => {
@@ -177,113 +279,112 @@ export default function BillingPage() {
     }, 50)
   }
 
+  // 履歴レコードから lastBillingData を復元して印刷
+  const reprintFromHistory = (record: BillingRecord, mode: 'detailed' | 'summary') => {
+    if (!record.receiptSnapshot) {
+      alert('この会計レコードは再印刷用のデータを保持していません (システム導入前の履歴)')
+      return
+    }
+    const s = record.receiptSnapshot
+    setLastBillingData({
+      tableNumber: record.tableNumber,
+      castNames: record.castNamesSnapshot ?? [],
+      total: record.total,
+      paymentMethod: record.paymentMethod,
+      subtotal: s.subtotal,
+      setFee: s.setFee,
+      tax: s.tax,
+      consumptionTax: s.consumptionTax,
+      cardFee: record.cardFee ?? 0,
+      discount: s.discount,
+      orders: s.orders,
+      nominationLabel: s.nominationLabel,
+      startTime: s.startTime,
+      cashAmount: record.cashAmount ?? 0,
+      cardAmount: record.cardAmount ?? 0,
+      receiptNumber: s.receiptNumber,
+      receiptName: s.receiptName,
+      receiptPurpose: s.receiptPurpose,
+    })
+    // ポップアップは出さず、直接印刷フローに乗せる
+    setTimeout(() => doPrint(mode), 30)
+  }
+
   const paymentLabel = (m: PaymentMethod) => m === 'cash' ? '現金' : m === 'card' ? 'カード' : '現金+カード'
 
-  if (showReceipt && lastBillingData) {
-    const d = lastBillingData
-    return (
-      <div className="flex flex-col h-full">
-        <div className="flex-1 overflow-y-auto p-4">
-          <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4 mb-4 text-center">
-            <CheckCircle size={28} className="mx-auto mb-2 text-emerald-400" />
-            <p className="text-emerald-400 font-bold text-sm mb-1">会計完了</p>
-            <p className="text-2xl font-bold text-[#d4af37] tabular-nums">¥{d.total.toLocaleString()}</p>
-          </div>
-
-          {/* Printable receipt */}
-          <div ref={receiptRef} className="bg-white text-black rounded-lg p-6 mb-4 print-receipt">
-            <div className="text-center mb-4 border-b border-gray-300 pb-3">
-              <h2 className="text-xl font-bold" style={{ fontFamily: "var(--font-display)" }}>{storeSettings.storeName}</h2>
-              {storeSettings.storeAddress && <p className="text-xs text-gray-500">{storeSettings.storeAddress}</p>}
-              {storeSettings.storePhone && <p className="text-xs text-gray-500">TEL: {storeSettings.storePhone}</p>}
-              <p className="text-xs text-gray-500 mt-1">登録番号: {storeSettings.invoiceNumber}</p>
-            </div>
-            <div className="text-sm space-y-1 mb-3 border-b border-gray-200 pb-3">
-              <div className="flex justify-between"><span>日時:</span><span>{new Date().toLocaleString('ja-JP')}</span></div>
-              <div className="flex justify-between"><span>卓番号:</span><span>{d.tableNumber}</span></div>
-              <div className="flex justify-between"><span>人数:</span><span>{d.orders.length > 0 ? '-' : '-'}名</span></div>
-              <div className="flex justify-between"><span>伝票No:</span><span>{d.receiptNumber}</span></div>
-            </div>
-            <div className="text-sm mb-3 border-b border-gray-200 pb-3">
-              <div className="flex justify-between"><span>宛名:</span><span>{d.receiptName || '　　　　　　　　　'}様</span></div>
-              <div className="flex justify-between"><span>但書:</span><span>{d.receiptPurpose}</span></div>
-            </div>
-            <div className="text-sm space-y-1 mb-3 border-b border-gray-200 pb-3 print-detail-lines">
-              <div className="font-bold mb-1">明細</div>
-              <div className="flex justify-between"><span>セット料金</span><span>¥{d.setFee.toLocaleString()}</span></div>
-              {d.orders.map((o, idx) => (
-                <div key={`${o.menuItem.id}-${idx}`} className="flex justify-between">
-                  <span>{o.castName ? `${o.menuItem.name}${o.castName}` : o.menuItem.name} x{o.quantity}</span>
-                  <span>{o.menuItem.price === 0 ? 'セット内' : `¥${(o.menuItem.price * o.quantity).toLocaleString()}`}</span>
-                </div>
-              ))}
-            </div>
-            <div className="text-sm space-y-1 mb-3 border-b border-gray-200 pb-3">
-              <div className="flex justify-between"><span>注文小計(内税)</span><span>¥{d.subtotal.toLocaleString()}</span></div>
-              <div className="flex justify-between"><span>セット料金(内税)</span><span>¥{d.setFee.toLocaleString()}</span></div>
-              <div className="flex justify-between"><span>TAX ({(taxRate * 100).toFixed(0)}%)</span><span>¥{d.tax.toLocaleString()}</span></div>
-              <div className="flex justify-between text-xs text-gray-500"><span>※消費税10%(内税内訳)</span><span>¥{d.consumptionTax.toLocaleString()}</span></div>
-              {d.discount > 0 && <div className="flex justify-between text-red-600"><span>値引き</span><span>-¥{d.discount.toLocaleString()}</span></div>}
-            </div>
-            <div className="text-center mb-3 border-b border-gray-200 pb-3">
-              <div className="text-xs text-gray-500 mb-1">合計金額</div>
-              <div className="font-bold text-2xl">¥ {d.total.toLocaleString()} -</div>
-            </div>
-            <div className="text-sm mb-3 border-b border-gray-200 pb-3">
-              <div className="flex justify-between"><span>[内訳] 小計</span><span>¥{d.subtotal.toLocaleString()}</span></div>
-              <div className="flex justify-between"><span>TAX({(taxRate * 100).toFixed(0)}%)</span><span>¥{d.tax.toLocaleString()}</span></div>
-            </div>
-            <p className="text-center text-xs text-gray-500 mt-3">本日もご来店いただき、</p>
-            <p className="text-center text-xs text-gray-500">誠にありがとうございました。</p>
-          </div>
-
-          {/* Store journal (hidden in customer receipt, shown separately) */}
-          <div className="bg-gray-100 text-black rounded-lg p-6 mb-4 print-journal">
-            <div className="text-center mb-3 border-b border-gray-300 pb-2">
-              <h3 className="text-sm font-bold">【店舗控え】詳細ジャーナル</h3>
-              <p className="text-xs text-gray-500">伝票No. {d.receiptNumber}</p>
-            </div>
-            <div className="text-xs space-y-1 mb-2">
-              <div className="flex justify-between"><span>卓:</span><span>{d.tableNumber}</span></div>
-              <div className="flex justify-between"><span>担当:</span><span>{d.castNames.join(', ')}</span></div>
-              <div className="flex justify-between"><span>日時:</span><span>{new Date().toLocaleString('ja-JP')}</span></div>
-            </div>
-            <div className="text-xs space-y-1 mb-2 border-t border-gray-300 pt-2">
-              <div className="flex justify-between"><span>小計:</span><span>¥{d.subtotal.toLocaleString()}</span></div>
-              <div className="flex justify-between"><span>セット:</span><span>¥{d.setFee.toLocaleString()}</span></div>
-              <div className="flex justify-between"><span>TAX:</span><span>¥{d.tax.toLocaleString()}</span></div>
-              <div className="flex justify-between text-gray-600"><span>※消費税(内税内訳):</span><span>¥{d.consumptionTax.toLocaleString()}</span></div>
-              {d.cardFee > 0 && <div className="flex justify-between"><span>カード手数料:</span><span>¥{d.cardFee.toLocaleString()}</span></div>}
-              {d.discount > 0 && <div className="flex justify-between text-red-600"><span>値引き:</span><span>-¥{d.discount.toLocaleString()}</span></div>}
-              <div className="flex justify-between font-bold border-t border-gray-300 pt-1"><span>合計:</span><span>¥{d.total.toLocaleString()}</span></div>
-            </div>
-            <div className="text-xs space-y-1 border-t border-gray-300 pt-2">
-              <div className="flex justify-between font-bold"><span>支払方法:</span><span>{paymentLabel(d.paymentMethod)}</span></div>
-              {d.cashAmount > 0 && <div className="flex justify-between"><span>現金:</span><span>¥{d.cashAmount.toLocaleString()}</span></div>}
-              {d.cardAmount > 0 && <div className="flex justify-between"><span>カード:</span><span>¥{d.cardAmount.toLocaleString()}</span></div>}
-              {d.cardFee > 0 && <div className="flex justify-between"><span>カード手数料(経費3.5%):</span><span>¥{Math.floor(d.cardAmount * 0.035).toLocaleString()}</span></div>}
-            </div>
-          </div>
-
-          <button onClick={handlePrintReceipt} className="w-full bg-white text-black py-4 rounded-lg text-lg font-bold mb-3 flex items-center justify-center gap-2">
-            <Printer size={20} /> 領収書印刷
-          </button>
-          <button onClick={() => {
-            setShowReceipt(false)
-            setLastBillingData(null)
-            setSelectedTableId(occupiedTables.find((t) => t.id !== table.id)?.id ?? 0)
-          }} className="w-full bg-white/5 py-3 rounded-lg text-sm text-gray-400 font-bold">閉じる</button>
+  // 会計完了ポップアップ裏に控える印刷用HTML。画面では `.print-only` で非表示、印刷時のみ可視。
+  const receiptPrintBlock = lastBillingData ? (
+    <div className="print-only">
+      <div ref={receiptRef} className="bg-white text-black rounded-lg p-6 mb-4 print-receipt">
+        <div className="text-center mb-4 border-b border-gray-300 pb-3">
+          <h2 className="text-xl font-bold" style={{ fontFamily: 'var(--font-display)' }}>{storeSettings.storeName}</h2>
+          {storeSettings.storeAddress && <p className="text-xs text-gray-500">{storeSettings.storeAddress}</p>}
+          {storeSettings.storePhone && <p className="text-xs text-gray-500">TEL: {storeSettings.storePhone}</p>}
+          <p className="text-xs text-gray-500 mt-1">登録番号: {storeSettings.invoiceNumber}</p>
         </div>
-
-        <PrintMethodModal
-          open={showPrintChooser}
-          onClose={() => setShowPrintChooser(false)}
-          onPrintDetailed={() => doPrint('detailed')}
-          onPrintSummary={() => doPrint('summary')}
-        />
+        <div className="text-sm space-y-1 mb-3 border-b border-gray-200 pb-3">
+          <div className="flex justify-between"><span>日時:</span><span>{new Date().toLocaleString('ja-JP')}</span></div>
+          <div className="flex justify-between"><span>卓番号:</span><span>{lastBillingData.tableNumber}</span></div>
+          <div className="flex justify-between"><span>伝票No:</span><span>{lastBillingData.receiptNumber}</span></div>
+        </div>
+        <div className="text-sm mb-3 border-b border-gray-200 pb-3">
+          <div className="flex justify-between"><span>宛名:</span><span>{lastBillingData.receiptName || '　　　　　　　　　'}様</span></div>
+          <div className="flex justify-between"><span>但書:</span><span>{lastBillingData.receiptPurpose}</span></div>
+        </div>
+        <div className="text-sm space-y-1 mb-3 border-b border-gray-200 pb-3 print-detail-lines">
+          <div className="font-bold mb-1">明細</div>
+          <div className="flex justify-between"><span>セット料金</span><span>¥{lastBillingData.setFee.toLocaleString()}</span></div>
+          {lastBillingData.orders.map((o, idx) => (
+            <div key={`${o.menuItem.id}-${idx}`} className="flex justify-between">
+              <span>{o.castName ? `${o.menuItem.name}${o.castName}` : o.menuItem.name} x{o.quantity}</span>
+              <span>{o.menuItem.price === 0 ? 'セット内' : `¥${(o.menuItem.price * o.quantity).toLocaleString()}`}</span>
+            </div>
+          ))}
+        </div>
+        <div className="text-sm space-y-1 mb-3 border-b border-gray-200 pb-3">
+          <div className="flex justify-between"><span>注文小計(内税)</span><span>¥{lastBillingData.subtotal.toLocaleString()}</span></div>
+          <div className="flex justify-between"><span>セット料金(内税)</span><span>¥{lastBillingData.setFee.toLocaleString()}</span></div>
+          <div className="flex justify-between"><span>TAX ({(taxRate * 100).toFixed(0)}%)</span><span>¥{lastBillingData.tax.toLocaleString()}</span></div>
+          <div className="flex justify-between text-xs text-gray-500"><span>※消費税10%(内税内訳)</span><span>¥{lastBillingData.consumptionTax.toLocaleString()}</span></div>
+          {lastBillingData.discount > 0 && <div className="flex justify-between text-red-600"><span>値引き</span><span>-¥{lastBillingData.discount.toLocaleString()}</span></div>}
+        </div>
+        <div className="text-center mb-3 border-b border-gray-200 pb-3">
+          <div className="text-xs text-gray-500 mb-1">合計金額</div>
+          <div className="font-bold text-2xl">¥ {lastBillingData.total.toLocaleString()} -</div>
+        </div>
+        <p className="text-center text-xs text-gray-500 mt-3">本日もご来店いただき、</p>
+        <p className="text-center text-xs text-gray-500">誠にありがとうございました。</p>
       </div>
-    )
-  }
+
+      {/* 店舗控え詳細ジャーナル */}
+      <div className="bg-gray-100 text-black rounded-lg p-6 mb-4 print-journal">
+        <div className="text-center mb-3 border-b border-gray-300 pb-2">
+          <h3 className="text-sm font-bold">【店舗控え】詳細ジャーナル</h3>
+          <p className="text-xs text-gray-500">伝票No. {lastBillingData.receiptNumber}</p>
+        </div>
+        <div className="text-xs space-y-1 mb-2">
+          <div className="flex justify-between"><span>卓:</span><span>{lastBillingData.tableNumber}</span></div>
+          <div className="flex justify-between"><span>担当:</span><span>{lastBillingData.castNames.join(', ')}</span></div>
+          <div className="flex justify-between"><span>日時:</span><span>{new Date().toLocaleString('ja-JP')}</span></div>
+        </div>
+        <div className="text-xs space-y-1 mb-2 border-t border-gray-300 pt-2">
+          <div className="flex justify-between"><span>小計:</span><span>¥{lastBillingData.subtotal.toLocaleString()}</span></div>
+          <div className="flex justify-between"><span>セット:</span><span>¥{lastBillingData.setFee.toLocaleString()}</span></div>
+          <div className="flex justify-between"><span>TAX:</span><span>¥{lastBillingData.tax.toLocaleString()}</span></div>
+          <div className="flex justify-between text-gray-600"><span>※消費税(内税内訳):</span><span>¥{lastBillingData.consumptionTax.toLocaleString()}</span></div>
+          {lastBillingData.cardFee > 0 && <div className="flex justify-between"><span>カード手数料:</span><span>¥{lastBillingData.cardFee.toLocaleString()}</span></div>}
+          {lastBillingData.discount > 0 && <div className="flex justify-between text-red-600"><span>値引き:</span><span>-¥{lastBillingData.discount.toLocaleString()}</span></div>}
+          <div className="flex justify-between font-bold border-t border-gray-300 pt-1"><span>合計:</span><span>¥{lastBillingData.total.toLocaleString()}</span></div>
+        </div>
+        <div className="text-xs space-y-1 border-t border-gray-300 pt-2">
+          <div className="flex justify-between font-bold"><span>支払方法:</span><span>{paymentLabel(lastBillingData.paymentMethod)}</span></div>
+          {lastBillingData.cashAmount > 0 && <div className="flex justify-between"><span>現金:</span><span>¥{lastBillingData.cashAmount.toLocaleString()}</span></div>}
+          {lastBillingData.cardAmount > 0 && <div className="flex justify-between"><span>カード:</span><span>¥{lastBillingData.cardAmount.toLocaleString()}</span></div>}
+          {lastBillingData.cardFee > 0 && <div className="flex justify-between"><span>カード手数料(経費3.5%):</span><span>¥{Math.floor(lastBillingData.cardAmount * 0.035).toLocaleString()}</span></div>}
+        </div>
+      </div>
+    </div>
+  ) : null
 
   return (
     <div className="flex flex-col min-h-full">
@@ -294,7 +395,7 @@ export default function BillingPage() {
           <select
             value={selectedTableId}
             onChange={(e) => { setSelectedTableId(Number(e.target.value)); setDiscount(0); setDiscountReason(''); setSplitCount(0); setPaymentMethod('cash'); setCardInputAmount('') }}
-            className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm"
+            className="bg-primary-dark/60 border border-gold/20 rounded-lg px-3 py-1.5 text-sm text-white"
           >
             {occupiedTables.map((t) => (
               <option key={t.id} value={t.id}>卓 {t.number} ({t.castNames.join(',')})</option>
@@ -303,33 +404,29 @@ export default function BillingPage() {
         }
       />
 
-      {/* Tabs */}
-      <div className="flex border-b border-white/10">
-        {[
-          { key: 'total' as const, label: '合計' },
-          { key: 'individual' as const, label: '個別明細' },
-          { key: 'audit' as const, label: '値引き履歴' },
-        ].map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setBillingTab(tab.key)}
-            className={`flex-1 py-3 text-sm font-bold tracking-wide transition-colors relative ${
-              billingTab === tab.key ? 'text-white' : 'text-gray-500'
-            }`}
-          >
-            {tab.label}
-            {billingTab === tab.key && (
-              <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-0.5 bg-white rounded-full" />
-            )}
-          </button>
-        ))}
-      </div>
+      <Tabs<BillingTab>
+        value={billingTab}
+        onChange={setBillingTab}
+        items={[
+          { key: 'total', label: '合計' },
+          { key: 'individual', label: '個別明細' },
+          { key: 'audit', label: '値引き履歴' },
+          { key: 'history', label: '会計履歴' },
+        ]}
+        className="px-2"
+      />
 
-      {billingTab === 'audit' ? (
+      {billingTab === 'history' ? (
+        <BillingHistoryView
+          records={billingRecords}
+          onReprint={(record) => reprintFromHistory(record, 'summary')}
+          onReprintDetailed={(record) => reprintFromHistory(record, 'detailed')}
+        />
+      ) : billingTab === 'audit' ? (
         <AuditLogView logs={discountLogs} />
       ) : billingTab === 'individual' ? (
         <div className="flex-1 overflow-y-auto p-4">
-          <div className="bg-white/5 rounded-lg p-4 mb-4">
+          <div className="panel p-4 mb-4">
             <div className="flex justify-between text-sm mb-3">
               <span className="text-gray-500">担当: {table.castNames.join(', ')}</span>
               <span className="text-gray-500">{table.guestCount}名</span>
@@ -366,7 +463,7 @@ export default function BillingPage() {
                 {(paymentMethod === 'card' && cardFee > 0) && <div className="flex justify-between text-sm text-blue-400"><span>カード手数料（+{(cardFeeRate * 100).toFixed(0)}%）</span><span className="tabular-nums">¥{cardFee.toLocaleString()}</span></div>}
                 {(paymentMethod === 'mixed' && mixedCardFee > 0) && <div className="flex justify-between text-sm text-blue-400"><span>カード手数料（+{(cardFeeRate * 100).toFixed(0)}%）</span><span className="tabular-nums">¥{mixedCardFee.toLocaleString()}</span></div>}
                 {discount > 0 && <div className="flex justify-between text-sm text-red-400"><span>値引き</span><span className="tabular-nums">-¥{discount.toLocaleString()}</span></div>}
-                <div className="flex justify-between font-bold text-lg pt-1"><span>合計</span><span className="text-[#d4af37] tabular-nums">¥{finalTotal.toLocaleString()}</span></div>
+                <div className="flex justify-between font-bold text-lg pt-1"><span>合計</span><span className="text-gold tabular-nums">¥{finalTotal.toLocaleString()}</span></div>
               </div>
             </div>
           </div>
@@ -386,17 +483,22 @@ export default function BillingPage() {
               </div>
             </div>
 
-            {/* Central gold total band */}
-            <div className="panel-gold p-4 mb-4 flex items-center justify-between">
+            {/* Central gold total band — 支払額を最も目立たせる */}
+            <div
+              className="rounded-[10px] p-4 mb-4 flex items-center justify-between border border-gold/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_2px_12px_rgba(212,175,55,0.15)]"
+              style={{
+                background: 'linear-gradient(180deg, var(--color-gold-light) 0%, var(--color-gold) 55%, var(--color-gold-dark) 100%)',
+              }}
+            >
               <div>
-                <div className="text-xs text-[#1a1a2e]/70 tracking-wider">合計 (お支払い額)</div>
+                <div className="text-xs text-primary/80 tracking-wider font-semibold">合計 (お支払い額)</div>
                 {discount > 0 && (
-                  <div className="text-xs text-[#1a1a2e]/60 tabular-nums">
+                  <div className="text-xs text-primary/70 tabular-nums mt-0.5">
                     正規 ¥{(finalTotal + discount).toLocaleString()} − 値引 ¥{discount.toLocaleString()}
                   </div>
                 )}
               </div>
-              <div className="text-3xl font-extrabold text-[#1a1a2e] tabular-nums">
+              <div className="text-3xl font-extrabold text-primary tabular-nums tracking-tight">
                 ¥{finalTotal.toLocaleString()}
               </div>
             </div>
@@ -430,31 +532,28 @@ export default function BillingPage() {
 
                 <div className="panel p-4">
                   <h3 className="text-xs text-gray-400 tracking-wider mb-3">現金 / 支払方法</h3>
-                  <div className="grid grid-cols-3 gap-2 mb-3">
-                    {(['cash', 'card', 'mixed'] as const).map((m) => (
-                      <button
-                        key={m}
-                        onClick={() => { setPaymentMethod(m); setCardInputAmount('') }}
-                        className={`py-2.5 rounded-lg text-sm font-bold tracking-wide border transition-colors ${
-                          paymentMethod === m
-                            ? 'bg-[#d4af37] text-[#1a1a2e] border-[#d4af37]'
-                            : 'bg-white/5 border-white/10 text-gray-400'
-                        }`}
-                      >
-                        {m === 'cash' ? '現金' : m === 'card' ? 'カード' : '現金+カード'}
-                      </button>
-                    ))}
-                  </div>
+                  <Tabs<PaymentMethod>
+                    variant="pills"
+                    value={paymentMethod}
+                    onChange={(m) => { setPaymentMethod(m); setCardInputAmount('') }}
+                    items={[
+                      { key: 'cash', label: '現金' },
+                      { key: 'card', label: 'カード' },
+                      { key: 'mixed', label: '現金+カード' },
+                    ]}
+                    className="mb-3 w-full [&>button]:flex-1"
+                  />
                   {paymentMethod === 'mixed' && (
                     <div className="mt-2">
-                      <label className="text-xs text-gray-500 block mb-1.5">カード決済金額</label>
-                      <input
-                        type="number"
-                        value={cardInputAmount}
-                        onChange={(e) => setCardInputAmount(e.target.value)}
-                        placeholder="カード金額を入力"
-                        className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm tabular-nums"
-                      />
+                      <Field label="カード決済金額">
+                        <Input
+                          type="number"
+                          value={cardInputAmount}
+                          onChange={(e) => setCardInputAmount(e.target.value)}
+                          placeholder="カード金額を入力"
+                          className="tabular-nums"
+                        />
+                      </Field>
                       {mixedCardAmount > 0 && (
                         <div className="mt-2 space-y-1 text-sm">
                           <div className="flex justify-between text-blue-300"><span>カード手数料</span><span className="tabular-nums">¥{mixedCardFee.toLocaleString()}</span></div>
@@ -473,12 +572,12 @@ export default function BillingPage() {
 
                 <div className="panel p-4">
                   <h3 className="text-xs text-gray-400 tracking-wider mb-3">値引き (理由必須)</h3>
-                  <input
+                  <Input
                     type="number"
                     value={discount || ''}
                     onChange={(e) => setDiscount(Math.max(0, Number(e.target.value)))}
                     placeholder="値引額"
-                    className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm mb-2 tabular-nums"
+                    className="mb-2 tabular-nums"
                   />
                   <div className="flex flex-wrap gap-1.5 mb-2">
                     {DISCOUNT_REASON_PRESETS.map((p) => (
@@ -488,7 +587,7 @@ export default function BillingPage() {
                         onClick={() => setDiscountReason(p)}
                         className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${
                           discountReason === p
-                            ? 'bg-[#d4af37] text-[#1a1a2e] border-[#d4af37]'
+                            ? 'bg-gold text-primary border-gold'
                             : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'
                         }`}
                       >
@@ -496,12 +595,11 @@ export default function BillingPage() {
                       </button>
                     ))}
                   </div>
-                  <input
+                  <Input
                     type="text"
                     value={discountReason}
                     onChange={(e) => setDiscountReason(e.target.value)}
                     placeholder="値引き理由（必須・自由記入可）"
-                    className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm"
                   />
                   {discount > 0 && !discountReason.trim() && (
                     <p className="text-xs text-red-400 mt-2">※値引きを行うには理由の入力が必須です</p>
@@ -541,7 +639,7 @@ export default function BillingPage() {
                     ))}
                   </div>
                   {splitCount > 0 && (
-                    <div className="mt-2 text-sm font-bold tabular-nums text-[#d4af37]">
+                    <div className="mt-2 text-sm font-bold tabular-nums text-gold">
                       1人あたり: ¥{perPerson.toLocaleString()}
                     </div>
                   )}
@@ -571,25 +669,21 @@ export default function BillingPage() {
                 <div className="panel p-4">
                   <h3 className="text-xs text-gray-400 tracking-wider mb-3">領収書情報</h3>
                   <div className="space-y-2">
-                    <div>
-                      <label className="text-xs text-gray-500 block mb-1">宛名</label>
-                      <input
+                    <Field label="宛名">
+                      <Input
                         type="text"
                         value={receiptName}
                         onChange={(e) => setReceiptName(e.target.value)}
                         placeholder="宛名（空欄可）"
-                        className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm"
                       />
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-500 block mb-1">但書</label>
-                      <input
+                    </Field>
+                    <Field label="但書">
+                      <Input
                         type="text"
                         value={receiptPurpose}
                         onChange={(e) => setReceiptPurpose(e.target.value)}
-                        className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm"
                       />
-                    </div>
+                    </Field>
                   </div>
                 </div>
               </div>
@@ -620,24 +714,157 @@ export default function BillingPage() {
       )}
 
       {/* Confirm modal */}
-      {showConfirm && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-[#1a1a2e] rounded-lg w-full max-w-sm p-6">
-            <h2 className="text-lg font-bold mb-3">会計確定</h2>
-            <p className="text-sm text-gray-400 mb-2">卓 {table.number} の会計を確定しますか？</p>
-            <p className="text-2xl font-bold text-[#d4af37] mb-2 tabular-nums">¥{finalTotal.toLocaleString()}</p>
-            {splitCount > 0 && <p className="text-sm text-gray-400 mb-2 tabular-nums">割り勘: ¥{perPerson.toLocaleString()} x {splitCount}人</p>}
-            <p className="text-sm text-gray-500 mb-2">支払方法: {paymentLabel(paymentMethod)}</p>
-            {paymentMethod === 'mixed' && mixedCardAmount > 0 && (
-              <p className="text-sm text-gray-500 mb-2 tabular-nums">現金: ¥{mixedCashAmount.toLocaleString()} / カード: ¥{mixedCardAmount.toLocaleString()}</p>
-            )}
-            {(cardFee > 0 || mixedCardFee > 0) && <p className="text-sm text-blue-400 mb-2 tabular-nums">カード手数料: ¥{(paymentMethod === 'mixed' ? mixedCardFee : cardFee).toLocaleString()}</p>}
-            {discount > 0 && <p className="text-sm text-red-400 mb-4 tabular-nums">値引き: -¥{discount.toLocaleString()} ({discountReason})</p>}
-            <div className="flex gap-2">
-              <button onClick={() => setShowConfirm(false)} className="flex-1 bg-white/5 border border-white/10 py-3 rounded-lg font-bold text-gray-500">戻る</button>
-              <button onClick={handleComplete} className="flex-1 bg-[#e94560] py-3 rounded-lg font-bold">確定</button>
+      <Modal
+        open={showConfirm}
+        onClose={() => setShowConfirm(false)}
+        size="sm"
+        title="会計確定"
+        footer={
+          <>
+            <GhostButton onClick={() => setShowConfirm(false)} className="flex-1">戻る</GhostButton>
+            <DangerButton onClick={handleComplete} className="flex-1">確定</DangerButton>
+          </>
+        }
+      >
+        <div className="space-y-2">
+          <p className="text-sm text-gray-400">卓 {table.number} の会計を確定しますか？</p>
+          <p className="text-2xl font-bold text-gold tabular-nums">¥{finalTotal.toLocaleString()}</p>
+          {splitCount > 0 && <p className="text-sm text-gray-400 tabular-nums">割り勘: ¥{perPerson.toLocaleString()} x {splitCount}人</p>}
+          <p className="text-sm text-gray-500">支払方法: {paymentLabel(paymentMethod)}</p>
+          {paymentMethod === 'mixed' && mixedCardAmount > 0 && (
+            <p className="text-sm text-gray-500 tabular-nums">現金: ¥{mixedCashAmount.toLocaleString()} / カード: ¥{mixedCardAmount.toLocaleString()}</p>
+          )}
+          {(cardFee > 0 || mixedCardFee > 0) && <p className="text-sm text-blue-400 tabular-nums">カード手数料: ¥{(paymentMethod === 'mixed' ? mixedCardFee : cardFee).toLocaleString()}</p>}
+          {discount > 0 && <p className="text-sm text-red-400 tabular-nums">値引き: -¥{discount.toLocaleString()} ({discountReason})</p>}
+        </div>
+      </Modal>
+
+      {/* 会計完了ポップアップ — 領収書/明細再印刷/閉じる */}
+      <Modal
+        open={showReceipt && !!lastBillingData}
+        onClose={handleDismissReceipt}
+        size="sm"
+        dismissible={false}
+        title="会計完了"
+        footer={
+          <GhostButton onClick={handleDismissReceipt} className="flex-1">閉じる</GhostButton>
+        }
+      >
+        {lastBillingData && (
+          <div className="space-y-4">
+            <div className="text-center">
+              <CheckCircle size={40} className="mx-auto mb-2 text-emerald-400" />
+              <p className="text-xs text-gray-400 tracking-wider mb-1">お支払い額</p>
+              <p className="text-3xl font-extrabold text-gold tabular-nums">¥{lastBillingData.total.toLocaleString()}</p>
+              <p className="text-xs text-gray-500 mt-1">卓 {lastBillingData.tableNumber} / 伝票No. {lastBillingData.receiptNumber}</p>
             </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => doPrint('summary')}
+                className="btn-gold py-3 flex items-center justify-center gap-2 text-sm"
+              >
+                <Printer size={16} /> 領収書印刷
+              </button>
+              <button
+                onClick={() => doPrint('detailed')}
+                className="btn-dark py-3 flex items-center justify-center gap-2 text-sm"
+              >
+                <Printer size={16} /> 明細再印刷
+              </button>
+            </div>
+            <p className="text-[11px] text-gray-500 text-center">※ 印刷後もこのポップアップから何度でも再印刷できます</p>
           </div>
+        )}
+      </Modal>
+
+      {/* 印刷用の領収書HTML (画面非表示・印刷時のみ可視) */}
+      {receiptPrintBlock}
+
+      <PrintMethodModal
+        open={showPrintChooser}
+        onClose={() => setShowPrintChooser(false)}
+        onPrintDetailed={() => doPrint('detailed')}
+        onPrintSummary={() => doPrint('summary')}
+      />
+    </div>
+  )
+}
+
+function BillingHistoryView({
+  records,
+  onReprint,
+  onReprintDetailed,
+}: {
+  records: BillingRecord[]
+  onReprint: (record: BillingRecord) => void
+  onReprintDetailed: (record: BillingRecord) => void
+}) {
+  const today = new Date().toISOString().slice(0, 10)
+  const sorted = [...records].sort((a, b) => {
+    const ad = a.date ?? today
+    const bd = b.date ?? today
+    if (ad !== bd) return bd.localeCompare(ad)
+    return b.timestamp.localeCompare(a.timestamp)
+  })
+  const paymentLabel = (m: BillingRecord['paymentMethod']) =>
+    m === 'cash' ? '現金' : m === 'card' ? 'カード' : '現金+カード'
+  return (
+    <div className="flex-1 overflow-y-auto p-4">
+      <h3 className="text-sm font-bold mb-2 text-gray-400">会計履歴</h3>
+      <p className="text-xs text-gray-600 mb-3">
+        ※ 会計確定後の領収書・明細をここから再印刷できます。システム導入前の履歴は再印刷不可。
+      </p>
+      {sorted.length === 0 ? (
+        <div className="text-center text-gray-600 mt-8">
+          <p>会計履歴はありません</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {sorted.map((r) => {
+            const reprintable = !!r.receiptSnapshot
+            return (
+              <div key={r.id} className="panel p-3">
+                <div className="flex justify-between items-start mb-2">
+                  <div>
+                    <div className="text-sm font-bold">
+                      卓 {r.tableNumber}
+                      {r.receiptSnapshot && (
+                        <span className="ml-2 text-xs text-gray-500">
+                          伝票No. {r.receiptSnapshot.receiptNumber}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {r.date ?? '本日'} {r.timestamp} / {paymentLabel(r.paymentMethod)}
+                      {r.castNamesSnapshot && r.castNamesSnapshot.length > 0 && (
+                        <span className="ml-2">担当: {r.castNamesSnapshot.join(', ')}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-gold font-bold tabular-nums">¥{r.total.toLocaleString()}</div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => onReprint(r)}
+                    disabled={!reprintable}
+                    className="flex-1 btn-gold py-2 text-xs flex items-center justify-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Printer size={12} /> 領収書再印刷
+                  </button>
+                  <button
+                    onClick={() => onReprintDetailed(r)}
+                    disabled={!reprintable}
+                    className="flex-1 btn-dark py-2 text-xs flex items-center justify-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Printer size={12} /> 明細再印刷
+                  </button>
+                </div>
+                {!reprintable && (
+                  <p className="text-[10px] text-gray-600 mt-1 text-center">※ 再印刷データなし</p>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
     </div>
@@ -661,7 +888,7 @@ function AuditLogView({ logs, onClose }: { logs: DiscountLog[]; onClose?: () => 
       ) : (
         <div className="space-y-3">
           {logs.map((log) => (
-            <div key={log.id} className="bg-white/5 rounded-lg p-3">
+            <div key={log.id} className="panel p-3">
               <div className="flex justify-between text-sm mb-1">
                 <span className="font-bold">卓 {log.tableNumber}</span>
                 <span className="text-gray-500 text-xs">{log.timestamp}</span>

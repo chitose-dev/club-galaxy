@@ -7,6 +7,7 @@ import { Pencil, Trash2, Plus, Save, Download, ChevronUp, ChevronDown, GripVerti
 import ConfirmDialog from '../components/ConfirmDialog'
 import { openPrintWindow } from '../utils/print'
 import ContextualHeader from '../components/ContextualHeader'
+import Tabs, { type TabItem } from '../components/Tabs'
 
 type AdminTab = 'menu' | 'cast' | 'price' | 'tables' | 'settings' | 'export' | 'users' | 'attendance' | 'expense' | 'advance' | 'archive'
 
@@ -27,7 +28,7 @@ export default function AdminPage() {
 
   const [activeTab, setActiveTab] = useState<AdminTab>('menu')
 
-  const tabs: { key: AdminTab; label: string }[] = [
+  const tabs: TabItem<AdminTab>[] = [
     { key: 'menu', label: 'メニュー' },
     { key: 'cast', label: 'キャスト' },
     { key: 'price', label: '料金' },
@@ -46,22 +47,8 @@ export default function AdminPage() {
       <ContextualHeader title="管理メニュー" backTo="/top" />
       <div className="p-4 flex-1">
 
-      {/* Scrollable horizontal tabs */}
-      <div className="flex border-b border-white/10 mb-4 overflow-x-auto scrollbar-none -mx-4 px-4">
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`flex-shrink-0 px-4 py-3 text-sm font-bold tracking-wide transition-colors relative whitespace-nowrap ${
-              activeTab === tab.key ? 'text-white' : 'text-gray-500'
-            }`}
-          >
-            {tab.label}
-            {activeTab === tab.key && (
-              <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-white rounded-full" />
-            )}
-          </button>
-        ))}
+      <div className="-mx-4 px-4 mb-4">
+        <Tabs<AdminTab> value={activeTab} onChange={setActiveTab} items={tabs} scrollable />
       </div>
 
       {activeTab === 'menu' && <MenuManager guestMenu={guestMenu} castMenu={castMenu} setGuestMenu={setGuestMenu} setCastMenu={setCastMenu} />}
@@ -161,7 +148,7 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu }: {
               <div className="flex items-center justify-between">
                 <div>
                   <span className="text-sm">{item.name}</span>
-                  <span className="text-xs text-purple-400/70 ml-2">Back: {item.backType}</span>
+                  <span className="text-xs text-gold/80 ml-2">Back: {item.backType}</span>
                 </div>
                 {editingId === item.id ? (
                   <div className="flex items-center gap-2">
@@ -313,7 +300,7 @@ function CastManager({ casts, setCasts }: { casts: Cast[]; setCasts: React.Dispa
               <div>
                 <span className="font-bold text-sm">{cast.name}</span>
                 <span className="text-sm text-gray-500 ml-2 tabular-nums">¥{cast.hourlyRate.toLocaleString()}/h</span>
-                <span className="text-xs text-purple-400/70 ml-2">保証{Math.round(cast.guaranteeRate * 100)}%</span>
+                <span className="text-xs text-gold/80 ml-2">保証{Math.round(cast.guaranteeRate * 100)}%</span>
                 {!cast.active && <span className="text-xs text-red-400/70 ml-2">非アクティブ</span>}
               </div>
               <div className="flex gap-2">
@@ -503,7 +490,7 @@ function TableManager({ tables, setTables, reorderTables }: {
               <GripVertical size={14} />
             </span>
             <span className="font-bold text-sm">{table.number}</span>
-            {table.number.includes('VIP') && <span className="text-xs bg-white/10 px-1.5 py-0.5 rounded">VIP</span>}
+            {table.number.includes('VIP') && <span className="text-xs bg-gold/15 text-gold border border-gold/30 px-1.5 py-0.5 rounded">VIP</span>}
             <span className={`text-xs ${table.status === 'empty' ? 'text-emerald-400/70' : 'text-amber-400/70'}`}>
               ({table.status === 'empty' ? '空き' : '使用中'})
             </span>
@@ -1444,7 +1431,7 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
                 <span className="text-xs text-gray-600">@{u.username}</span>
                 <span className="text-xs bg-white/5 text-gray-400 px-1.5 py-0.5 rounded">{roleLabels[u.role]}</span>
                 {u.role === 'cast' && u.castId && (
-                  <span className="text-xs text-purple-400/70">#{casts.find((c) => c.id === u.castId)?.name ?? u.castId}</span>
+                  <span className="text-xs text-gold/80">#{casts.find((c) => c.id === u.castId)?.name ?? u.castId}</span>
                 )}
               </div>
               <div className="flex gap-1.5">

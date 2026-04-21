@@ -111,7 +111,7 @@ export default function UsageDetailPage() {
                 <div key={`${o.menuItem.id}-${o.castName ?? ''}-${idx}`} className="flex items-center justify-between py-2.5 gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="text-sm text-white truncate">{displayOrderName(o)}</div>
-                    {o.castName && <div className="text-[10px] text-[#d4af37] tracking-wider">→ {o.castName}</div>}
+                    {o.castName && <div className="text-[10px] text-gold tracking-wider">→ {o.castName}</div>}
                   </div>
                   <div className="text-sm text-gray-400 tabular-nums shrink-0 w-24 text-right">
                     ¥{o.menuItem.price.toLocaleString()} × {o.quantity}
@@ -140,8 +140,8 @@ export default function UsageDetailPage() {
               <span className="tabular-nums">¥{tax.toLocaleString()}</span>
             </div>
             <div className="flex justify-between pt-2 border-t border-white/10 text-lg">
-              <span className="text-[#d4af37] font-bold">合計</span>
-              <span className="tabular-nums font-bold text-[#d4af37]">¥{total.toLocaleString()}</span>
+              <span className="text-gold font-bold">合計</span>
+              <span className="tabular-nums font-bold text-gold">¥{total.toLocaleString()}</span>
             </div>
           </div>
         </div>

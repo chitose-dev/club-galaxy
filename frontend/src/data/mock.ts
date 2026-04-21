@@ -117,6 +117,25 @@ export interface BillingRecord {
   subtotalBeforeTax?: number
   /** 担当キャスト名(集計表示用) */
   castNamesSnapshot?: string[]
+  /** 会計履歴からの再印刷用スナップショット */
+  receiptSnapshot?: ReceiptSnapshot
+}
+
+/** 領収書再印刷用に必要な会計スナップショット */
+export interface ReceiptSnapshot {
+  receiptNumber: number
+  receiptName: string
+  receiptPurpose: string
+  subtotal: number
+  setFee: number
+  tax: number
+  consumptionTax: number
+  discount: number
+  orders: { menuItem: { id: number; name: string; price: number }; quantity: number; castName?: string }[]
+  startTime: string | null
+  nominationLabel: string
+  /** 会計日時 (新規会計時に保存。古いレコードは再印刷不可) */
+  completedAt: string
 }
 
 // ─── 給与関連 ───

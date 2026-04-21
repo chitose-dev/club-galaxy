@@ -1,12 +1,18 @@
 @import "tailwindcss";
 
-:root {
+/* TRUST POS 風デザイントークンを Tailwind v4 の色空間にも公開。
+   これで bg-primary / text-gold / border-gold/40 などが使える */
+@theme {
   --color-primary: #1a1a2e;
+  --color-primary-dark: #14141f;
   --color-secondary: #16213e;
   --color-gold: #d4af37;
   --color-gold-light: #e8c952;
   --color-gold-dark: #b8891f;
   --color-accent: #e94560;
+}
+
+:root {
   --color-panel: rgba(255, 255, 255, 0.05);
   --color-panel-border: rgba(255, 255, 255, 0.1);
   --font-display: 'Cormorant Garamond', serif;
@@ -117,6 +123,13 @@
   border-radius: var(--radius-lg);
 }
 
+/* 高密度表示 (テーブル明細/勤務表/利用明細) */
+.panel-dense {
+  background: var(--color-panel);
+  border: 1px solid var(--color-panel-border);
+  border-radius: var(--radius-md);
+}
+
 /* ─── グローバルナビバッジ ─── */
 .nav-badge {
   position: absolute;
@@ -194,8 +207,17 @@ input:focus, select:focus, textarea:focus, button:focus-visible {
   background: var(--color-gold-light);
 }
 
+/* 画面非表示・印刷時のみ表示 (会計完了ポップアップ裏で領収書HTMLを控えておく用) */
+.print-only {
+  display: none;
+}
+
 /* Print styles */
 @media print {
+  .print-only {
+    display: block !important;
+  }
+
   body {
     background: #fff !important;
     color: #000 !important;

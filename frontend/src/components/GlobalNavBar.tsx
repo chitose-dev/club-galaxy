@@ -34,7 +34,7 @@ export default function GlobalNavBar() {
           className={({ isActive }) =>
             `relative flex flex-col items-center justify-center w-14 h-12 rounded-lg transition-colors ${
               isActive
-                ? 'bg-[#d4af37]/20 text-[#d4af37]'
+                ? 'bg-gold/20 text-gold'
                 : 'bg-white/5 text-gray-300 hover:bg-white/10 hover:text-white'
             }`
           }
