@@ -56,7 +56,7 @@ export default function Modal({
       >
         {(title || dismissible) && (
           <div className="flex items-center justify-between px-5 py-3 border-b border-gold/20">
-            <h3 className="text-base font-bold text-white" style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.03em' }}>
+            <h3 className="text-base font-bold text-white" style={{ fontFamily: 'var(--font-body)', letterSpacing: '0.03em' }}>
               {title}
             </h3>
             {dismissible && (
