@@ -1,56 +1,72 @@
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store'
 import { useAuth } from '../auth'
-import { Sparkles, LayoutGrid, Users, Archive, TrendingUp } from 'lucide-react'
+import { LayoutGrid, Users, Archive, TrendingUp } from 'lucide-react'
 
 /** ログイン後のホーム。TRUST の「会計管理をはじめる」画面相当。 */
 export default function TopPage() {
   const navigate = useNavigate()
-  const { flMetrics, tables, storeSettings } = useStore()
+  const { flMetrics, tables, casts, storeSettings } = useStore()
   const { user } = useAuth()
 
   const occupied = tables.filter((t) => t.status !== 'empty').length
   const totalTables = tables.length
+  const activeCasts = casts.filter((c) => c.active).length
 
   return (
     <div className="min-h-full flex flex-col">
-      {/* 本日売上赤帯 */}
-      <div className="bg-gradient-to-r from-[#c9303f] via-[#e94560] to-[#c9303f] text-white px-4 py-2.5 flex items-center justify-between">
+      {/* 本日売上赤帯 — ヘッダーと視覚的に連続させる (h-12 相当) */}
+      <div className="bg-gradient-to-r from-[#c9303f] via-accent to-[#c9303f] text-white px-4 h-[56px] flex items-center justify-between shadow-[inset_0_-1px_0_rgba(0,0,0,0.25)]">
         <span className="text-sm tracking-wider">本日の売上</span>
-        <span className="text-2xl font-bold tabular-nums">¥{flMetrics.todaySales.toLocaleString()}</span>
+        <span className="text-2xl font-bold tabular-nums leading-none" style={{ fontFamily: 'var(--font-display)' }}>
+          ¥{flMetrics.todaySales.toLocaleString()}
+        </span>
       </div>
 
-      {/* 中央ボタン */}
-      <div className="flex-1 flex flex-col items-center justify-center gap-8 px-6 py-12">
+      {/* 中央 */}
+      <div className="flex-1 flex flex-col items-center justify-center gap-8 px-6 py-10">
         <div className="text-center">
           <h2
-            className="text-3xl sm:text-4xl font-semibold tracking-[0.3em] text-[#d4af37] mb-2"
+            className="text-3xl sm:text-4xl font-semibold tracking-[0.3em] text-gold mb-2"
             style={{ fontFamily: 'var(--font-display)' }}
           >
             {storeSettings.storeName}
           </h2>
-          <p className="text-xs text-gray-400 tracking-widest">
-            iPad Sales Manager {user && `/ ${user.displayName}`}
+          <div className="h-px bg-gold/60 w-24 mx-auto mb-2" />
+          <p className="text-[11px] text-gray-400 tracking-[0.25em] uppercase">
+            Sales Manager {user && `/ ${user.displayName}`}
           </p>
         </div>
 
         <button
           onClick={() => navigate('/floor')}
-          className="btn-gold text-xl px-10 py-5 flex items-center gap-3"
+          className="btn-gold text-lg px-10 py-4 tracking-wider"
         >
-          <Sparkles size={22} />
           会計管理をはじめる
         </button>
 
-        <p className="text-sm text-gray-400 tracking-wider">お客様がいらっしゃいました♪</p>
-
         {/* クイックアクション */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full max-w-2xl mt-6">
-          <QuickAction icon={LayoutGrid} label="ホール" hint={`${occupied} / ${totalTables} 卓`} onClick={() => navigate('/floor')} />
-          <QuickAction icon={Users} label="待機キャスト" onClick={() => navigate('/waiting')} />
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full max-w-2xl mt-4">
+          <QuickAction
+            icon={LayoutGrid}
+            label="ホール"
+            hint={`${occupied} / ${totalTables} 卓`}
+            onClick={() => navigate('/floor')}
+          />
+          <QuickAction
+            icon={Users}
+            label="待機キャスト"
+            hint={`出勤 ${activeCasts} 名`}
+            onClick={() => navigate('/waiting')}
+          />
           {user?.role === 'owner' && (
             <>
-              <QuickAction icon={TrendingUp} label="利益" hint={`本日 ¥${flMetrics.todayProfit.toLocaleString()}`} onClick={() => navigate('/profit')} />
+              <QuickAction
+                icon={TrendingUp}
+                label="利益"
+                hint={`本日 ¥${flMetrics.todayProfit.toLocaleString()}`}
+                onClick={() => navigate('/profit')}
+              />
               <QuickAction icon={Archive} label="レジ締め" onClick={() => navigate('/register')} />
             </>
           )}
@@ -60,11 +76,24 @@ export default function TopPage() {
   )
 }
 
-function QuickAction({ icon: Icon, label, hint, onClick }: { icon: typeof LayoutGrid; label: string; hint?: string; onClick: () => void }) {
+function QuickAction({
+  icon: Icon,
+  label,
+  hint,
+  onClick,
+}: {
+  icon: typeof LayoutGrid
+  label: string
+  hint?: string
+  onClick: () => void
+}) {
   return (
-    <button onClick={onClick} className="panel p-4 flex flex-col items-center gap-1.5 hover:bg-white/10 transition-colors">
-      <Icon size={22} className="text-[#d4af37]" strokeWidth={1.5} />
-      <span className="text-sm text-white">{label}</span>
+    <button
+      onClick={onClick}
+      className="panel p-4 flex flex-col items-center gap-1.5 transition-all duration-150 hover:border-gold/40 hover:bg-gold/5 active:translate-y-px"
+    >
+      <Icon size={22} className="text-gold" strokeWidth={1.5} />
+      <span className="text-sm text-white font-medium">{label}</span>
       {hint && <span className="text-[10px] text-gray-400 tabular-nums">{hint}</span>}
     </button>
   )
