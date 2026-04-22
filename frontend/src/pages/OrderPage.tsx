@@ -234,6 +234,7 @@ export default function OrderPage() {
   return (
     <div className="flex flex-col h-full">
       <ContextualHeader
+        accent="order"
         title={`注文入力 — 卓 ${selectedTable.number}`}
         backTo="/floor"
         right={

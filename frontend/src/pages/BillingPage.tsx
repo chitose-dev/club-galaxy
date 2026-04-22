@@ -55,7 +55,7 @@ export default function BillingPage() {
   if (!table || table.status === 'empty') {
     return (
       <div className="flex flex-col min-h-full">
-        <ContextualHeader title="会計" backTo="/floor" />
+        <ContextualHeader accent="billing" title="会計" backTo="/floor" />
         <div className="flex-1 p-4 text-center text-gray-500 mt-20">
           <p className="text-base mb-2">会計対象の卓がありません</p>
           <p className="text-sm text-gray-600">ホールから卓を選択してください</p>
@@ -389,6 +389,7 @@ export default function BillingPage() {
   return (
     <div className="flex flex-col min-h-full">
       <ContextualHeader
+        accent="billing"
         title={`卓 ${table.number} の会計`}
         backTo={`/table/${table.id}`}
         right={

@@ -32,15 +32,15 @@ export default function GlobalNavBar() {
           key={to}
           to={to}
           className={({ isActive }) =>
-            `relative flex flex-col items-center justify-center w-14 h-12 rounded-lg transition-colors ${
+            `relative flex flex-col items-center justify-center w-[76px] h-14 rounded-lg transition-colors ${
               isActive
                 ? 'bg-gold/20 text-gold'
-                : 'bg-white/5 text-gray-300 hover:bg-white/10 hover:text-white'
+                : 'bg-white/10 text-gray-200 hover:bg-white/20 hover:text-white'
             }`
           }
         >
-          <Icon size={20} strokeWidth={1.75} />
-          <span className="text-[10px] mt-0.5 tracking-wider">{label}</span>
+          <Icon size={24} strokeWidth={1.75} />
+          <span className="text-[11px] mt-0.5 tracking-wider font-medium">{label}</span>
           {badge !== undefined && badge > 0 && <span className="nav-badge">{badge}</span>}
         </NavLink>
       ))}

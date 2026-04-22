@@ -44,7 +44,7 @@ export default function AdminPage() {
 
   return (
     <div className="flex flex-col min-h-full">
-      <ContextualHeader title="管理メニュー" backTo="/top" />
+      <ContextualHeader accent="admin" title="管理メニュー" backTo="/top" />
       <div className="p-4 flex-1">
 
       <div className="-mx-4 px-4 mb-4">

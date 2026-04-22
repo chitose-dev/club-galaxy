@@ -20,11 +20,38 @@ import { GoldButton, DangerButton, GhostButton, DarkButton } from '../components
 import Modal from '../components/Modal'
 import CastChip from '../components/CastChip'
 
+/**
+ * 卓ステータスの色 (TRUST 準拠配色提案)
+ * - empty:    オフホワイト + ゴールド縁  (空き)
+ * - occupied: ティールブルー #2a5a7a     (使用中)
+ * - ending:   アンバー塗り #e8a135       (終了間近 / 5分前)
+ * - alert:    コーラルピンク #ff6b9d    (50分経過 → 中間チェック票対象)
+ */
 const statusStyle: Record<TableStatus, { border: string; bg: string; badge: string; accent: string }> = {
-  empty: { border: 'border-white/10', bg: 'bg-white/[0.02]', badge: 'bg-white/5 text-gray-400', accent: 'bg-transparent' },
-  occupied: { border: 'border-gold/50', bg: 'bg-gold/[0.04]', badge: 'bg-gold/20 text-white', accent: 'bg-gold' },
-  ending: { border: 'border-amber-500/60', bg: 'bg-amber-500/[0.06]', badge: 'bg-amber-500/20 text-amber-300', accent: 'bg-amber-400' },
-  alert: { border: 'border-accent/60', bg: 'bg-accent/[0.06]', badge: 'bg-accent/20 text-red-300', accent: 'bg-accent' },
+  empty: {
+    border: 'border-gold/50',
+    bg: 'bg-[rgba(217,217,217,0.04)]',
+    badge: 'bg-white/10 text-gray-300',
+    accent: 'bg-gold/40',
+  },
+  occupied: {
+    border: 'border-[#2a5a7a]',
+    bg: 'bg-[rgba(42,90,122,0.18)]',
+    badge: 'bg-[#2a5a7a]/40 text-white',
+    accent: 'bg-[#2a5a7a]',
+  },
+  ending: {
+    border: 'border-[#e8a135]',
+    bg: 'bg-[rgba(232,161,53,0.18)]',
+    badge: 'bg-[#e8a135]/30 text-amber-200',
+    accent: 'bg-[#e8a135]',
+  },
+  alert: {
+    border: 'border-[#ff6b9d]',
+    bg: 'bg-[rgba(255,107,157,0.16)]',
+    badge: 'bg-[#ff6b9d]/30 text-pink-200',
+    accent: 'bg-[#ff6b9d]',
+  },
 }
 
 const statusLabel: Record<TableStatus, string> = {
@@ -406,15 +433,15 @@ export default function FloorPage() {
                   setSelected(table)
                 }
               }}
-              className={`relative overflow-hidden ${style.bg} ${style.border} border rounded-[14px] p-4 pt-[18px] text-left transition-all active:scale-[0.97]`}
+              className={`relative overflow-hidden ${style.bg} ${style.border} border-2 rounded-[14px] p-5 pt-6 text-left transition-all active:scale-[0.97] min-h-[120px]`}
             >
-              <span className={`absolute top-0 left-0 right-0 h-1 ${style.accent}`} />
+              <span className={`absolute top-0 left-0 right-0 h-1.5 ${style.accent}`} />
               <div className="flex justify-between items-start">
-                <span className="text-xl font-bold tracking-wide" style={{ fontFamily: 'var(--font-body)' }}>{table.number}</span>
+                <span className="text-2xl font-bold tracking-wide" style={{ fontFamily: 'var(--font-body)' }}>{table.number}</span>
                 {table.status === 'empty' ? (
-                  <span className="text-gray-600"><Plus size={16} /></span>
+                  <span className="text-gold/60"><Plus size={20} /></span>
                 ) : remaining !== null ? (
-                  <span className={`text-xs font-bold tabular-nums ${remaining <= 5 ? 'text-accent' : remaining <= 10 ? 'text-amber-300' : 'text-white'}`}>
+                  <span className={`text-sm font-bold tabular-nums ${remaining <= 5 ? 'text-accent' : remaining <= 10 ? 'text-amber-300' : 'text-white'}`}>
                     {remaining > 0 ? `${remaining}m` : 'END'}
                   </span>
                 ) : null}
@@ -611,24 +638,24 @@ export default function FloorPage() {
         {selected && (
           <div className="space-y-4">
             <div>
-              <label className="text-xs text-gray-400 block mb-1.5">セット開始時刻</label>
+              <label className="text-sm text-gray-200 block mb-2 font-medium">セット開始時刻</label>
               <div className="flex gap-2">
-                <input type="time" value={ciTime} onChange={(e) => setCiTime(e.target.value)} className="flex-1 bg-primary-dark/60 border border-gold/20 rounded-md px-3 py-2.5 text-sm focus:border-gold focus:outline-none" />
-                <button onClick={() => setCiTime(defaultStartTime())} className="btn-ghost px-4 whitespace-nowrap">今すぐ</button>
+                <input type="time" value={ciTime} onChange={(e) => setCiTime(e.target.value)} className="flex-1 bg-primary-dark/60 border border-gold/30 rounded-md px-4 py-3.5 text-base focus:border-gold focus:outline-none" />
+                <button onClick={() => setCiTime(defaultStartTime())} className="btn-ghost px-5 whitespace-nowrap text-base min-h-[52px]">今すぐ</button>
               </div>
-              <div className="text-xs text-gold mt-1.5 tabular-nums">
-                セット料金: ¥{getSetPriceForTime(ciTime).toLocaleString()} <span className="text-gray-500">({getSetPriceLabel(ciTime)})</span>
+              <div className="text-sm text-gold mt-2 tabular-nums">
+                セット料金: ¥{getSetPriceForTime(ciTime).toLocaleString()} <span className="text-gray-400">({getSetPriceLabel(ciTime)})</span>
               </div>
             </div>
             <div>
-              <label className="text-xs text-gray-400 block mb-1.5">来店人数</label>
+              <label className="text-sm text-gray-200 block mb-2 font-medium">来店人数</label>
               <div className="flex gap-2">
                 {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
                   <button
                     key={n}
                     onClick={() => setCiGuests(n)}
-                    className={`flex-1 py-2.5 rounded-[10px] text-sm font-bold transition-colors ${
-                      ciGuests === n ? 'bg-gold text-primary' : 'panel text-gray-300 hover:bg-white/10'
+                    className={`flex-1 py-4 rounded-[10px] text-lg font-bold transition-colors ${
+                      ciGuests === n ? 'bg-gold text-primary' : 'panel text-gray-200 hover:bg-white/10'
                     }`}
                   >
                     {n}
@@ -637,25 +664,25 @@ export default function FloorPage() {
               </div>
             </div>
             <div>
-              <label className="text-xs text-gray-400 block mb-1.5">キャスト（複数選択可）</label>
+              <label className="text-sm text-gray-200 block mb-2 font-medium">キャスト（複数選択可）</label>
               <div className="flex flex-wrap gap-2">
                 {activeCasts.map((c) => (
                   <CastChip key={c.id} name={c.name} selected={ciCastNames.includes(c.name)} onClick={() => toggleCast(c.name)} />
                 ))}
               </div>
               {ciCastNames.length > 0 && (
-                <div className="text-xs text-gold mt-1.5">選択中: {ciCastNames.join(', ')}</div>
+                <div className="text-sm text-gold mt-2">選択中: {ciCastNames.join(', ')}</div>
               )}
             </div>
             <div>
-              <label className="text-xs text-gray-400 block mb-1.5">指名タイプ</label>
+              <label className="text-sm text-gray-200 block mb-2 font-medium">指名タイプ</label>
               <div className="grid grid-cols-2 gap-2">
                 {(['free', 'shimei', 'banai', 'douhan'] as const).map((type) => (
                   <button
                     key={type}
                     onClick={() => setCiNomination(type)}
-                    className={`py-2.5 rounded-[10px] text-sm font-bold transition-colors ${
-                      ciNomination === type ? 'bg-gold text-primary' : 'panel text-gray-300 hover:bg-white/10'
+                    className={`py-4 rounded-[10px] text-base font-bold transition-colors ${
+                      ciNomination === type ? 'bg-gold text-primary' : 'panel text-gray-200 hover:bg-white/10'
                     }`}
                   >
                     {nominationLabels[type]}
@@ -663,8 +690,8 @@ export default function FloorPage() {
                 ))}
               </div>
             </div>
-            <GoldButton onClick={confirmCheckIn} className="w-full py-3.5 text-base flex items-center justify-center gap-2">
-              入店開始 <ChevronRight size={18} />
+            <GoldButton onClick={confirmCheckIn} className="w-full py-5 text-lg flex items-center justify-center gap-2">
+              入店開始 <ChevronRight size={22} />
             </GoldButton>
           </div>
         )}

@@ -25,6 +25,7 @@ export default function ProfitPage() {
   return (
     <div className="flex flex-col min-h-full">
       <ContextualHeader
+        accent="profit"
         title="利益管理"
         backTo="/top"
         right={

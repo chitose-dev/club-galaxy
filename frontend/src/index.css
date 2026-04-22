@@ -10,11 +10,30 @@
   --color-gold-light: #e8c952;
   --color-gold-dark: #b8891f;
   --color-accent: #e94560;
+
+  /* ─── 画面ごとのアクセントカラー (TRUST 準拠提案) ─── */
+  --color-theme-floor: #0d4654;     /* ホール: ディープティール */
+  --color-theme-order: #5c1d2e;     /* 注文: ワインレッド */
+  --color-theme-billing: #d4af37;   /* 会計: ゴールド (強化) */
+  --color-theme-register: #1a4d3a;  /* レジ締め: エメラルド */
+  --color-theme-salary: #2a1a4a;    /* 給与: ディープパープル */
+  --color-theme-profit: #6b4423;    /* 利益: ブロンズ */
+  --color-theme-admin: #2a2a35;     /* 管理設定: チャコール */
+  --color-theme-waiting: #8e7846;   /* 待機キャスト: シャンパンベージュ */
+
+  /* ─── 卓ステータス (色差強化) ─── */
+  --color-table-empty: #d9d9d9;
+  --color-table-occupied: #2a5a7a;  /* ティールブルー */
+  --color-table-ending: #e8a135;    /* アンバー */
+  --color-table-alert: #e94560;     /* スカーレット (既存 accent) */
+  --color-table-50min: #ff6b9d;     /* コーラルピンク */
 }
 
 :root {
   --color-panel: rgba(255, 255, 255, 0.05);
-  --color-panel-border: rgba(255, 255, 255, 0.1);
+  /* パネル境界を 20% → 40% に強化 (ゴールド透過) */
+  --color-panel-border: rgba(212, 175, 55, 0.4);
+  --color-panel-border-subtle: rgba(255, 255, 255, 0.1);
   --font-display: 'Cormorant Garamond', serif;
   --font-body: 'Noto Sans JP', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
   --shadow-bevel: 0 2px 0 rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.18);
@@ -22,6 +41,11 @@
   --radius-md: 10px;
   --radius-lg: 14px;
   --radius-xl: 20px;
+
+  /* 文字色の階層 (3段階) */
+  --text-primary: #ffffff;
+  --text-secondary: #c0c0c0;
+  --text-disabled: #707080;
 }
 
 /* ─── Buttons (TRUST風: ゴールドグラデ + ベベル) ─── */
