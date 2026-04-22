@@ -2,8 +2,9 @@ import { useState, useRef } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useStore } from '../store'
 import { useAuth } from '../auth'
-import { getSetPriceForTime, getSetPriceLabel, nominationLabels, displayOrderName } from '../data/mock'
+import { getSetPriceForTime, getSetPriceLabel, displayOrderName } from '../data/mock'
 import type { DiscountLog, BillingRecord } from '../data/mock'
+import { getNominationLabel } from '../utils/nomination'
 import { Printer, CheckCircle, ArrowLeft, CreditCard } from 'lucide-react'
 import ContextualHeader from '../components/ContextualHeader'
 import BottomActionBar from '../components/BottomActionBar'
@@ -193,9 +194,10 @@ export default function BillingPage() {
       })
     }
 
-    // 指示書§5.2: 本指名卓の場合、担当キャストIDを記録 (売上重畳のため)
-    const nominatedCastId = table.nomination === 'shimei' && table.castNames[0]
-      ? casts.find((c) => c.name === table.castNames[0])?.id
+    // 追補02 R1-3: 本指名担当 (mainNominationCastName) の売上は常にその担当キャストに帰属。
+    // 担当キャストが他卓へ移動しても、本指名担当としての記録は不変 (assignedCasts ではなく mainNominationCastName を見る)。
+    const nominatedCastId = table.mainNominationCastName
+      ? casts.find((c) => c.name === table.mainNominationCastName)?.id
       : undefined
 
     const receiptNumberForRecord = getNextReceiptNumber()
@@ -212,7 +214,7 @@ export default function BillingPage() {
       date: new Date().toISOString().slice(0, 10),
       nominatedCastId,
       subtotalBeforeTax: subtotalAll,
-      castNamesSnapshot: [...table.castNames],
+      castNamesSnapshot: [...table.assignedCasts],
       // 再印刷用スナップショット
       receiptSnapshot: {
         receiptNumber: receiptNumberForRecord,
@@ -225,14 +227,14 @@ export default function BillingPage() {
         discount,
         orders: table.orders.map((o) => ({ menuItem: { id: o.menuItem.id, name: o.menuItem.name, price: o.menuItem.price }, quantity: o.quantity, castName: o.castName })),
         startTime: table.startTime,
-        nominationLabel: table.nomination ? nominationLabels[table.nomination] : '',
+        nominationLabel: getNominationLabel(table),
         completedAt: new Date().toLocaleString('ja-JP'),
       },
     })
 
     setLastBillingData({
       tableNumber: table.number,
-      castNames: [...table.castNames],
+      castNames: [...table.assignedCasts],
       total: finalTotal,
       paymentMethod,
       subtotal,
@@ -242,7 +244,7 @@ export default function BillingPage() {
       cardFee: paymentMethod === 'mixed' ? mixedCardFee : cardFee,
       discount,
       orders: table.orders.map((o) => ({ menuItem: { id: o.menuItem.id, name: o.menuItem.name, price: o.menuItem.price }, quantity: o.quantity, castName: o.castName })),
-      nominationLabel: table.nomination ? nominationLabels[table.nomination] : '',
+      nominationLabel: getNominationLabel(table),
       startTime: table.startTime,
       cashAmount: paymentMethod === 'cash' ? finalTotal : paymentMethod === 'mixed' ? mixedCashAmount : 0,
       cardAmount: paymentMethod === 'card' ? finalTotal : paymentMethod === 'mixed' ? mixedCardAmount : 0,
@@ -399,7 +401,7 @@ export default function BillingPage() {
             className="bg-primary-dark/60 border border-gold/20 rounded-lg px-3 py-1.5 text-sm text-white"
           >
             {occupiedTables.map((t) => (
-              <option key={t.id} value={t.id}>卓 {t.number} ({t.castNames.join(',')})</option>
+              <option key={t.id} value={t.id}>卓 {t.number} ({t.assignedCasts.join(',')})</option>
             ))}
           </select>
         }
@@ -429,7 +431,7 @@ export default function BillingPage() {
         <div className="flex-1 overflow-y-auto p-4">
           <div className="panel p-4 mb-4">
             <div className="flex justify-between text-sm mb-3">
-              <span className="text-gray-500">担当: {table.castNames.join(', ')}</span>
+              <span className="text-gray-500">担当: {table.assignedCasts.join(', ')}</span>
               <span className="text-gray-500">{table.guestCount}名</span>
             </div>
             <h3 className="text-sm font-bold mb-3 text-gray-400">卓 {table.number} 内訳</h3>
@@ -476,10 +478,13 @@ export default function BillingPage() {
             {/* Table info bar */}
             <div className="panel p-3 mb-4 flex flex-wrap items-center justify-between gap-2">
               <div className="text-sm text-gray-300">
-                <span className="text-gray-500">担当:</span> {table.castNames.join(', ') || '-'}
+                <span className="text-gray-500">担当:</span> {table.assignedCasts.join(', ') || '-'}
+                {table.mainNominationCastName && (
+                  <span className="text-gold/80 ml-2">（本指名: {table.mainNominationCastName}）</span>
+                )}
               </div>
               <div className="text-xs text-gray-500">
-                {table.startTime}〜 / {table.nomination ? nominationLabels[table.nomination] : 'フリー'} / {table.guestCount}名
+                {table.startTime}〜 / {getNominationLabel(table)} / {table.guestCount}名
                 {table.setCount > 1 && ` / ${table.setCount}セット`}
               </div>
             </div>
