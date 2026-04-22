@@ -19,6 +19,7 @@ import BottomActionBar from '../components/BottomActionBar'
 import { GoldButton, DangerButton, GhostButton, DarkButton } from '../components/Buttons'
 import Modal from '../components/Modal'
 import CastChip from '../components/CastChip'
+import NumberInput from '../components/NumberInput'
 
 /**
  * 卓ステータスの色 (TRUST 準拠配色提案)
@@ -521,21 +522,16 @@ export default function FloorPage() {
                 <div className="font-medium">{selected.setCount}</div>
               </div>
             </div>
-            {/* セット料金値引き (指示書§1.1) */}
+            {/* セット料金値引き (指示書§1.1 / 追補02 R12: 削除時 0 残留を防ぐ) */}
             <div className="mt-3 panel p-3">
               <label className="text-xs text-gray-500 block mb-1.5">セット料金値引き (1セットあたりの割引額)</label>
-              <div className="flex gap-2 items-center">
-                <input
-                  type="number"
-                  value={selected.setDiscountPerSet ?? 0}
-                  onChange={(e) => updateTable(selected.id, { setDiscountPerSet: Math.max(0, Number(e.target.value)) })}
-                  min={0}
-                  step={100}
-                  className="flex-1 bg-primary-dark/60 border border-gold/20 rounded-md px-3 py-2 text-sm focus:border-gold focus:outline-none"
-                  placeholder="0"
-                />
-                <span className="text-xs text-gray-500">円 / セット</span>
-              </div>
+              <NumberInput
+                value={selected.setDiscountPerSet ?? 0}
+                onChange={(v) => updateTable(selected.id, { setDiscountPerSet: v })}
+                min={0}
+                step={100}
+                unit="円 / セット"
+              />
             </div>
 
             {/* Bottle keeps */}

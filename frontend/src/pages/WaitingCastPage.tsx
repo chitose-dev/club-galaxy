@@ -5,6 +5,7 @@ import { GoldButton, DarkButton, GhostButton } from '../components/Buttons'
 import ConfirmDialog from '../components/ConfirmDialog'
 import Modal from '../components/Modal'
 import { Input, Field } from '../components/Input'
+import NumberInput from '../components/NumberInput'
 import { Plus, ArrowUpDown, Edit2, Trash2 } from 'lucide-react'
 import type { Cast } from '../data/mock'
 
@@ -243,22 +244,20 @@ function CastEditModal({ initial, onClose, onSave }: ModalProps) {
           <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
         </Field>
         <Field label="時給 (円)">
-          <Input
-            type="number"
+          <NumberInput
             value={hourlyRate}
-            onChange={(e) => setHourlyRate(parseInt(e.target.value || '0', 10))}
-            className="tabular-nums"
+            onChange={setHourlyRate}
+            step={100}
+            min={0}
           />
         </Field>
         <Field label="売上保証率 (0.0〜1.0)">
-          <Input
-            type="number"
-            step="0.05"
-            min="0"
-            max="1"
+          <NumberInput
             value={guaranteeRate}
-            onChange={(e) => setGuaranteeRate(parseFloat(e.target.value || '0'))}
-            className="tabular-nums"
+            onChange={setGuaranteeRate}
+            step={0.05}
+            min={0}
+            max={1}
           />
         </Field>
         <Field label="本名 (税理士提出用・任意)">

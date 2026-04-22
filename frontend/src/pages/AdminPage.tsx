@@ -8,6 +8,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import { openPrintWindow } from '../utils/print'
 import ContextualHeader from '../components/ContextualHeader'
 import Tabs, { type TabItem } from '../components/Tabs'
+import NumberInput from '../components/NumberInput'
 
 type AdminTab = 'menu' | 'cast' | 'price' | 'tables' | 'settings' | 'export' | 'users' | 'attendance' | 'expense' | 'advance' | 'archive'
 
@@ -245,11 +246,13 @@ function CastManager({ casts, setCasts }: { casts: Cast[]; setCasts: React.Dispa
             <span className="text-[11px] text-gray-400 w-16 shrink-0 truncate">{bt}</span>
             <div className="relative flex-1">
               <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-600">¥</span>
-              <input
-                type="number"
+              <NumberInput
                 value={rates[bt] ?? 0}
-                onChange={(e) => setRates({ ...rates, [bt]: Number(e.target.value) })}
-                className="w-full bg-white/5 border border-white/10 rounded pl-5 pr-2 py-1 text-xs text-right tabular-nums"
+                onChange={(v) => setRates({ ...rates, [bt]: v })}
+                step={100}
+                min={0}
+                inputClassName="!pl-5 !pr-2 !py-1 !text-xs text-right"
+                className="w-full"
               />
             </div>
           </div>
@@ -988,12 +991,13 @@ function AttendanceManager({ attendanceRecords, addAttendance, updateAttendance,
               <div className="flex items-center gap-3 text-xs">
                 <div className="flex items-center gap-1">
                   <span className="text-gray-500">休憩:</span>
-                  <input
-                    type="number"
+                  <NumberInput
                     value={r.breakMinutes}
-                    onChange={(e) => handleBreakUpdate(r, Number(e.target.value) || 0)}
-                    className="w-14 bg-white/5 border border-white/10 rounded px-2 py-1 text-right tabular-nums"
-                    min="0"
+                    onChange={(v) => handleBreakUpdate(r, v)}
+                    min={0}
+                    step={5}
+                    className="w-14"
+                    inputClassName="!px-2 !py-1 text-right !text-xs"
                   />
                   <span className="text-gray-500">分</span>
                 </div>
