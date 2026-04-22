@@ -75,6 +75,7 @@ export default function WaitingCastPage() {
   return (
     <div className="flex flex-col h-full">
       <ContextualHeader
+        accent="waiting"
         title="待機キャスト"
         right={
           <>

@@ -34,7 +34,7 @@ export default function Layout() {
         <div className="flex items-center gap-3">
           <GlobalNavBar />
           {user && (
-            <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 h-12 whitespace-nowrap">
+            <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 h-14 whitespace-nowrap">
               <span className="text-xs text-gray-200">{user.displayName}</span>
               <span className="text-gray-600">|</span>
               <button

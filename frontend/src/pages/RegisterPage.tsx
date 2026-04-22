@@ -17,7 +17,7 @@ export default function RegisterPage() {
 
   return (
     <div className="flex flex-col min-h-full">
-      <ContextualHeader title="レジ" backTo="/top" />
+      <ContextualHeader accent="register" title="レジ" backTo="/top" />
       <div className="px-4 pt-4">
         <Tabs<RegisterTab>
           value={activeTab}

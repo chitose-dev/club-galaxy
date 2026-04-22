@@ -42,6 +42,7 @@ export default function UsageDetailPage() {
   return (
     <div className="flex flex-col min-h-full">
       <ContextualHeader
+        accent="floor"
         title={`卓 ${table.number} の利用明細`}
         backTo="/floor"
         right={
