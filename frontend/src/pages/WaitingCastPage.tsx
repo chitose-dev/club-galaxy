@@ -20,7 +20,7 @@ export default function WaitingCastPage() {
   const [adding, setAdding] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<Cast | null>(null)
 
-  const assignedNames = useMemo(() => new Set(tables.flatMap((t) => t.castNames)), [tables])
+  const assignedNames = useMemo(() => new Set(tables.flatMap((t) => t.assignedCasts)), [tables])
 
   const sorted = useMemo(() => {
     if (sortMode === 'custom') return casts

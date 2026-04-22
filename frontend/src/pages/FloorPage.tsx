@@ -6,13 +6,13 @@ import {
   type TableStatus,
   getSetPriceForTime,
   getSetPriceLabel,
-  nominationLabels,
   EXTENSION_OPTIONS,
   SET_DURATION_MINUTES,
   chargeItems,
   displayOrderName,
   EXTENSION_CHARGES,
 } from '../data/mock'
+import { getNominationBadge, getNominationLabel } from '../utils/nomination'
 import { Clock, Users, Plus, Printer, RotateCcw, ChevronRight, FileText, CreditCard, Undo2 } from 'lucide-react'
 import { openPrintWindow } from '../utils/print'
 import BottomActionBar from '../components/BottomActionBar'
@@ -120,13 +120,18 @@ export default function FloorPage() {
   const [ciTime, setCiTime] = useState(defaultStartTime)
   const [ciGuests, setCiGuests] = useState(1)
   const [ciCastNames, setCiCastNames] = useState<string[]>([])
-  const [ciNomination, setCiNomination] = useState<Table['nomination']>('free')
+  /** 本指名担当 (担当リストの中から 1 名) / undefined = 本指名なし */
+  const [ciMainNomination, setCiMainNomination] = useState<string | undefined>(undefined)
+  /** 同伴フラグ (本指名と共存可) */
+  const [ciIsDouhan, setCiIsDouhan] = useState(false)
+  /** 場内指名フラグ */
+  const [ciIsBanaiShimei, setCiIsBanaiShimei] = useState(false)
 
   const [showExtend, setShowExtend] = useState(false)
   const [showRotation, setShowRotation] = useState(false)
   const [, setTick] = useState(0)
 
-  // 休憩中は付け回し候補から除外、ただし入店時の castNames リストなどで表示したい場合は別途 c.active を直接参照
+  // 休憩中は付け回し候補から除外、ただし入店時の assignedCasts リストなどで表示したい場合は別途 c.active を直接参照
   const activeCasts = casts.filter((c) => c.active && !c.onBreak)
 
   const checkStatuses = useCallback(() => {
@@ -157,14 +162,21 @@ export default function FloorPage() {
     setCiTime(defaultStartTime())
     setCiGuests(1)
     setCiCastNames([])
-    setCiNomination('free')
+    setCiMainNomination(undefined)
+    setCiIsDouhan(false)
+    setCiIsBanaiShimei(false)
     setShowCheckIn(true)
   }
 
   const toggleCast = (name: string) => {
-    setCiCastNames((prev) =>
-      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
-    )
+    setCiCastNames((prev) => {
+      const next = prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
+      // 本指名担当に選択中のキャストが担当から外れたらクリア
+      if (ciMainNomination && !next.includes(ciMainNomination)) {
+        setCiMainNomination(undefined)
+      }
+      return next
+    })
   }
 
   const confirmCheckIn = () => {
@@ -187,24 +199,37 @@ export default function FloorPage() {
       }
     }
 
-    // 指示書§2.3: 指名タイプに応じて担当キャスト名付きで自動追加
-    if (ciNomination && ciNomination !== 'free') {
-      const chargeId = ciNomination === 'shimei' ? 'shimei' : ciNomination === 'banai' ? 'banai' : 'douhan'
+    // 追補02 R1/R9: 本指名・場内指名・同伴は排他ではなく組み合わせ可能。
+    //   本指名 → 本指名料 (本指名担当に紐付け)
+    //   場内指名 → 場内指名料 (担当キャスト全員分)
+    //   同伴 → 同伴料 (担当キャスト全員分、本指名と共存可)
+    const pushChargeOrder = (chargeId: 'shimei' | 'banai' | 'douhan', castName?: string) => {
       const chargeItem = chargeItems.find((c) => c.id === chargeId)
-      if (chargeItem) {
-        for (const name of assignedNames) {
-          if (!name) continue
-          autoOrders.push({
-            menuItem: {
-              id: 901 + autoOrders.length,
-              name: chargeItem.label, price: chargeItem.price,
-              cost: chargeItem.cost ?? 300, castBack: 0,
-              category: 'guest' as const, subcategory: 'warimono' as const,
-            },
-            quantity: 1,
-            castName: name,
-          })
-        }
+      if (!chargeItem) return
+      autoOrders.push({
+        menuItem: {
+          id: 901 + autoOrders.length,
+          name: chargeItem.label, price: chargeItem.price,
+          cost: chargeItem.cost ?? 300, castBack: 0,
+          category: 'guest' as const, subcategory: 'warimono' as const,
+        },
+        quantity: 1,
+        castName,
+      })
+    }
+    if (ciMainNomination) {
+      pushChargeOrder('shimei', ciMainNomination)
+    }
+    if (ciIsBanaiShimei) {
+      for (const name of assignedNames) {
+        if (!name) continue
+        pushChargeOrder('banai', name)
+      }
+    }
+    if (ciIsDouhan) {
+      for (const name of assignedNames) {
+        if (!name) continue
+        pushChargeOrder('douhan', name)
       }
     }
 
@@ -212,8 +237,10 @@ export default function FloorPage() {
       status: 'occupied',
       guestCount: ciGuests,
       startTime: ciTime,
-      castNames: assignedNames,
-      nomination: ciNomination,
+      assignedCasts: assignedNames,
+      mainNominationCastName: ciMainNomination,
+      isDouhan: ciIsDouhan || undefined,
+      isBanaiShimei: ciIsBanaiShimei || undefined,
       setCount: 1,
       orders: autoOrders,
       setDiscountPerSet: 0,
@@ -232,7 +259,8 @@ export default function FloorPage() {
   const requestExtend = (minutes: 30 | 60) => {
     if (!selected) return
     // デフォルト指名キャスト: 卓の担当先頭
-    setPendingExtend({ minutes, castName: selected.castNames[0] })
+    // 追補02 R8-5: 本指名担当を優先、なければ担当リスト先頭
+    setPendingExtend({ minutes, castName: selected.mainNominationCastName ?? selected.assignedCasts[0] })
   }
 
   const confirmExtend = () => {
@@ -303,7 +331,8 @@ export default function FloorPage() {
       <div class="header">${storeSettings.storeName} チェック票</div>
       <div class="divider"></div>
       <div class="row"><span>卓:</span><span>${table.number}</span></div>
-      <div class="row"><span>担当:</span><span>${table.castNames.join(', ')}</span></div>
+      <div class="row"><span>担当:</span><span>${table.assignedCasts.join(', ')}</span></div>${table.mainNominationCastName ? `
+      <div class="row"><span>本指名:</span><span>${table.mainNominationCastName}</span></div>` : ''}
       <div class="row"><span>入店:</span><span>${table.startTime}</span></div>
       <div class="row"><span>人数:</span><span>${table.guestCount}名</span></div>
       <div class="divider"></div>
@@ -337,7 +366,7 @@ export default function FloorPage() {
     }
   }
 
-  const busyCastNames = new Set(tables.filter((t) => t.status !== 'empty').flatMap((t) => t.castNames))
+  const busyCastNames = new Set(tables.filter((t) => t.status !== 'empty').flatMap((t) => t.assignedCasts))
   // 待機時間順(lastAssignedAt昇順、null=最優先)にソート
   const freeCasts = activeCasts
     .filter((c) => !busyCastNames.has(c.name))
@@ -361,8 +390,15 @@ export default function FloorPage() {
 
   const handleAssignCast = (castName: string) => {
     if (!selected) return
+    // 追補02 R2-2/R10-3: 別卓で対応中だった場合はそちらから外す (排他的移動)
+    for (const t of tables) {
+      if (t.id === selected.id) continue
+      if (t.assignedCasts.includes(castName)) {
+        updateTable(t.id, { assignedCasts: t.assignedCasts.filter((n) => n !== castName) })
+      }
+    }
     updateTable(selected.id, {
-      castNames: [...selected.castNames, castName],
+      assignedCasts: [...selected.assignedCasts, castName],
     })
     const now = new Date().toISOString()
     setCasts((prev) => prev.map((c) => c.name === castName ? { ...c, lastAssignedAt: now } : c))
@@ -448,7 +484,15 @@ export default function FloorPage() {
               </div>
               {table.status !== 'empty' && (
                 <div className="mt-2.5 space-y-1">
-                  <div className="text-sm font-medium truncate">{table.castNames.join(', ')}</div>
+                  {/* 追補02 R1-7: 「対応中」を第一行で明示。本指名担当は別表示。 */}
+                  <div className="text-sm font-medium truncate">
+                    {table.assignedCasts.length > 0 ? table.assignedCasts.join(', ') : <span className="text-gray-500">担当なし</span>}
+                  </div>
+                  {table.mainNominationCastName && (
+                    <div className="text-xs text-gold truncate">
+                      <span className="text-gold/70">本指名:</span> {table.mainNominationCastName}
+                    </div>
+                  )}
                   <div className="flex items-center gap-2 text-gray-400 text-xs">
                     <Users size={11} />
                     <span>{table.guestCount}名</span>
@@ -456,11 +500,9 @@ export default function FloorPage() {
                     <Clock size={11} />
                     <span>{table.startTime}〜</span>
                   </div>
-                  {table.nomination && (
-                    <span className="inline-block text-xs bg-gold/10 text-gold border border-gold/20 px-1.5 py-0.5 rounded mt-0.5">
-                      {nominationLabels[table.nomination]}
-                    </span>
-                  )}
+                  <span className="inline-block text-xs bg-gold/10 text-gold border border-gold/20 px-1.5 py-0.5 rounded mt-0.5">
+                    {getNominationBadge(table)}
+                  </span>
                   {elapsed >= 50 && (
                     <div className="text-xs text-accent font-bold mt-0.5">50分経過</div>
                   )}
@@ -490,13 +532,16 @@ export default function FloorPage() {
             })()}
 
             <div className="grid grid-cols-2 gap-3 text-sm">
+              {/* 追補02 R1-7: 「対応中」と「本指名」を別枠で視覚的に区別 */}
               <div className="panel p-3">
-                <div className="text-gray-500 text-xs mb-1">担当</div>
-                <div className="font-medium">{selected.castNames.join(', ')}</div>
+                <div className="text-gray-500 text-xs mb-1">対応中</div>
+                <div className="font-medium">
+                  {selected.assignedCasts.length > 0 ? selected.assignedCasts.join(', ') : <span className="text-gray-500">担当なし</span>}
+                </div>
               </div>
               <div className="panel p-3">
                 <div className="text-gray-500 text-xs mb-1">指名タイプ</div>
-                <div className="font-medium">{selected.nomination ? nominationLabels[selected.nomination] : '-'}</div>
+                <div className="font-medium">{getNominationLabel(selected)}</div>
               </div>
               <div className="panel p-3">
                 <div className="text-gray-500 text-xs mb-1">入店時刻</div>
@@ -674,21 +719,67 @@ export default function FloorPage() {
                 <div className="text-sm text-gold mt-2">選択中: {ciCastNames.join(', ')}</div>
               )}
             </div>
+            {/* 追補02 R1/R9: 指名タイプ 4 択は廃止。
+                本指名担当は担当リストから 1 名選択。同伴・場内指名はチェックで組合可能。 */}
             <div>
-              <label className="text-sm text-gray-200 block mb-2 font-medium">指名タイプ</label>
-              <div className="grid grid-cols-2 gap-2">
-                {(['free', 'shimei', 'banai', 'douhan'] as const).map((type) => (
+              <label className="text-sm text-gray-200 block mb-2 font-medium">本指名担当 (任意)</label>
+              {ciCastNames.length === 0 ? (
+                <div className="text-sm text-gray-500 panel p-3">担当を選択すると、本指名担当を指定できます</div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
                   <button
-                    key={type}
-                    onClick={() => setCiNomination(type)}
-                    className={`py-4 rounded-[10px] text-base font-bold transition-colors ${
-                      ciNomination === type ? 'bg-gold text-primary' : 'panel text-gray-200 hover:bg-white/10'
+                    onClick={() => setCiMainNomination(undefined)}
+                    className={`px-4 py-3 rounded-[10px] text-sm font-bold transition-colors ${
+                      !ciMainNomination ? 'bg-gold text-primary' : 'panel text-gray-200 hover:bg-white/10'
                     }`}
                   >
-                    {nominationLabels[type]}
+                    なし
                   </button>
-                ))}
+                  {ciCastNames.map((name) => (
+                    <button
+                      key={name}
+                      onClick={() => setCiMainNomination(name)}
+                      className={`px-4 py-3 rounded-[10px] text-sm font-bold transition-colors ${
+                        ciMainNomination === name ? 'bg-gold text-primary' : 'panel text-gray-200 hover:bg-white/10'
+                      }`}
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div>
+              <label className="text-sm text-gray-200 block mb-2 font-medium">追加オプション</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setCiIsDouhan((v) => !v)}
+                  className={`py-4 rounded-[10px] text-base font-bold transition-colors flex items-center justify-center gap-2 ${
+                    ciIsDouhan ? 'bg-gold text-primary' : 'panel text-gray-200 hover:bg-white/10'
+                  }`}
+                >
+                  <span className="inline-block w-4 h-4 border-2 rounded-sm flex items-center justify-center" style={{ borderColor: ciIsDouhan ? '#1a1a2e' : '#888' }}>
+                    {ciIsDouhan && '✓'}
+                  </span>
+                  同伴
+                </button>
+                <button
+                  onClick={() => setCiIsBanaiShimei((v) => !v)}
+                  className={`py-4 rounded-[10px] text-base font-bold transition-colors flex items-center justify-center gap-2 ${
+                    ciIsBanaiShimei ? 'bg-gold text-primary' : 'panel text-gray-200 hover:bg-white/10'
+                  }`}
+                >
+                  <span className="inline-block w-4 h-4 border-2 rounded-sm flex items-center justify-center" style={{ borderColor: ciIsBanaiShimei ? '#1a1a2e' : '#888' }}>
+                    {ciIsBanaiShimei && '✓'}
+                  </span>
+                  場内指名
+                </button>
               </div>
+              {(ciMainNomination || ciIsDouhan || ciIsBanaiShimei) && (
+                <div className="text-sm text-gold mt-2">
+                  指名: {getNominationLabel({ mainNominationCastName: ciMainNomination, isDouhan: ciIsDouhan, isBanaiShimei: ciIsBanaiShimei })}
+                </div>
+              )}
             </div>
             <GoldButton onClick={confirmCheckIn} className="w-full py-5 text-lg flex items-center justify-center gap-2">
               入店開始 <ChevronRight size={22} />
@@ -809,7 +900,7 @@ export default function FloorPage() {
                   selected={!pendingExtend.castName}
                   onClick={() => setPendingExtend({ ...pendingExtend, castName: undefined })}
                 />
-                {selected.castNames.map((name) => (
+                {selected.assignedCasts.map((name) => (
                   <CastChip
                     key={name}
                     name={name}

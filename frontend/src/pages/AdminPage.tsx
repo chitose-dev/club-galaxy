@@ -416,8 +416,7 @@ function TableManager({ tables, setTables, reorderTables }: {
       status: 'empty' as const,
       guestCount: 0,
       startTime: null,
-      castNames: [],
-      nomination: null,
+      assignedCasts: [],
       setCount: 0,
       orders: [],
     }])

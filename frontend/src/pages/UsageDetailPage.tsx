@@ -4,7 +4,8 @@ import { useStore } from '../store'
 import ContextualHeader from '../components/ContextualHeader'
 import BottomActionBar from '../components/BottomActionBar'
 import { DangerButton, DarkButton, GhostButton } from '../components/Buttons'
-import { displayOrderName, getSetPriceForTime, getSetPriceLabel, nominationLabels } from '../data/mock'
+import { displayOrderName, getSetPriceForTime, getSetPriceLabel } from '../data/mock'
+import { getNominationLabel } from '../utils/nomination'
 import { FileText, CreditCard, Trash2 } from 'lucide-react'
 
 /**
@@ -59,13 +60,20 @@ export default function UsageDetailPage() {
         <div className="max-w-4xl mx-auto grid md:grid-cols-2 gap-4">
           <div className="panel p-4 space-y-2">
             <h3 className="text-xs text-gray-400 tracking-wider mb-1">指名状況</h3>
+            {/* 追補02 R1-7: 「対応中」(現在接客中) と「本指名」を区別 */}
             <div className="flex justify-between">
-              <span className="text-sm text-gray-400">担当</span>
-              <span className="text-sm">{table.castNames.join(', ') || '-'}</span>
+              <span className="text-sm text-gray-400">対応中</span>
+              <span className="text-sm">{table.assignedCasts.join(', ') || '担当なし'}</span>
             </div>
+            {table.mainNominationCastName && (
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-400">本指名担当</span>
+                <span className="text-sm text-gold">{table.mainNominationCastName}</span>
+              </div>
+            )}
             <div className="flex justify-between">
               <span className="text-sm text-gray-400">指名タイプ</span>
-              <span className="text-sm">{table.nomination ? nominationLabels[table.nomination] : '-'}</span>
+              <span className="text-sm">{getNominationLabel(table)}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-sm text-gray-400">人数</span>

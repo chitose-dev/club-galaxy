@@ -245,7 +245,7 @@ export default function OrderPage() {
           >
             {occupiedTables.map((t) => (
               <option key={t.id} value={t.id}>
-                卓 {t.number} ({t.castNames.join(',') || '-'})
+                卓 {t.number} ({t.assignedCasts.join(',') || '-'})
               </option>
             ))}
           </select>
@@ -352,7 +352,7 @@ export default function OrderPage() {
               selected={selectedCastName === null}
               onClick={() => setSelectedCastName(null)}
             />
-            {selectedTable.castNames.map((name) => (
+            {selectedTable.assignedCasts.map((name: string) => (
               <CastChip
                 key={name}
                 name={name}
