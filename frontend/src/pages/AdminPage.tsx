@@ -11,7 +11,15 @@ import Tabs, { type TabItem } from '../components/Tabs'
 
 type AdminTab = 'menu' | 'cast' | 'price' | 'tables' | 'settings' | 'export' | 'users' | 'attendance' | 'expense' | 'advance' | 'archive'
 
-const backTypes: BackType[] = ['FD', '本D', 'Fカク', '本カク', '本カクW', '同伴', '本指名', '場内指名', 'ボトルバック', 'ヘルプ', 'その他']
+const backTypes: BackType[] = [
+  'FD', '本D',
+  'Fカク', '本カク', '本カクW',
+  'Fショ', '本ショ',
+  'FP', '本P',
+  'FB', '本B',
+  '同伴', '本指名', '場内指名',
+  'ボトルバック', 'ヘルプ', 'その他',
+]
 
 export default function AdminPage() {
   const {

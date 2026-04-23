@@ -19,7 +19,7 @@ const HELP_BACK_ITEM: CastMenuItem = {
   cost: 0,
   castBack: 0,
   category: 'cast',
-  subcategory: 'fd',
+  subcategory: 'fdrink',
   backType: 'ヘルプ',
 }
 
@@ -112,11 +112,16 @@ export default function OrderPage() {
       addOrderToTable(selectedTableId, { menuItem: item, quantity: 1, castName: selectedCastName })
       return
     }
-    // guest メニューは選択中キャストがいればバック付与、なければ紐付けなし
+    // 先方フィードバック (2026-04-23): guest メニューは以下のロジックで売上帰属を決定
+    //   1. キャスト明示選択 → そのキャストの売上 (最優先)
+    //   2. 指名なし + 本指名卓 → 本指名担当の売上 (自動帰属)
+    //   3. 指名なし + フリー卓 → 店舗売上のみ (キャスト紐付けなし)
+    // ※ ゲストドリンク (ショット・ピッチャー・ビール等) はバック無し。売上帰属のみ変動。
+    const castName = selectedCastName ?? selectedTable.mainNominationCastName
     addOrderToTable(selectedTableId, {
       menuItem: item,
       quantity: 1,
-      castName: selectedCastName ?? undefined,
+      castName: castName || undefined,
     })
   }
 
