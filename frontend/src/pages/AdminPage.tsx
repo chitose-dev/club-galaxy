@@ -76,6 +76,28 @@ export default function AdminPage() {
   )
 }
 
+const guestSubcategories: Array<GuestMenuItem['subcategory']> = [
+  'shochu', 'whisky', 'brandy', 'champagne', 'wine', 'shot', 'pitcher', 'beer', 'warimono',
+]
+const guestSubcategoryLabels: Record<GuestMenuItem['subcategory'], string> = {
+  shochu: '焼酎', whisky: 'ウイスキー', brandy: 'ブランデー', champagne: 'シャンパン',
+  wine: 'ワイン', shot: 'ショット', pitcher: 'ピッチャー', beer: 'ビール', warimono: '割り物',
+}
+const castSubcategories: Array<CastMenuItem['subcategory']> = [
+  'fdrink', 'hondrink',
+  'fkaku', 'honkaku', 'honkakuW',
+  'fshot', 'honshot',
+  'fpitcher', 'honpitcher',
+  'fbeer', 'honbeer',
+]
+const castSubcategoryLabels: Record<CastMenuItem['subcategory'], string> = {
+  fdrink: 'Lドリンク(F)', hondrink: 'Lドリンク(本)',
+  fkaku: 'Lカクテル(F)', honkaku: 'Lカクテル(本)', honkakuW: 'Lカクテル(本W)',
+  fshot: 'Lショット(F)', honshot: 'Lショット(本)',
+  fpitcher: 'Lピッチャー(F)', honpitcher: 'Lピッチャー(本)',
+  fbeer: 'Lビール(F)', honbeer: 'Lビール(本)',
+}
+
 function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu }: {
   guestMenu: GuestMenuItem[]; castMenu: CastMenuItem[]
   setGuestMenu: React.Dispatch<React.SetStateAction<GuestMenuItem[]>>
@@ -86,6 +108,62 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu }: {
   const [editCost, setEditCost] = useState('')
   const [editCastBack, setEditCastBack] = useState('')
   const [confirmTarget, setConfirmTarget] = useState<{ kind: 'guest' | 'cast'; id: number; name: string } | null>(null)
+
+  // ─── 新規追加フォーム (追補02 R5-1) ───
+  const [addKind, setAddKind] = useState<'guest' | 'cast' | null>(null)
+  const [addName, setAddName] = useState('')
+  const [addPrice, setAddPrice] = useState(0)
+  const [addCost, setAddCost] = useState(0)
+  const [addCastBack, setAddCastBack] = useState(0)
+  const [addGuestSub, setAddGuestSub] = useState<GuestMenuItem['subcategory']>('shot')
+  const [addCastSub, setAddCastSub] = useState<CastMenuItem['subcategory']>('fdrink')
+  const [addBackType, setAddBackType] = useState<BackType>('FD')
+
+  const resetAddForm = () => {
+    setAddKind(null)
+    setAddName('')
+    setAddPrice(0)
+    setAddCost(0)
+    setAddCastBack(0)
+    setAddGuestSub('shot')
+    setAddCastSub('fdrink')
+    setAddBackType('FD')
+  }
+
+  const handleConfirmAdd = () => {
+    if (!addName.trim()) return
+    const existingIds = [...guestMenu.map((m) => m.id), ...castMenu.map((m) => m.id)]
+    const nextId = Math.max(...existingIds, 0) + 1
+    if (addKind === 'guest') {
+      setGuestMenu((prev) => [
+        ...prev,
+        {
+          id: nextId,
+          name: addName.trim(),
+          price: addPrice,
+          cost: addCost,
+          castBack: 0, // ゲスト用はバックなし
+          category: 'guest',
+          subcategory: addGuestSub,
+        },
+      ])
+    } else if (addKind === 'cast') {
+      setCastMenu((prev) => [
+        ...prev,
+        {
+          id: nextId,
+          name: addName.trim(),
+          price: addPrice,
+          cost: addCost,
+          castBack: addCastBack,
+          category: 'cast',
+          subcategory: addCastSub,
+          backType: addBackType,
+        },
+      ])
+    }
+    resetAddForm()
+  }
 
   const handleConfirmDelete = () => {
     if (!confirmTarget) return
@@ -106,6 +184,70 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu }: {
         onConfirm={handleConfirmDelete}
         onCancel={() => setConfirmTarget(null)}
       />
+
+      {/* ─── 新規メニュー追加 (追補02 R5-1) ─── */}
+      <div className="panel p-3 border border-gold/30">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-bold text-gold">新規メニュー追加</h3>
+          {addKind === null ? (
+            <div className="flex gap-2">
+              <button onClick={() => setAddKind('guest')} className="btn-ghost text-xs flex items-center gap-1"><Plus size={12}/>ゲスト用</button>
+              <button onClick={() => setAddKind('cast')} className="btn-ghost text-xs flex items-center gap-1"><Plus size={12}/>キャスト用</button>
+            </div>
+          ) : (
+            <button onClick={resetAddForm} className="text-xs text-gray-400 hover:text-white">キャンセル</button>
+          )}
+        </div>
+        {addKind && (
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">商品名</label>
+                <input value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="例: 山崎18年" className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">カテゴリ</label>
+                {addKind === 'guest' ? (
+                  <select value={addGuestSub} onChange={(e) => setAddGuestSub(e.target.value as GuestMenuItem['subcategory'])} className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm">
+                    {guestSubcategories.map((s) => <option key={s} value={s}>{guestSubcategoryLabels[s]}</option>)}
+                  </select>
+                ) : (
+                  <select value={addCastSub} onChange={(e) => setAddCastSub(e.target.value as CastMenuItem['subcategory'])} className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm">
+                    {castSubcategories.map((s) => <option key={s} value={s}>{castSubcategoryLabels[s]}</option>)}
+                  </select>
+                )}
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">販売価格 (円)</label>
+                <NumberInput value={addPrice} onChange={setAddPrice} step={100} min={0} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">原価 (円)</label>
+                <NumberInput value={addCost} onChange={setAddCost} step={100} min={0} />
+              </div>
+              {addKind === 'cast' && (
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">キャストバック (円)</label>
+                  <NumberInput value={addCastBack} onChange={setAddCastBack} step={100} min={0} />
+                </div>
+              )}
+            </div>
+            {addKind === 'cast' && (
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">バック種別</label>
+                <select value={addBackType} onChange={(e) => setAddBackType(e.target.value as BackType)} className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm">
+                  {backTypes.map((bt) => <option key={bt} value={bt}>{bt}</option>)}
+                </select>
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-1">
+              <button onClick={handleConfirmAdd} disabled={!addName.trim()} className="btn-gold text-xs px-4 py-1.5 disabled:opacity-40">追加する</button>
+            </div>
+          </div>
+        )}
+      </div>
       <div>
         <h3 className="text-sm font-bold text-gray-400 mb-2">ゲスト用ドリンク</h3>
         <div className="divide-y divide-white/5">
