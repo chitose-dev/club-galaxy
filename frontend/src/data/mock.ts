@@ -727,8 +727,8 @@ export const defaultStoreSettings: StoreSettings = {
   initialCash: 100000,
   closingDay: 15,
   storeName: "CLUB GALAXY",
-  storeAddress: '',
-  storePhone: '',
+  storeAddress: '山形県山形市香澄町1-2-3',
+  storePhone: '023-654-XXXX',
   invoiceNumber: 'T5390001005970',
 }
 
