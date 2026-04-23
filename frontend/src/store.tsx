@@ -60,6 +60,12 @@ interface Store {
   deductions: Deduction[]
   storeSettings: StoreSettings
   updateTable: (id: number, patch: Partial<Table>) => void
+  /**
+   * キャストを卓間/待機とで排他的に移動させる (追補02 R2, R10)。
+   * toTableId = null で待機 (どの卓からも外す)。
+   * 本指名担当のマークは元の卓に残る (R10-4)。
+   */
+  moveCast: (castName: string, toTableId: number | null) => void
   addOrderToTable: (tableId: number, order: OrderItem) => void
   removeOrderFromTable: (tableId: number, menuItemId: number, castName?: string) => void
   resetTable: (id: number) => void
@@ -131,6 +137,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const updateTable = useCallback((id: number, patch: Partial<Table>) => {
     setTables((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)))
+  }, [])
+
+  /**
+   * 追補02 R2/R10: キャストを卓間で排他的に移動。
+   * 全ての卓の assignedCasts から対象を除外した後、移動先に追加する。
+   * 本指名担当の紐付け (mainNominationCastName) は変更しない (R10-4)。
+   */
+  const moveCast = useCallback((castName: string, toTableId: number | null) => {
+    setTables((prev) =>
+      prev.map((t) => {
+        const filtered = t.assignedCasts.filter((n) => n !== castName)
+        if (t.id === toTableId) {
+          // 移動先: 担当に追加 (重複回避)
+          return { ...t, assignedCasts: filtered.includes(castName) ? filtered : [...filtered, castName] }
+        }
+        // それ以外の卓: assignedCasts から除外
+        if (filtered.length !== t.assignedCasts.length) {
+          return { ...t, assignedCasts: filtered }
+        }
+        return t
+      }),
+    )
+    if (toTableId !== null) {
+      setCasts((prev) => prev.map((c) => (c.name === castName ? { ...c, lastAssignedAt: new Date().toISOString() } : c)))
+    }
   }, [])
 
   const addOrderToTable = useCallback((tableId: number, order: OrderItem) => {
@@ -347,6 +378,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         deductions,
         storeSettings,
         updateTable,
+        moveCast,
         addOrderToTable,
         removeOrderFromTable,
         resetTable,
