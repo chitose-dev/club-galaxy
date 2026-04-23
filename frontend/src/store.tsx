@@ -28,6 +28,7 @@ import {
   type StoreSettings,
   type UserAccount,
   type AttendanceRecord,
+  type AttendanceSchedule,
   type Expense,
   type AdvancePayment,
   type ArchivedData,
@@ -93,6 +94,11 @@ interface Store {
   attendanceRecords: AttendanceRecord[]
   addAttendance: (record: AttendanceRecord) => void
   updateAttendance: (id: number, patch: Partial<AttendanceRecord>) => void
+  // 追補02 R4: 事前出勤予定
+  attendanceSchedules: AttendanceSchedule[]
+  addAttendanceSchedule: (s: AttendanceSchedule) => void
+  removeAttendanceSchedule: (id: number) => void
+  markScheduleProcessed: (id: number) => void
   // 経費管理
   expenses: Expense[]
   addExpense: (expense: Expense) => void
@@ -264,6 +270,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setAttendanceRecords((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)))
   }, [])
 
+  // 追補02 R4: 事前出勤予定
+  const [attendanceSchedules, setAttendanceSchedules] = useState<AttendanceSchedule[]>([])
+  const addAttendanceSchedule = useCallback((s: AttendanceSchedule) => {
+    setAttendanceSchedules((prev) => [...prev, s])
+  }, [])
+  const removeAttendanceSchedule = useCallback((id: number) => {
+    setAttendanceSchedules((prev) => prev.filter((s) => s.id !== id))
+  }, [])
+  const markScheduleProcessed = useCallback((id: number) => {
+    setAttendanceSchedules((prev) => prev.map((s) => (s.id === id ? { ...s, processed: true } : s)))
+  }, [])
+
   const addExpense = useCallback((expense: Expense) => {
     setExpenses((prev) => [...prev, expense])
   }, [])
@@ -405,6 +423,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         attendanceRecords,
         addAttendance,
         updateAttendance,
+        attendanceSchedules,
+        addAttendanceSchedule,
+        removeAttendanceSchedule,
+        markScheduleProcessed,
         expenses,
         addExpense,
         removeExpense,

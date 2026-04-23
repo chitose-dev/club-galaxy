@@ -216,6 +216,28 @@ export interface AttendanceRecord {
   clockOut: string | null   // HH:MM
   breakMinutes: number
   workHours: number         // 自動計算
+  /**
+   * 追補02 R4-3: 事前予定された出勤時刻 (HH:MM)。
+   * 実打刻 (clockIn) と異なれば遅刻/早出としてログ可能。
+   * null = 飛び込み出勤 (事前予定なし)
+   */
+  scheduledClockIn?: string | null
+}
+
+/**
+ * 追補02 R4: 事前出勤予定
+ * 時刻到達時にフロントのタイマーが自動的に AttendanceRecord を生成する。
+ * 事前登録 → 自動打刻 のフロー用。
+ */
+export interface AttendanceSchedule {
+  id: number
+  staffId: number
+  staffName: string
+  staffType: 'cast' | 'boy'
+  date: string              // YYYY-MM-DD
+  scheduledClockIn: string  // HH:MM
+  /** true になると AttendanceRecord が生成され、AttendanceManager の 「本日の勤怠」に出現 */
+  processed?: boolean
 }
 
 // ─── 経費管理 ───

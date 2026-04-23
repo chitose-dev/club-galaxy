@@ -3,6 +3,7 @@ import { useStore } from '../store'
 import { sampleDailyWork } from '../data/mock'
 import type { Cast, BackType, GuestMenuItem, CastMenuItem, SetPrice, Table, StoreSettings, DailyWork, UserAccount } from '../data/mock'
 import type { AttendanceRecord, Expense, ExpenseCategory, AdvancePayment, ArchivedData } from '../data/mock'
+import React from 'react'
 import { Pencil, Trash2, Plus, Save, Download, ChevronUp, ChevronDown, GripVertical, Clock, Printer } from 'lucide-react'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { openPrintWindow } from '../utils/print'
@@ -33,6 +34,7 @@ export default function AdminPage() {
     setGuestMenu, setCastMenu, setCasts, setSetPrices, setChargeItems, setTables, setStoreSettings,
     reorderTables, userAccounts, addUser, updateUser, deleteUser,
     attendanceRecords, addAttendance, updateAttendance,
+    attendanceSchedules, addAttendanceSchedule, removeAttendanceSchedule, markScheduleProcessed,
     expenses, addExpense, removeExpense,
     advancePayments, addAdvancePayment,
     archivedData, archiveOldData,
@@ -70,7 +72,7 @@ export default function AdminPage() {
       {activeTab === 'cast' && <CastManager casts={casts} setCasts={setCasts} />}
       {activeTab === 'price' && <PriceManager setPrices={setPrices} chargeItems={chargeItems} setSetPrices={setSetPrices} setChargeItems={setChargeItems} />}
       {activeTab === 'tables' && <TableManager tables={tables} setTables={setTables} reorderTables={reorderTables} />}
-      {activeTab === 'attendance' && <AttendanceManager attendanceRecords={attendanceRecords} addAttendance={addAttendance} updateAttendance={updateAttendance} casts={casts} />}
+      {activeTab === 'attendance' && <AttendanceManager attendanceRecords={attendanceRecords} addAttendance={addAttendance} updateAttendance={updateAttendance} casts={casts} attendanceSchedules={attendanceSchedules} addAttendanceSchedule={addAttendanceSchedule} removeAttendanceSchedule={removeAttendanceSchedule} markScheduleProcessed={markScheduleProcessed} />}
       {activeTab === 'expense' && <ExpenseManager expenses={expenses} addExpense={addExpense} removeExpense={removeExpense} />}
       {activeTab === 'advance' && <AdvanceManager advancePayments={advancePayments} addAdvancePayment={addAdvancePayment} casts={casts} storeSettings={storeSettings} />}
       {activeTab === 'dailypay' && <DailyPayManager casts={casts} attendanceRecords={attendanceRecords} dailyPayRequests={dailyPayRequests} addDailyPayRequest={addDailyPayRequest} />}
@@ -1069,18 +1071,63 @@ function DataExport({ billingRecords, casts, dailyPayRequests, discountLogs, ded
 
 // ─── 勤怠管理 ───
 
-function AttendanceManager({ attendanceRecords, addAttendance, updateAttendance, casts }: {
+function AttendanceManager({
+  attendanceRecords, addAttendance, updateAttendance, casts,
+  attendanceSchedules, addAttendanceSchedule, removeAttendanceSchedule, markScheduleProcessed,
+}: {
   attendanceRecords: AttendanceRecord[]
   addAttendance: (record: AttendanceRecord) => void
   updateAttendance: (id: number, patch: Partial<AttendanceRecord>) => void
   casts: Cast[]
+  attendanceSchedules: import('../data/mock').AttendanceSchedule[]
+  addAttendanceSchedule: (s: import('../data/mock').AttendanceSchedule) => void
+  removeAttendanceSchedule: (id: number) => void
+  markScheduleProcessed: (id: number) => void
 }) {
   const [showAdd, setShowAdd] = useState(false)
   const [staffId, setStaffId] = useState<number>(casts[0]?.id ?? 0)
   const [staffType, setStaffType] = useState<'cast' | 'boy'>('cast')
 
+  // 追補02 R4: 事前予定登録フォーム用
+  const [showSchedule, setShowSchedule] = useState(false)
+  const [schCastId, setSchCastId] = useState<number>(casts[0]?.id ?? 0)
+  const [schDate, setSchDate] = useState<string>(() => new Date().toISOString().slice(0, 10))
+  const [schTime, setSchTime] = useState<string>('20:00')
+
   const todayStr = new Date().toISOString().split('T')[0]
   const todayRecords = attendanceRecords.filter((r) => r.date === todayStr)
+  const pendingSchedules = attendanceSchedules.filter((s) => !s.processed)
+
+  // 追補02 R4-1: 1 分おきに予定時刻を監視 → 自動打刻
+  // 予定時刻 ≤ 現在時刻 かつ当日の場合、AttendanceRecord を自動生成
+  React.useEffect(() => {
+    const check = () => {
+      const now = new Date()
+      const nowDate = now.toISOString().slice(0, 10)
+      const nowTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+      for (const s of pendingSchedules) {
+        if (s.date !== nowDate) continue
+        if (s.scheduledClockIn > nowTime) continue
+        // 実打刻 (R4-3: 実時刻を優先、scheduledClockIn は記録用に残す)
+        addAttendance({
+          id: Date.now() + s.id,
+          staffId: s.staffId,
+          staffName: s.staffName,
+          staffType: s.staffType,
+          date: s.date,
+          clockIn: nowTime,
+          clockOut: null,
+          breakMinutes: 0,
+          workHours: 0,
+          scheduledClockIn: s.scheduledClockIn,
+        })
+        markScheduleProcessed(s.id)
+      }
+    }
+    check()
+    const id = setInterval(check, 60_000)
+    return () => clearInterval(id)
+  }, [pendingSchedules, addAttendance, markScheduleProcessed])
 
   const handleClockIn = () => {
     const cast = casts.find((c) => c.id === staffId)
@@ -1123,8 +1170,76 @@ function AttendanceManager({ attendanceRecords, addAttendance, updateAttendance,
     }
   }
 
+  const handleAddSchedule = () => {
+    const cast = casts.find((c) => c.id === schCastId)
+    if (!cast) return
+    addAttendanceSchedule({
+      id: Date.now(),
+      staffId: cast.id,
+      staffName: cast.name,
+      staffType: 'cast',
+      date: schDate,
+      scheduledClockIn: schTime,
+    })
+    setShowSchedule(false)
+  }
+
   return (
     <div className="space-y-4">
+      {/* 追補02 R4: 事前出勤予定 */}
+      <div className="panel p-3 border border-gold/30">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-bold text-gold">事前出勤予定 ({pendingSchedules.length} 件)</h3>
+          {showSchedule ? (
+            <button onClick={() => setShowSchedule(false)} className="text-xs text-gray-400">キャンセル</button>
+          ) : (
+            <button onClick={() => setShowSchedule(true)} className="btn-ghost text-xs flex items-center gap-1">
+              <Plus size={12} /> 予定追加
+            </button>
+          )}
+        </div>
+        {showSchedule && (
+          <div className="space-y-2 mb-3">
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">対象キャスト</label>
+                <select value={schCastId} onChange={(e) => setSchCastId(Number(e.target.value))} className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm">
+                  {casts.filter((c) => c.active).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">日付</label>
+                <input type="date" value={schDate} onChange={(e) => setSchDate(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">予定時刻</label>
+                <input type="time" value={schTime} onChange={(e) => setSchTime(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm" />
+              </div>
+            </div>
+            <button onClick={handleAddSchedule} className="btn-gold text-xs px-3 py-1.5">登録する</button>
+          </div>
+        )}
+        {pendingSchedules.length > 0 && (
+          <div className="space-y-1">
+            {pendingSchedules.map((s) => (
+              <div key={s.id} className="flex items-center justify-between text-sm bg-white/5 px-3 py-1.5 rounded">
+                <div>
+                  <span className="font-medium">{s.staffName}</span>
+                  <span className="text-xs text-gray-500 ml-2">{s.date}</span>
+                  <span className="text-gold tabular-nums ml-2">{s.scheduledClockIn}〜</span>
+                </div>
+                <button onClick={() => removeAttendanceSchedule(s.id)} className="text-xs text-gray-500 hover:text-red-400">
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="text-[10px] text-gray-600 mt-2">
+          ※予定時刻に到達すると自動的に打刻されます (1 分間隔で監視)。飛び込み出勤の手動打刻も併用可能です。
+        </div>
+      </div>
+
       <h3 className="text-sm font-bold text-gray-400 mb-2">本日の勤怠 ({todayStr})</h3>
 
       {todayRecords.length === 0 ? (
@@ -1137,6 +1252,11 @@ function AttendanceManager({ attendanceRecords, addAttendance, updateAttendance,
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-sm">{r.staffName}</span>
                   <span className="text-xs bg-white/5 text-gray-400 px-1.5 py-0.5 rounded">{r.staffType === 'cast' ? 'キャスト' : 'ボーイ'}</span>
+                  {r.scheduledClockIn && r.clockIn && r.scheduledClockIn !== r.clockIn && (
+                    <span className="text-[10px] text-amber-400" title={`予定: ${r.scheduledClockIn}`}>
+                      {r.clockIn > r.scheduledClockIn ? '遅刻' : '早出'}
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <Clock size={12} className="text-gray-500" />
