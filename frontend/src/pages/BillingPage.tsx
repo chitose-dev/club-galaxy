@@ -284,8 +284,22 @@ export default function BillingPage() {
 
   // 指名料・同伴料は自動で orders に含まれているため、ここでは個別に加算しない(指示書§2.3)
   const drinkTotal = table.orders.reduce((sum, o) => sum + o.menuItem.price * o.quantity, 0)
-  const subtotal = drinkTotal  // 内税扱い
-  const setFee = setPriceTotal  // 内税扱い
+
+  // 追補02 R13: 合算会計 - mergeTableIds に指定された卓の小計を加算
+  const mergedTables = tables.filter((t) => mergeTableIds.includes(t.id))
+  const mergedSetFee = mergedTables.reduce((acc, t) => {
+    if (!t.startTime) return acc
+    const mSet = getSetPriceForTime(t.startTime)
+    const mDiscount = t.setDiscountPerSet ?? 0
+    return acc + Math.max(0, mSet - mDiscount) * t.guestCount * t.setCount
+  }, 0)
+  const mergedDrinkTotal = mergedTables.reduce(
+    (acc, t) => acc + t.orders.reduce((s, o) => s + o.menuItem.price * o.quantity, 0),
+    0,
+  )
+
+  const subtotal = drinkTotal + mergedDrinkTotal  // 内税扱い
+  const setFee = setPriceTotal + mergedSetFee  // 内税扱い
   const taxRate = storeSettings.taxRate
   const cardFeeRate = storeSettings.cardFeeRate
   const subtotalAll = subtotal + setFee  // 全て内税
@@ -385,13 +399,22 @@ export default function BillingPage() {
       receiptPurpose,
     })
 
-    const nextOccupied = occupiedTables.find((t) => t.id !== table.id)
+    // 追補02 R13-4: 合算対象卓は会計確定と同時に精算済 (resetTable で空き状態へ) に
+    // R13-5 将来対応メモ: 合算時の売上・バック帰属を正確に卓単位で保持するため、
+    //   別 PR で各 mergedTable ごとに BillingRecord を生成する改修を予定。
+    //   現状は代表卓 1 枚のレコードに合算総額をまとめている。
+    for (const mid of mergeTableIds) {
+      resetTable(mid)
+    }
+    const excludeIds = new Set<number>([table.id, ...mergeTableIds])
+    const nextOccupied = occupiedTables.find((t) => !excludeIds.has(t.id))
     resetTable(table.id)
     setShowConfirm(false)
     setShowReceipt(true)
     setDiscount(0)
     setDiscountReason('')
     setSplitCount(0)
+    setMergeTableIds([])
     // 会計完了後、次の卓があれば自動選択 (ポップアップを閉じたらそのまま次の卓の会計画面へ)
     if (nextOccupied) setSelectedTableId(nextOccupied.id)
   }
@@ -711,21 +734,38 @@ export default function BillingPage() {
                 {occupiedTables.length > 1 && (
                   <div className="panel p-4">
                     <h3 className="text-xs text-gray-400 tracking-wider mb-2">合算会計</h3>
-                    <div className="flex flex-wrap gap-2">
-                      {occupiedTables.filter((t) => t.id !== selectedTableId).map((t) => (
-                        <label key={t.id} className="flex items-center gap-1.5 text-sm bg-white/5 px-3 py-1.5 rounded-lg cursor-pointer hover:bg-white/10">
-                          <input
-                            type="checkbox"
-                            checked={mergeTableIds.includes(t.id)}
-                            onChange={(e) => {
-                              if (e.target.checked) setMergeTableIds((prev) => [...prev, t.id])
-                              else setMergeTableIds((prev) => prev.filter((id) => id !== t.id))
-                            }}
-                          />
-                          卓{t.number}
-                        </label>
-                      ))}
+                    <div className="space-y-1.5">
+                      {occupiedTables.filter((t) => t.id !== selectedTableId).map((t) => {
+                        const mSet = t.startTime ? getSetPriceForTime(t.startTime) : 0
+                        const mDisc = t.setDiscountPerSet ?? 0
+                        const mSetTotal = Math.max(0, mSet - mDisc) * t.guestCount * t.setCount
+                        const mDrink = t.orders.reduce((s, o) => s + o.menuItem.price * o.quantity, 0)
+                        const mSub = mSetTotal + mDrink
+                        return (
+                          <label key={t.id} className="flex items-center justify-between gap-2 text-sm bg-white/5 px-3 py-2 rounded-lg cursor-pointer hover:bg-white/10">
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={mergeTableIds.includes(t.id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) setMergeTableIds((prev) => [...prev, t.id])
+                                  else setMergeTableIds((prev) => prev.filter((id) => id !== t.id))
+                                }}
+                              />
+                              <span>卓 {t.number}</span>
+                              <span className="text-xs text-gray-500">({t.assignedCasts.join(', ') || 'フリー'} / {t.guestCount}名)</span>
+                            </div>
+                            <span className="text-xs text-gray-400 tabular-nums">¥{mSub.toLocaleString()}</span>
+                          </label>
+                        )
+                      })}
                     </div>
+                    {mergeTableIds.length > 0 && (
+                      <div className="mt-2 text-xs text-gold flex justify-between">
+                        <span>{mergeTableIds.length} 卓 合算中</span>
+                        <span className="tabular-nums">+¥{(mergedSetFee + mergedDrinkTotal).toLocaleString()}</span>
+                      </div>
+                    )}
                   </div>
                 )}
 
