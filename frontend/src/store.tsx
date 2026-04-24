@@ -148,7 +148,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   /**
    * 追補02 R2/R10: キャストを卓間で排他的に移動。
    * 全ての卓の assignedCasts から対象を除外した後、移動先に追加する。
-   * 本指名担当の紐付け (mainNominationCastName) は変更しない (R10-4)。
+   * 本指名担当の紐付け (mainNominationCastNames) は変更しない (R10-4)。
    */
   const moveCast = useCallback((castName: string, toTableId: number | null) => {
     setTables((prev) =>

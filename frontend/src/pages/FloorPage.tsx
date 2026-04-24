@@ -121,8 +121,8 @@ export default function FloorPage() {
   const [ciTime, setCiTime] = useState(defaultStartTime)
   const [ciGuests, setCiGuests] = useState(1)
   const [ciCastNames, setCiCastNames] = useState<string[]>([])
-  /** 本指名担当 (担当リストの中から 1 名) / undefined = 本指名なし */
-  const [ciMainNomination, setCiMainNomination] = useState<string | undefined>(undefined)
+  /** 本指名担当 (担当リストの中から 0〜N 名、追補03 R24 で複数対応) */
+  const [ciMainNominations, setCiMainNominations] = useState<string[]>([])
   /** 同伴フラグ (本指名と共存可) */
   const [ciIsDouhan, setCiIsDouhan] = useState(false)
   /** 場内指名フラグ */
@@ -163,7 +163,7 @@ export default function FloorPage() {
     setCiTime(defaultStartTime())
     setCiGuests(1)
     setCiCastNames([])
-    setCiMainNomination(undefined)
+    setCiMainNominations([])
     setCiIsDouhan(false)
     setCiIsBanaiShimei(false)
     setShowCheckIn(true)
@@ -172,12 +172,16 @@ export default function FloorPage() {
   const toggleCast = (name: string) => {
     setCiCastNames((prev) => {
       const next = prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
-      // 本指名担当に選択中のキャストが担当から外れたらクリア
-      if (ciMainNomination && !next.includes(ciMainNomination)) {
-        setCiMainNomination(undefined)
-      }
+      // 担当から外れたキャストは本指名担当からも自動除外 (R24 対応)
+      setCiMainNominations((prevMains) => prevMains.filter((n) => next.includes(n)))
       return next
     })
+  }
+
+  const toggleMainNomination = (name: string) => {
+    setCiMainNominations((prev) =>
+      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
+    )
   }
 
   const confirmCheckIn = () => {
@@ -218,8 +222,9 @@ export default function FloorPage() {
         castName,
       })
     }
-    if (ciMainNomination) {
-      pushChargeOrder('shimei', ciMainNomination)
+    // R24: 本指名担当が複数いる場合、各人分の本指名料を orders に計上
+    for (const name of ciMainNominations) {
+      pushChargeOrder('shimei', name)
     }
     if (ciIsBanaiShimei) {
       for (const name of assignedNames) {
@@ -239,7 +244,7 @@ export default function FloorPage() {
       guestCount: ciGuests,
       startTime: ciTime,
       assignedCasts: assignedNames,
-      mainNominationCastName: ciMainNomination,
+      mainNominationCastNames: ciMainNominations,
       isDouhan: ciIsDouhan || undefined,
       isBanaiShimei: ciIsBanaiShimei || undefined,
       setCount: 1,
@@ -261,7 +266,7 @@ export default function FloorPage() {
     if (!selected) return
     // デフォルト指名キャスト: 卓の担当先頭
     // 追補02 R8-5: 本指名担当を優先、なければ担当リスト先頭
-    setPendingExtend({ minutes, castName: selected.mainNominationCastName ?? selected.assignedCasts[0] })
+    setPendingExtend({ minutes, castName: selected.mainNominationCastNames[0] ?? selected.assignedCasts[0] })
   }
 
   const confirmExtend = () => {
@@ -350,7 +355,7 @@ export default function FloorPage() {
 
     // 延長予算試算: 時間帯別セット料金 × 人数 × (30分=0.5セット、60分=1セット)
     // 本指名がいれば本指名料も継続で加算
-    const nominationContinueCharge = table.mainNominationCastName ? 1500 : 0
+    const nominationContinueCharge = table.mainNominationCastNames.length * 1500
     const banaiContinueCharge = table.isBanaiShimei ? 500 * table.assignedCasts.length : 0
     const ext30Price = Math.round(adjustedSetPrice * table.guestCount * 0.5) + nominationContinueCharge + banaiContinueCharge
     const ext60Price = adjustedSetPrice * table.guestCount + nominationContinueCharge + banaiContinueCharge
@@ -548,9 +553,9 @@ export default function FloorPage() {
                   <div className="text-sm font-medium truncate">
                     {table.assignedCasts.length > 0 ? table.assignedCasts.join(', ') : <span className="text-gray-500">担当なし</span>}
                   </div>
-                  {table.mainNominationCastName && (
+                  {table.mainNominationCastNames.length > 0 && (
                     <div className="text-xs text-gold truncate">
-                      <span className="text-gold/70">本指名:</span> {table.mainNominationCastName}
+                      <span className="text-gold/70">本指名:</span> {table.mainNominationCastNames.join(', ')}
                     </div>
                   )}
                   <div className="flex items-center gap-2 text-gray-400 text-xs">
@@ -774,33 +779,32 @@ export default function FloorPage() {
                 <div className="text-sm text-gold mt-2">選択中: {ciCastNames.join(', ')}</div>
               )}
             </div>
-            {/* 追補02 R1/R9: 指名タイプ 4 択は廃止。
-                本指名担当は担当リストから 1 名選択。同伴・場内指名はチェックで組合可能。 */}
+            {/* 追補02 R1/R9 + 追補03 R24: 本指名担当を複数選択可能に */}
             <div>
-              <label className="text-sm text-gray-200 block mb-2 font-medium">本指名担当 (任意)</label>
+              <label className="text-sm text-gray-200 block mb-2 font-medium">
+                本指名担当 (任意 / 複数選択可)
+              </label>
               {ciCastNames.length === 0 ? (
                 <div className="text-sm text-gray-500 panel p-3">担当を選択すると、本指名担当を指定できます</div>
               ) : (
                 <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={() => setCiMainNomination(undefined)}
-                    className={`px-4 py-3 rounded-[10px] text-sm font-bold transition-colors ${
-                      !ciMainNomination ? 'bg-gold text-primary' : 'panel text-gray-200 hover:bg-white/10'
-                    }`}
-                  >
-                    なし
-                  </button>
-                  {ciCastNames.map((name) => (
-                    <button
-                      key={name}
-                      onClick={() => setCiMainNomination(name)}
-                      className={`px-4 py-3 rounded-[10px] text-sm font-bold transition-colors ${
-                        ciMainNomination === name ? 'bg-gold text-primary' : 'panel text-gray-200 hover:bg-white/10'
-                      }`}
-                    >
-                      {name}
-                    </button>
-                  ))}
+                  {ciCastNames.map((name) => {
+                    const selected = ciMainNominations.includes(name)
+                    return (
+                      <button
+                        key={name}
+                        onClick={() => toggleMainNomination(name)}
+                        className={`px-4 py-3 rounded-[10px] text-sm font-bold transition-colors flex items-center gap-1.5 ${
+                          selected ? 'bg-gold text-primary' : 'panel text-gray-200 hover:bg-white/10'
+                        }`}
+                      >
+                        <span className="inline-block w-4 h-4 border-2 rounded-sm flex items-center justify-center" style={{ borderColor: selected ? '#1a1a2e' : '#888' }}>
+                          {selected && '✓'}
+                        </span>
+                        {name}
+                      </button>
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -830,9 +834,9 @@ export default function FloorPage() {
                   場内指名
                 </button>
               </div>
-              {(ciMainNomination || ciIsDouhan || ciIsBanaiShimei) && (
+              {(ciMainNominations.length > 0 || ciIsDouhan || ciIsBanaiShimei) && (
                 <div className="text-sm text-gold mt-2">
-                  指名: {getNominationLabel({ mainNominationCastName: ciMainNomination, isDouhan: ciIsDouhan, isBanaiShimei: ciIsBanaiShimei })}
+                  指名: {getNominationLabel({ mainNominationCastNames: ciMainNominations, isDouhan: ciIsDouhan, isBanaiShimei: ciIsBanaiShimei })}
                 </div>
               )}
             </div>
@@ -939,7 +943,7 @@ export default function FloorPage() {
           // 追補02 R8-2/R8-6: 延長料金 + 継続指名料金のシミュレーション
           const extCharge = EXTENSION_CHARGES[pendingExtend.minutes]
           // 本指名は継続 (R8-5)、場内指名は継承するが変更可 (今のダイアログでの簡易表示)
-          const shimeiContinue = selected.mainNominationCastName ? 1500 : 0
+          const shimeiContinue = selected.mainNominationCastNames.length * 1500
           const banaiContinue = selected.isBanaiShimei ? 500 * selected.assignedCasts.length : 0
           const subtotal = extCharge + shimeiContinue + banaiContinue
           return (
@@ -955,7 +959,7 @@ export default function FloorPage() {
                 </div>
                 {shimeiContinue > 0 && (
                   <div className="flex justify-between text-xs">
-                    <span className="text-gray-500">本指名料 (継続 / {selected.mainNominationCastName})</span>
+                    <span className="text-gray-500">本指名料 (継続 / {selected.mainNominationCastNames.join(', ')})</span>
                     <span className="tabular-nums text-gray-300">¥{shimeiContinue.toLocaleString()}</span>
                   </div>
                 )}

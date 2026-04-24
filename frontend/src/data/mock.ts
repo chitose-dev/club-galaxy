@@ -14,11 +14,12 @@ export interface Table {
    */
   assignedCasts: string[]
   /**
-   * 本指名担当の源氏名 (追補02 R1-2/R1-3/R1-4)。
+   * 本指名担当の源氏名 (追補02 R1-2/R1-3/R1-4 + 追補03 R24: 複数対応)。
    * 卓に対して固定で、キャストが他卓へ移動しても消えない (売上・バック帰属用)。
-   * undefined = 本指名なし (フリー扱いの基礎条件)。
+   * 空配列 = 本指名なし (フリー扱いの基礎条件)。
+   * 複数指定時は売上を均等割りで分配 (PR 暫定、運用後に要 再調整)。
    */
-  mainNominationCastName?: string
+  mainNominationCastNames: string[]
   /** 同伴フラグ (追補02 R9: 本指名と共存可) */
   isDouhan?: boolean
   /** 場内指名フラグ (追補02 R8-5: 延長で変更可) */
@@ -548,31 +549,31 @@ function minutesAgo(minutes: number): string {
 }
 
 export const initialTables: Table[] = [
-  { id: 1, number: '1', status: 'occupied', guestCount: 3, startTime: minutesAgo(30), assignedCasts: ['あいり'], mainNominationCastName: 'あいり', setCount: 1, orders: [
+  { id: 1, number: '1', status: 'occupied', guestCount: 3, startTime: minutesAgo(30), assignedCasts: ['あいり'], mainNominationCastNames: ['あいり'], setCount: 1, orders: [
     { menuItem: castMenuItems[0], quantity: 2 },
     { menuItem: guestMenuItems[4], quantity: 1 },
   ] },
-  { id: 2, number: '2', status: 'occupied', guestCount: 2, startTime: minutesAgo(45), assignedCasts: ['みく'], setCount: 1, orders: [
+  { id: 2, number: '2', status: 'occupied', guestCount: 2, startTime: minutesAgo(45), assignedCasts: ['みく'], mainNominationCastNames: [], setCount: 1, orders: [
     { menuItem: castMenuItems[1], quantity: 1 },
     { menuItem: guestMenuItems[7], quantity: 3 },
   ] },
-  { id: 3, number: '3', status: 'ending', guestCount: 4, startTime: minutesAgo(55), assignedCasts: ['れな'], mainNominationCastName: 'れな', setCount: 1, orders: [
+  { id: 3, number: '3', status: 'ending', guestCount: 4, startTime: minutesAgo(55), assignedCasts: ['れな'], mainNominationCastNames: ['れな'], setCount: 1, orders: [
     { menuItem: castMenuItems[0], quantity: 3 },
     { menuItem: castMenuItems[2], quantity: 1 },
     { menuItem: guestMenuItems[5], quantity: 2 },
   ] },
-  { id: 4, number: '4', status: 'empty', guestCount: 0, startTime: null, assignedCasts: [], setCount: 0, orders: [] },
-  { id: 5, number: '5', status: 'occupied', guestCount: 2, startTime: minutesAgo(15), assignedCasts: ['ゆい'], setCount: 1, orders: [] },
-  { id: 6, number: '6', status: 'empty', guestCount: 0, startTime: null, assignedCasts: [], setCount: 0, orders: [] },
-  // 卓7: 同伴の例。担当2名・本指名担当=りさ・同伴フラグ (R9: 本指名+同伴 同時)
-  { id: 7, number: '7', status: 'alert', guestCount: 5, startTime: minutesAgo(52), assignedCasts: ['りさ', 'あいり'], mainNominationCastName: 'りさ', isDouhan: true, setCount: 1, orders: [
+  { id: 4, number: '4', status: 'empty', guestCount: 0, startTime: null, assignedCasts: [], mainNominationCastNames: [], setCount: 0, orders: [] },
+  { id: 5, number: '5', status: 'occupied', guestCount: 2, startTime: minutesAgo(15), assignedCasts: ['ゆい'], mainNominationCastNames: [], setCount: 1, orders: [] },
+  { id: 6, number: '6', status: 'empty', guestCount: 0, startTime: null, assignedCasts: [], mainNominationCastNames: [], setCount: 0, orders: [] },
+  // 卓7: 同伴 + 複数本指名の例 (追補03 R24: 複数本指名対応)
+  { id: 7, number: '7', status: 'alert', guestCount: 5, startTime: minutesAgo(52), assignedCasts: ['りさ', 'あいり'], mainNominationCastNames: ['りさ', 'あいり'], isDouhan: true, setCount: 1, orders: [
     { menuItem: castMenuItems[0], quantity: 4 },
     { menuItem: castMenuItems[1], quantity: 2 },
     { menuItem: guestMenuItems[6], quantity: 3 },
   ] },
-  { id: 8, number: '8', status: 'empty', guestCount: 0, startTime: null, assignedCasts: [], setCount: 0, orders: [] },
-  { id: 9, number: 'VIP1', status: 'occupied', guestCount: 3, startTime: minutesAgo(20), assignedCasts: ['みく', 'ゆい'], mainNominationCastName: 'みく', setCount: 1, orders: [] },
-  { id: 10, number: 'VIP2', status: 'empty', guestCount: 0, startTime: null, assignedCasts: [], setCount: 0, orders: [] },
+  { id: 8, number: '8', status: 'empty', guestCount: 0, startTime: null, assignedCasts: [], mainNominationCastNames: [], setCount: 0, orders: [] },
+  { id: 9, number: 'VIP1', status: 'occupied', guestCount: 3, startTime: minutesAgo(20), assignedCasts: ['みく', 'ゆい'], mainNominationCastNames: ['みく'], setCount: 1, orders: [] },
+  { id: 10, number: 'VIP2', status: 'empty', guestCount: 0, startTime: null, assignedCasts: [], mainNominationCastNames: [], setCount: 0, orders: [] },
 ]
 
 /**

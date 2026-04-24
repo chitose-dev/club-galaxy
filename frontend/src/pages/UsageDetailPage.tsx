@@ -65,10 +65,10 @@ export default function UsageDetailPage() {
               <span className="text-sm text-gray-400">対応中</span>
               <span className="text-sm">{table.assignedCasts.join(', ') || '担当なし'}</span>
             </div>
-            {table.mainNominationCastName && (
+            {table.mainNominationCastNames.length > 0 && (
               <div className="flex justify-between">
                 <span className="text-sm text-gray-400">本指名担当</span>
-                <span className="text-sm text-gold">{table.mainNominationCastName}</span>
+                <span className="text-sm text-gold">{table.mainNominationCastNames.join(', ')}</span>
               </div>
             )}
             <div className="flex justify-between">

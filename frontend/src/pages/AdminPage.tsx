@@ -589,6 +589,7 @@ function TableManager({ tables, setTables, reorderTables }: {
       guestCount: 0,
       startTime: null,
       assignedCasts: [],
+      mainNominationCastNames: [],
       setCount: 0,
       orders: [],
     }])

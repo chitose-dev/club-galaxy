@@ -119,7 +119,8 @@ export default function OrderPage() {
     //   2. 指名なし + 本指名卓 → 本指名担当の売上 (自動帰属)
     //   3. 指名なし + フリー卓 → 店舗売上のみ (キャスト紐付けなし)
     // ※ ゲストドリンク (ショット・ピッチャー・ビール等) はバック無し。売上帰属のみ変動。
-    const castName = selectedCastName ?? selectedTable.mainNominationCastName
+    // 追補03 R24: 複数本指名の場合、指名なしゲストドリンクは先頭 1 名に帰属
+    const castName = selectedCastName ?? selectedTable.mainNominationCastNames[0]
     addOrderToTable(selectedTableId, {
       menuItem: item,
       quantity: 1,

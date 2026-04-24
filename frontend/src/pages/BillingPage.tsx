@@ -340,10 +340,12 @@ export default function BillingPage() {
       })
     }
 
-    // 追補02 R1-3: 本指名担当 (mainNominationCastName) の売上は常にその担当キャストに帰属。
-    // 担当キャストが他卓へ移動しても、本指名担当としての記録は不変 (assignedCasts ではなく mainNominationCastName を見る)。
-    const nominatedCastId = table.mainNominationCastName
-      ? casts.find((c) => c.name === table.mainNominationCastName)?.id
+    // 追補02 R1-3 + 追補03 R24: 本指名担当の売上は常に該当キャストに帰属。
+    // 複数本指名時は先頭 1 名のみ nominatedCastId に記録 (後方互換)。
+    // 将来的には nominatedCastIds: number[] に拡張して正確に分配する予定。
+    const primaryNomName = table.mainNominationCastNames[0]
+    const nominatedCastId = primaryNomName
+      ? casts.find((c) => c.name === primaryNomName)?.id
       : undefined
 
     const receiptNumberForRecord = getNextReceiptNumber()
@@ -559,8 +561,8 @@ export default function BillingPage() {
             <div className="panel p-3 mb-4 flex flex-wrap items-center justify-between gap-2">
               <div className="text-sm text-gray-300">
                 <span className="text-gray-500">担当:</span> {table.assignedCasts.join(', ') || '-'}
-                {table.mainNominationCastName && (
-                  <span className="text-gold/80 ml-2">（本指名: {table.mainNominationCastName}）</span>
+                {table.mainNominationCastNames.length > 0 && (
+                  <span className="text-gold/80 ml-2">（本指名: {table.mainNominationCastNames.join(', ')}）</span>
                 )}
               </div>
               <div className="text-xs text-gray-500">

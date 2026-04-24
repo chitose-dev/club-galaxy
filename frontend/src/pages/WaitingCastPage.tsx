@@ -229,10 +229,10 @@ export default function WaitingCastPage() {
                   <span className="text-gray-400">対応中</span>
                   <span>{t.assignedCasts.join(', ')}</span>
                 </div>
-                {t.mainNominationCastName && (
+                {t.mainNominationCastNames.length > 0 && (
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-400">本指名担当</span>
-                    <span className="text-gold">{t.mainNominationCastName}</span>
+                    <span className="text-gold">{t.mainNominationCastNames.join(', ')}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-sm">
@@ -284,7 +284,7 @@ export default function WaitingCastPage() {
                   <div className="font-bold">卓 {t.number}</div>
                   <div className="text-xs text-gray-400 mt-0.5">
                     対応中: {t.assignedCasts.length > 0 ? t.assignedCasts.join(', ') : '担当なし'}
-                    {t.mainNominationCastName && <span className="text-gold ml-2">(本指名: {t.mainNominationCastName})</span>}
+                    {t.mainNominationCastNames.length > 0 && <span className="text-gold ml-2">(本指名: {t.mainNominationCastNames.join(', ')})</span>}
                   </div>
                 </div>
                 <ArrowRightCircle size={18} className="text-gold" />
