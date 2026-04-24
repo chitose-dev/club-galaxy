@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store'
 import ContextualHeader from '../components/ContextualHeader'
 import { GoldButton, DarkButton, GhostButton } from '../components/Buttons'
 import ConfirmDialog from '../components/ConfirmDialog'
 import Modal from '../components/Modal'
 import { Input, Field } from '../components/Input'
-import { Plus, ArrowUpDown, Edit2, Trash2 } from 'lucide-react'
-import type { Cast } from '../data/mock'
+import NumberInput from '../components/NumberInput'
+import { Plus, ArrowUpDown, Edit2, Trash2, MapPin, ArrowRightCircle } from 'lucide-react'
+import type { Cast, Table } from '../data/mock'
 
 /**
  * 待機キャスト画面 (TRUST 準拠)
@@ -14,11 +16,24 @@ import type { Cast } from '../data/mock'
  * - 上部: キャスト追加 / 並び替え
  */
 export default function WaitingCastPage() {
-  const { casts, setCasts, tables } = useStore()
+  const { casts, setCasts, tables, moveCast } = useStore()
+  const navigate = useNavigate()
   const [sortMode, setSortMode] = useState<'custom' | 'waiting'>('custom')
   const [editing, setEditing] = useState<Cast | null>(null)
   const [adding, setAdding] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<Cast | null>(null)
+  /** 接客中の行タップ時のポップオーバー表示対象 */
+  const [locateCast, setLocateCast] = useState<{ cast: Cast; tableId: number | null } | null>(null)
+  /** 待機中の行タップ時の卓割当モーダル対象 */
+  const [assignCast, setAssignCast] = useState<Cast | null>(null)
+
+  const castTableMap = useMemo(() => {
+    const m = new Map<string, Table>()
+    for (const t of tables) {
+      for (const name of t.assignedCasts) m.set(name, t)
+    }
+    return m
+  }, [tables])
 
   const assignedNames = useMemo(() => new Set(tables.flatMap((t) => t.assignedCasts)), [tables])
 
@@ -148,16 +163,136 @@ export default function WaitingCastPage() {
                   <Trash2 size={14} />
                 </button>
 
-                {/* 名前とステータス */}
-                <div className="flex-1 text-right">
+                {/* 名前とステータス (追補02 R10-7/R10-8: 接客中/待機中でタップ時の挙動を変える) */}
+                <button
+                  onClick={() => {
+                    if (!c.active) return // 休みは操作不可
+                    const currentTable = castTableMap.get(c.name)
+                    if (currentTable) {
+                      // 接客中 → ポップオーバーで卓番号表示 + ジャンプボタン
+                      setLocateCast({ cast: c, tableId: currentTable.id })
+                    } else {
+                      // 待機中 (休憩含む) → 卓割当モーダル
+                      setAssignCast(c)
+                    }
+                  }}
+                  className="flex-1 text-right hover:bg-white/5 rounded-md px-2 py-1 transition-colors"
+                >
                   <div className="text-lg text-white font-semibold">{c.name}</div>
-                  <div className="text-xs text-gray-400 tracking-wide">{waitingLabel(c)}</div>
-                </div>
+                  <div className="text-xs text-gray-400 tracking-wide flex items-center justify-end gap-1">
+                    {castTableMap.has(c.name) && <MapPin size={10} className="text-gold" />}
+                    {waitingLabel(c)}
+                  </div>
+                </button>
               </div>
             )
           })}
         </div>
       </div>
+
+      {/* 追補02 R10-7: 接客中キャスト タップ → 該当卓の情報を表示、ジャンプボタン */}
+      <Modal
+        open={!!locateCast}
+        onClose={() => setLocateCast(null)}
+        size="sm"
+        title={`${locateCast?.cast.name ?? ''} の所在`}
+        footer={
+          locateCast ? (
+            <>
+              <GhostButton onClick={() => setLocateCast(null)} className="flex-1">閉じる</GhostButton>
+              {locateCast.tableId && (
+                <GoldButton
+                  onClick={() => {
+                    navigate('/floor')
+                    setLocateCast(null)
+                  }}
+                  className="flex-1 flex items-center justify-center gap-1"
+                >
+                  <ArrowRightCircle size={16} /> 卓へ
+                </GoldButton>
+              )}
+            </>
+          ) : null
+        }
+      >
+        {locateCast && locateCast.tableId !== null && (() => {
+          const t = tables.find((tt) => tt.id === locateCast.tableId)
+          if (!t) return null
+          return (
+            <div className="space-y-3">
+              <div className="panel p-3 space-y-1.5">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">卓番</span>
+                  <span className="font-bold text-lg">{t.number}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">対応中</span>
+                  <span>{t.assignedCasts.join(', ')}</span>
+                </div>
+                {t.mainNominationCastName && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-400">本指名担当</span>
+                    <span className="text-gold">{t.mainNominationCastName}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">入店</span>
+                  <span>{t.startTime}〜</span>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  // 待機に戻す (追補02 R10-3)
+                  moveCast(locateCast.cast.name, null)
+                  setLocateCast(null)
+                }}
+                className="w-full panel py-2 rounded-md text-sm text-gray-300 hover:bg-white/10 transition-colors"
+              >
+                この卓から外す (待機に戻す)
+              </button>
+            </div>
+          )
+        })()}
+      </Modal>
+
+      {/* 追補02 R10-8: 待機中キャスト タップ → 卓割当モーダル */}
+      <Modal
+        open={!!assignCast}
+        onClose={() => setAssignCast(null)}
+        size="md"
+        title={`${assignCast?.name ?? ''} を卓に割当`}
+        footer={
+          <GhostButton onClick={() => setAssignCast(null)} className="flex-1">キャンセル</GhostButton>
+        }
+      >
+        {assignCast && (
+          <div className="space-y-2">
+            <div className="text-xs text-gray-500 mb-2">使用中の卓から選択してください</div>
+            {tables.filter((t) => t.status !== 'empty').length === 0 && (
+              <div className="text-center text-gray-500 py-6">使用中の卓がありません</div>
+            )}
+            {tables.filter((t) => t.status !== 'empty').map((t) => (
+              <button
+                key={t.id}
+                onClick={() => {
+                  moveCast(assignCast.name, t.id)
+                  setAssignCast(null)
+                }}
+                className="w-full panel p-3 flex items-center justify-between hover:bg-white/10 transition-colors text-left"
+              >
+                <div>
+                  <div className="font-bold">卓 {t.number}</div>
+                  <div className="text-xs text-gray-400 mt-0.5">
+                    対応中: {t.assignedCasts.length > 0 ? t.assignedCasts.join(', ') : '担当なし'}
+                    {t.mainNominationCastName && <span className="text-gold ml-2">(本指名: {t.mainNominationCastName})</span>}
+                  </div>
+                </div>
+                <ArrowRightCircle size={18} className="text-gold" />
+              </button>
+            ))}
+          </div>
+        )}
+      </Modal>
 
       {(adding || editing) && (
         <CastEditModal
@@ -217,8 +352,13 @@ function CastEditModal({ initial, onClose, onSave }: ModalProps) {
       onBreak: initial?.onBreak ?? false,
       backRates:
         initial?.backRates ?? {
-          FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800,
-          '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000,
+          FD: 200, '本D': 500,
+          'Fカク': 300, '本カク': 400, '本カクW': 800,
+          'Fショ': 300, '本ショ': 500,
+          'FP': 300, '本P': 500,
+          'FB': 300, '本B': 500,
+          '同伴': 4000, '本指名': 1500, '場内指名': 500,
+          'ボトルバック': 1000, 'ヘルプ': 4000,
         },
       lastAssignedAt: initial?.lastAssignedAt ?? null,
     }
@@ -243,22 +383,20 @@ function CastEditModal({ initial, onClose, onSave }: ModalProps) {
           <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
         </Field>
         <Field label="時給 (円)">
-          <Input
-            type="number"
+          <NumberInput
             value={hourlyRate}
-            onChange={(e) => setHourlyRate(parseInt(e.target.value || '0', 10))}
-            className="tabular-nums"
+            onChange={setHourlyRate}
+            step={100}
+            min={0}
           />
         </Field>
         <Field label="売上保証率 (0.0〜1.0)">
-          <Input
-            type="number"
-            step="0.05"
-            min="0"
-            max="1"
+          <NumberInput
             value={guaranteeRate}
-            onChange={(e) => setGuaranteeRate(parseFloat(e.target.value || '0'))}
-            className="tabular-nums"
+            onChange={setGuaranteeRate}
+            step={0.05}
+            min={0}
+            max={1}
           />
         </Field>
         <Field label="本名 (税理士提出用・任意)">

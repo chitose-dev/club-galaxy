@@ -68,13 +68,33 @@ export interface CastMenuItem {
   cost: number        // 原価
   castBack: number    // キャストバック
   category: 'cast'
-  subcategory: 'fd' | 'honkaku' | 'hond'
+  /**
+   * 先方フィードバック (2026-04-23):
+   * F = フリー (バック安) / 本 = 本指名 (バック高) を 10 基本項目 + 個別銘柄 で表現
+   */
+  subcategory:
+    | 'fdrink' | 'hondrink'
+    | 'fkaku' | 'honkaku' | 'honkakuW'
+    | 'fshot' | 'honshot'
+    | 'fpitcher' | 'honpitcher'
+    | 'fbeer' | 'honbeer'
   backType: BackType
 }
 
 export type MenuItem = GuestMenuItem | CastMenuItem
 
-export type BackType = 'FD' | '本D' | 'Fカク' | '本カク' | '本カクW' | '同伴' | '本指名' | '場内指名' | 'ボトルバック' | 'ヘルプ' | 'その他'
+/**
+ * バック種別。追補02 の先方フィードバック (2026-04-23) で F/本 を全ドリンク系列で区別する仕様に拡張。
+ * フリー (F*) はバック安、本指名 (本*) はバック高。
+ */
+export type BackType =
+  | 'FD' | '本D'
+  | 'Fカク' | '本カク' | '本カクW'
+  | 'Fショ' | '本ショ'
+  | 'FP' | '本P'
+  | 'FB' | '本B'
+  | '同伴' | '本指名' | '場内指名'
+  | 'ボトルバック' | 'ヘルプ' | 'その他'
 
 export interface OrderItem {
   menuItem: MenuItem
@@ -196,6 +216,28 @@ export interface AttendanceRecord {
   clockOut: string | null   // HH:MM
   breakMinutes: number
   workHours: number         // 自動計算
+  /**
+   * 追補02 R4-3: 事前予定された出勤時刻 (HH:MM)。
+   * 実打刻 (clockIn) と異なれば遅刻/早出としてログ可能。
+   * null = 飛び込み出勤 (事前予定なし)
+   */
+  scheduledClockIn?: string | null
+}
+
+/**
+ * 追補02 R4: 事前出勤予定
+ * 時刻到達時にフロントのタイマーが自動的に AttendanceRecord を生成する。
+ * 事前登録 → 自動打刻 のフロー用。
+ */
+export interface AttendanceSchedule {
+  id: number
+  staffId: number
+  staffName: string
+  staffType: 'cast' | 'boy'
+  date: string              // YYYY-MM-DD
+  scheduledClockIn: string  // HH:MM
+  /** true になると AttendanceRecord が生成され、AttendanceManager の 「本日の勤怠」に出現 */
+  processed?: boolean
 }
 
 // ─── 経費管理 ───
@@ -396,18 +438,36 @@ export const guestMenuItems: GuestMenuItem[] = [
 ]
 
 // ─── キャスト用ドリンクメニュー ───
-// 指示書§3: 本カクバックは1杯400円固定
+// 先方フィードバック (2026-04-23): F (フリー、バック安) / 本 (本指名、バック高) を全系列で区別。
+// 価格・CB 単価は暫定値 (FD:1000/200、本D:2000/500 の比率を他の系列に展開)。
+// 運用開始前に管理画面から正式値に調整可能。
 
 export const castMenuItems: CastMenuItem[] = [
-  { id: 201, name: 'レディースドリンク (FD)', price: 1000, cost: 200, castBack: 200, category: 'cast', subcategory: 'fd', backType: 'FD' },
-  { id: 202, name: 'レディースカクテル (本カク)', price: 1500, cost: 300, castBack: 400, category: 'cast', subcategory: 'honkaku', backType: '本カク' },
-  { id: 203, name: 'レディースショット (本D)', price: 2000, cost: 400, castBack: 500, category: 'cast', subcategory: 'hond', backType: '本D' },
-  { id: 204, name: 'レディースピッチャー', price: 3000, cost: 700, castBack: 400, category: 'cast', subcategory: 'fd', backType: 'FD' },
-  { id: 205, name: 'レディースビール', price: 2000, cost: 500, castBack: 400, category: 'cast', subcategory: 'fd', backType: 'FD' },
+  // ─── Lドリンク (レディースドリンク) ───
+  { id: 201, name: 'Lドリンク (FD)', price: 1000, cost: 200, castBack: 200, category: 'cast', subcategory: 'fdrink', backType: 'FD' },
+  { id: 211, name: 'Lドリンク (本D)', price: 2000, cost: 400, castBack: 500, category: 'cast', subcategory: 'hondrink', backType: '本D' },
+
+  // ─── Lカクテル ───
+  { id: 202, name: 'Lカクテル (Fカク)', price: 1200, cost: 250, castBack: 300, category: 'cast', subcategory: 'fkaku', backType: 'Fカク' },
+  { id: 212, name: 'Lカクテル (本カク)', price: 1500, cost: 300, castBack: 400, category: 'cast', subcategory: 'honkaku', backType: '本カク' },
+
+  // ─── Lショット ───
+  { id: 203, name: 'Lショット (Fショ)', price: 1500, cost: 300, castBack: 300, category: 'cast', subcategory: 'fshot', backType: 'Fショ' },
+  { id: 213, name: 'Lショット (本ショ)', price: 2000, cost: 400, castBack: 500, category: 'cast', subcategory: 'honshot', backType: '本ショ' },
+
+  // ─── Lピッチャー ───
+  { id: 204, name: 'Lピッチャー (FP)', price: 2500, cost: 600, castBack: 300, category: 'cast', subcategory: 'fpitcher', backType: 'FP' },
+  { id: 214, name: 'Lピッチャー (本P)', price: 3000, cost: 700, castBack: 500, category: 'cast', subcategory: 'honpitcher', backType: '本P' },
+
+  // ─── Lビール ───
+  { id: 205, name: 'Lビール (FB)', price: 1500, cost: 400, castBack: 300, category: 'cast', subcategory: 'fbeer', backType: 'FB' },
+  { id: 215, name: 'Lビール (本B)', price: 2000, cost: 500, castBack: 500, category: 'cast', subcategory: 'honbeer', backType: '本B' },
+
+  // ─── 個別銘柄 (現行を維持、本カク/本ショ 系列として継続) ───
   { id: 206, name: 'キティ', price: 1500, cost: 300, castBack: 400, category: 'cast', subcategory: 'honkaku', backType: '本カク' },
   { id: 207, name: 'ミッフィ', price: 1500, cost: 300, castBack: 400, category: 'cast', subcategory: 'honkaku', backType: '本カク' },
-  { id: 208, name: 'コカボム', price: 2500, cost: 500, castBack: 400, category: 'cast', subcategory: 'hond', backType: '本D' },
-  { id: 209, name: 'クライナー各種', price: 2500, cost: 500, castBack: 400, category: 'cast', subcategory: 'hond', backType: '本D' },
+  { id: 208, name: 'コカボム', price: 2500, cost: 500, castBack: 500, category: 'cast', subcategory: 'honshot', backType: '本ショ' },
+  { id: 209, name: 'クライナー各種', price: 2500, cost: 500, castBack: 500, category: 'cast', subcategory: 'honshot', backType: '本ショ' },
 ]
 
 export const allMenuItems: MenuItem[] = [...guestMenuItems, ...castMenuItems]
@@ -417,23 +477,23 @@ export const allMenuItems: MenuItem[] = [...guestMenuItems, ...castMenuItems]
 export const casts: Cast[] = [
   {
     id: 1, name: 'あいり', hourlyRate: 2500, guaranteeRate: 0.5, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
   },
   {
     id: 2, name: 'みく', hourlyRate: 2000, guaranteeRate: 0.45, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
   },
   {
     id: 3, name: 'れな', hourlyRate: 2500, guaranteeRate: 0.5, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
   },
   {
     id: 4, name: 'ゆい', hourlyRate: 2000, guaranteeRate: 0.4, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
   },
   {
     id: 5, name: 'りさ', hourlyRate: 3000, guaranteeRate: 0.55, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
   },
 ]
 
@@ -689,8 +749,8 @@ export const defaultStoreSettings: StoreSettings = {
   initialCash: 100000,
   closingDay: 15,
   storeName: "CLUB GALAXY",
-  storeAddress: '',
-  storePhone: '',
+  storeAddress: '山形県山形市香澄町1-2-3',
+  storePhone: '023-654-XXXX',
   invoiceNumber: 'T5390001005970',
 }
 

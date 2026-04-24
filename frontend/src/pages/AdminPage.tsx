@@ -3,15 +3,29 @@ import { useStore } from '../store'
 import { sampleDailyWork } from '../data/mock'
 import type { Cast, BackType, GuestMenuItem, CastMenuItem, SetPrice, Table, StoreSettings, DailyWork, UserAccount } from '../data/mock'
 import type { AttendanceRecord, Expense, ExpenseCategory, AdvancePayment, ArchivedData } from '../data/mock'
+import React from 'react'
 import { Pencil, Trash2, Plus, Save, Download, ChevronUp, ChevronDown, GripVertical, Clock, Printer } from 'lucide-react'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { openPrintWindow } from '../utils/print'
 import ContextualHeader from '../components/ContextualHeader'
 import Tabs, { type TabItem } from '../components/Tabs'
+import NumberInput from '../components/NumberInput'
+import { getTodayBusinessDay, formatBusinessDay } from '../utils/businessDay'
 
-type AdminTab = 'menu' | 'cast' | 'price' | 'tables' | 'settings' | 'export' | 'users' | 'attendance' | 'expense' | 'advance' | 'archive'
+type AdminTab =
+  | 'menu' | 'cast' | 'price' | 'tables' | 'settings' | 'export' | 'users'
+  | 'attendance' | 'expense' | 'advance' | 'archive'
+  | 'dailypay' | 'prepay'
 
-const backTypes: BackType[] = ['FD', '本D', 'Fカク', '本カク', '本カクW', '同伴', '本指名', '場内指名', 'ボトルバック', 'ヘルプ', 'その他']
+const backTypes: BackType[] = [
+  'FD', '本D',
+  'Fカク', '本カク', '本カクW',
+  'Fショ', '本ショ',
+  'FP', '本P',
+  'FB', '本B',
+  '同伴', '本指名', '場内指名',
+  'ボトルバック', 'ヘルプ', 'その他',
+]
 
 export default function AdminPage() {
   const {
@@ -20,10 +34,11 @@ export default function AdminPage() {
     setGuestMenu, setCastMenu, setCasts, setSetPrices, setChargeItems, setTables, setStoreSettings,
     reorderTables, userAccounts, addUser, updateUser, deleteUser,
     attendanceRecords, addAttendance, updateAttendance,
+    attendanceSchedules, addAttendanceSchedule, removeAttendanceSchedule, markScheduleProcessed,
     expenses, addExpense, removeExpense,
     advancePayments, addAdvancePayment,
     archivedData, archiveOldData,
-    deductions,
+    deductions, addDailyPayRequest,
   } = useStore()
 
   const [activeTab, setActiveTab] = useState<AdminTab>('menu')
@@ -34,8 +49,10 @@ export default function AdminPage() {
     { key: 'price', label: '料金' },
     { key: 'tables', label: '卓管理' },
     { key: 'attendance', label: '勤怠' },
-    { key: 'expense', label: '経費' },
+    { key: 'dailypay', label: '日払い' }, // 追補02 R11-1: 基本運用は日払い
     { key: 'advance', label: '前借り' },
+    { key: 'prepay', label: '前払い' },   // 追補02 R11-5: 出勤未出勤問わず
+    { key: 'expense', label: '経費' },
     { key: 'settings', label: '設定' },
     { key: 'export', label: '出力' },
     { key: 'archive', label: 'アーカイブ' },
@@ -55,9 +72,11 @@ export default function AdminPage() {
       {activeTab === 'cast' && <CastManager casts={casts} setCasts={setCasts} />}
       {activeTab === 'price' && <PriceManager setPrices={setPrices} chargeItems={chargeItems} setSetPrices={setSetPrices} setChargeItems={setChargeItems} />}
       {activeTab === 'tables' && <TableManager tables={tables} setTables={setTables} reorderTables={reorderTables} />}
-      {activeTab === 'attendance' && <AttendanceManager attendanceRecords={attendanceRecords} addAttendance={addAttendance} updateAttendance={updateAttendance} casts={casts} />}
+      {activeTab === 'attendance' && <AttendanceManager attendanceRecords={attendanceRecords} addAttendance={addAttendance} updateAttendance={updateAttendance} casts={casts} attendanceSchedules={attendanceSchedules} addAttendanceSchedule={addAttendanceSchedule} removeAttendanceSchedule={removeAttendanceSchedule} markScheduleProcessed={markScheduleProcessed} />}
       {activeTab === 'expense' && <ExpenseManager expenses={expenses} addExpense={addExpense} removeExpense={removeExpense} />}
       {activeTab === 'advance' && <AdvanceManager advancePayments={advancePayments} addAdvancePayment={addAdvancePayment} casts={casts} storeSettings={storeSettings} />}
+      {activeTab === 'dailypay' && <DailyPayManager casts={casts} attendanceRecords={attendanceRecords} dailyPayRequests={dailyPayRequests} addDailyPayRequest={addDailyPayRequest} />}
+      {activeTab === 'prepay' && <PrepayManager casts={casts} advancePayments={advancePayments} addAdvancePayment={addAdvancePayment} />}
       {activeTab === 'settings' && <SettingsManager storeSettings={storeSettings} setStoreSettings={setStoreSettings} />}
       {activeTab === 'export' && <DataExport billingRecords={billingRecords} casts={casts} dailyPayRequests={dailyPayRequests} discountLogs={discountLogs} deductions={deductions} advancePayments={advancePayments} attendanceRecords={attendanceRecords} userAccounts={userAccounts} />}
       {activeTab === 'archive' && <ArchiveManager archivedData={archivedData} archiveOldData={archiveOldData} billingRecords={billingRecords} />}
@@ -65,6 +84,28 @@ export default function AdminPage() {
       </div>
     </div>
   )
+}
+
+const guestSubcategories: Array<GuestMenuItem['subcategory']> = [
+  'shochu', 'whisky', 'brandy', 'champagne', 'wine', 'shot', 'pitcher', 'beer', 'warimono',
+]
+const guestSubcategoryLabels: Record<GuestMenuItem['subcategory'], string> = {
+  shochu: '焼酎', whisky: 'ウイスキー', brandy: 'ブランデー', champagne: 'シャンパン',
+  wine: 'ワイン', shot: 'ショット', pitcher: 'ピッチャー', beer: 'ビール', warimono: '割り物',
+}
+const castSubcategories: Array<CastMenuItem['subcategory']> = [
+  'fdrink', 'hondrink',
+  'fkaku', 'honkaku', 'honkakuW',
+  'fshot', 'honshot',
+  'fpitcher', 'honpitcher',
+  'fbeer', 'honbeer',
+]
+const castSubcategoryLabels: Record<CastMenuItem['subcategory'], string> = {
+  fdrink: 'Lドリンク(F)', hondrink: 'Lドリンク(本)',
+  fkaku: 'Lカクテル(F)', honkaku: 'Lカクテル(本)', honkakuW: 'Lカクテル(本W)',
+  fshot: 'Lショット(F)', honshot: 'Lショット(本)',
+  fpitcher: 'Lピッチャー(F)', honpitcher: 'Lピッチャー(本)',
+  fbeer: 'Lビール(F)', honbeer: 'Lビール(本)',
 }
 
 function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu }: {
@@ -77,6 +118,62 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu }: {
   const [editCost, setEditCost] = useState('')
   const [editCastBack, setEditCastBack] = useState('')
   const [confirmTarget, setConfirmTarget] = useState<{ kind: 'guest' | 'cast'; id: number; name: string } | null>(null)
+
+  // ─── 新規追加フォーム (追補02 R5-1) ───
+  const [addKind, setAddKind] = useState<'guest' | 'cast' | null>(null)
+  const [addName, setAddName] = useState('')
+  const [addPrice, setAddPrice] = useState(0)
+  const [addCost, setAddCost] = useState(0)
+  const [addCastBack, setAddCastBack] = useState(0)
+  const [addGuestSub, setAddGuestSub] = useState<GuestMenuItem['subcategory']>('shot')
+  const [addCastSub, setAddCastSub] = useState<CastMenuItem['subcategory']>('fdrink')
+  const [addBackType, setAddBackType] = useState<BackType>('FD')
+
+  const resetAddForm = () => {
+    setAddKind(null)
+    setAddName('')
+    setAddPrice(0)
+    setAddCost(0)
+    setAddCastBack(0)
+    setAddGuestSub('shot')
+    setAddCastSub('fdrink')
+    setAddBackType('FD')
+  }
+
+  const handleConfirmAdd = () => {
+    if (!addName.trim()) return
+    const existingIds = [...guestMenu.map((m) => m.id), ...castMenu.map((m) => m.id)]
+    const nextId = Math.max(...existingIds, 0) + 1
+    if (addKind === 'guest') {
+      setGuestMenu((prev) => [
+        ...prev,
+        {
+          id: nextId,
+          name: addName.trim(),
+          price: addPrice,
+          cost: addCost,
+          castBack: 0, // ゲスト用はバックなし
+          category: 'guest',
+          subcategory: addGuestSub,
+        },
+      ])
+    } else if (addKind === 'cast') {
+      setCastMenu((prev) => [
+        ...prev,
+        {
+          id: nextId,
+          name: addName.trim(),
+          price: addPrice,
+          cost: addCost,
+          castBack: addCastBack,
+          category: 'cast',
+          subcategory: addCastSub,
+          backType: addBackType,
+        },
+      ])
+    }
+    resetAddForm()
+  }
 
   const handleConfirmDelete = () => {
     if (!confirmTarget) return
@@ -97,6 +194,70 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu }: {
         onConfirm={handleConfirmDelete}
         onCancel={() => setConfirmTarget(null)}
       />
+
+      {/* ─── 新規メニュー追加 (追補02 R5-1) ─── */}
+      <div className="panel p-3 border border-gold/30">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-bold text-gold">新規メニュー追加</h3>
+          {addKind === null ? (
+            <div className="flex gap-2">
+              <button onClick={() => setAddKind('guest')} className="btn-ghost text-xs flex items-center gap-1"><Plus size={12}/>ゲスト用</button>
+              <button onClick={() => setAddKind('cast')} className="btn-ghost text-xs flex items-center gap-1"><Plus size={12}/>キャスト用</button>
+            </div>
+          ) : (
+            <button onClick={resetAddForm} className="text-xs text-gray-400 hover:text-white">キャンセル</button>
+          )}
+        </div>
+        {addKind && (
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">商品名</label>
+                <input value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="例: 山崎18年" className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">カテゴリ</label>
+                {addKind === 'guest' ? (
+                  <select value={addGuestSub} onChange={(e) => setAddGuestSub(e.target.value as GuestMenuItem['subcategory'])} className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm">
+                    {guestSubcategories.map((s) => <option key={s} value={s}>{guestSubcategoryLabels[s]}</option>)}
+                  </select>
+                ) : (
+                  <select value={addCastSub} onChange={(e) => setAddCastSub(e.target.value as CastMenuItem['subcategory'])} className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm">
+                    {castSubcategories.map((s) => <option key={s} value={s}>{castSubcategoryLabels[s]}</option>)}
+                  </select>
+                )}
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">販売価格 (円)</label>
+                <NumberInput value={addPrice} onChange={setAddPrice} step={100} min={0} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">原価 (円)</label>
+                <NumberInput value={addCost} onChange={setAddCost} step={100} min={0} />
+              </div>
+              {addKind === 'cast' && (
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">キャストバック (円)</label>
+                  <NumberInput value={addCastBack} onChange={setAddCastBack} step={100} min={0} />
+                </div>
+              )}
+            </div>
+            {addKind === 'cast' && (
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">バック種別</label>
+                <select value={addBackType} onChange={(e) => setAddBackType(e.target.value as BackType)} className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm">
+                  {backTypes.map((bt) => <option key={bt} value={bt}>{bt}</option>)}
+                </select>
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-1">
+              <button onClick={handleConfirmAdd} disabled={!addName.trim()} className="btn-gold text-xs px-4 py-1.5 disabled:opacity-40">追加する</button>
+            </div>
+          </div>
+        )}
+      </div>
       <div>
         <h3 className="text-sm font-bold text-gray-400 mb-2">ゲスト用ドリンク</h3>
         <div className="divide-y divide-white/5">
@@ -245,11 +406,13 @@ function CastManager({ casts, setCasts }: { casts: Cast[]; setCasts: React.Dispa
             <span className="text-[11px] text-gray-400 w-16 shrink-0 truncate">{bt}</span>
             <div className="relative flex-1">
               <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-600">¥</span>
-              <input
-                type="number"
+              <NumberInput
                 value={rates[bt] ?? 0}
-                onChange={(e) => setRates({ ...rates, [bt]: Number(e.target.value) })}
-                className="w-full bg-white/5 border border-white/10 rounded pl-5 pr-2 py-1 text-xs text-right tabular-nums"
+                onChange={(v) => setRates({ ...rates, [bt]: v })}
+                step={100}
+                min={0}
+                inputClassName="!pl-5 !pr-2 !py-1 !text-xs text-right"
+                className="w-full"
               />
             </div>
           </div>
@@ -908,18 +1071,63 @@ function DataExport({ billingRecords, casts, dailyPayRequests, discountLogs, ded
 
 // ─── 勤怠管理 ───
 
-function AttendanceManager({ attendanceRecords, addAttendance, updateAttendance, casts }: {
+function AttendanceManager({
+  attendanceRecords, addAttendance, updateAttendance, casts,
+  attendanceSchedules, addAttendanceSchedule, removeAttendanceSchedule, markScheduleProcessed,
+}: {
   attendanceRecords: AttendanceRecord[]
   addAttendance: (record: AttendanceRecord) => void
   updateAttendance: (id: number, patch: Partial<AttendanceRecord>) => void
   casts: Cast[]
+  attendanceSchedules: import('../data/mock').AttendanceSchedule[]
+  addAttendanceSchedule: (s: import('../data/mock').AttendanceSchedule) => void
+  removeAttendanceSchedule: (id: number) => void
+  markScheduleProcessed: (id: number) => void
 }) {
   const [showAdd, setShowAdd] = useState(false)
   const [staffId, setStaffId] = useState<number>(casts[0]?.id ?? 0)
   const [staffType, setStaffType] = useState<'cast' | 'boy'>('cast')
 
+  // 追補02 R4: 事前予定登録フォーム用
+  const [showSchedule, setShowSchedule] = useState(false)
+  const [schCastId, setSchCastId] = useState<number>(casts[0]?.id ?? 0)
+  const [schDate, setSchDate] = useState<string>(() => new Date().toISOString().slice(0, 10))
+  const [schTime, setSchTime] = useState<string>('20:00')
+
   const todayStr = new Date().toISOString().split('T')[0]
   const todayRecords = attendanceRecords.filter((r) => r.date === todayStr)
+  const pendingSchedules = attendanceSchedules.filter((s) => !s.processed)
+
+  // 追補02 R4-1: 1 分おきに予定時刻を監視 → 自動打刻
+  // 予定時刻 ≤ 現在時刻 かつ当日の場合、AttendanceRecord を自動生成
+  React.useEffect(() => {
+    const check = () => {
+      const now = new Date()
+      const nowDate = now.toISOString().slice(0, 10)
+      const nowTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+      for (const s of pendingSchedules) {
+        if (s.date !== nowDate) continue
+        if (s.scheduledClockIn > nowTime) continue
+        // 実打刻 (R4-3: 実時刻を優先、scheduledClockIn は記録用に残す)
+        addAttendance({
+          id: Date.now() + s.id,
+          staffId: s.staffId,
+          staffName: s.staffName,
+          staffType: s.staffType,
+          date: s.date,
+          clockIn: nowTime,
+          clockOut: null,
+          breakMinutes: 0,
+          workHours: 0,
+          scheduledClockIn: s.scheduledClockIn,
+        })
+        markScheduleProcessed(s.id)
+      }
+    }
+    check()
+    const id = setInterval(check, 60_000)
+    return () => clearInterval(id)
+  }, [pendingSchedules, addAttendance, markScheduleProcessed])
 
   const handleClockIn = () => {
     const cast = casts.find((c) => c.id === staffId)
@@ -962,8 +1170,76 @@ function AttendanceManager({ attendanceRecords, addAttendance, updateAttendance,
     }
   }
 
+  const handleAddSchedule = () => {
+    const cast = casts.find((c) => c.id === schCastId)
+    if (!cast) return
+    addAttendanceSchedule({
+      id: Date.now(),
+      staffId: cast.id,
+      staffName: cast.name,
+      staffType: 'cast',
+      date: schDate,
+      scheduledClockIn: schTime,
+    })
+    setShowSchedule(false)
+  }
+
   return (
     <div className="space-y-4">
+      {/* 追補02 R4: 事前出勤予定 */}
+      <div className="panel p-3 border border-gold/30">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-bold text-gold">事前出勤予定 ({pendingSchedules.length} 件)</h3>
+          {showSchedule ? (
+            <button onClick={() => setShowSchedule(false)} className="text-xs text-gray-400">キャンセル</button>
+          ) : (
+            <button onClick={() => setShowSchedule(true)} className="btn-ghost text-xs flex items-center gap-1">
+              <Plus size={12} /> 予定追加
+            </button>
+          )}
+        </div>
+        {showSchedule && (
+          <div className="space-y-2 mb-3">
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">対象キャスト</label>
+                <select value={schCastId} onChange={(e) => setSchCastId(Number(e.target.value))} className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm">
+                  {casts.filter((c) => c.active).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">日付</label>
+                <input type="date" value={schDate} onChange={(e) => setSchDate(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">予定時刻</label>
+                <input type="time" value={schTime} onChange={(e) => setSchTime(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm" />
+              </div>
+            </div>
+            <button onClick={handleAddSchedule} className="btn-gold text-xs px-3 py-1.5">登録する</button>
+          </div>
+        )}
+        {pendingSchedules.length > 0 && (
+          <div className="space-y-1">
+            {pendingSchedules.map((s) => (
+              <div key={s.id} className="flex items-center justify-between text-sm bg-white/5 px-3 py-1.5 rounded">
+                <div>
+                  <span className="font-medium">{s.staffName}</span>
+                  <span className="text-xs text-gray-500 ml-2">{s.date}</span>
+                  <span className="text-gold tabular-nums ml-2">{s.scheduledClockIn}〜</span>
+                </div>
+                <button onClick={() => removeAttendanceSchedule(s.id)} className="text-xs text-gray-500 hover:text-red-400">
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="text-[10px] text-gray-600 mt-2">
+          ※予定時刻に到達すると自動的に打刻されます (1 分間隔で監視)。飛び込み出勤の手動打刻も併用可能です。
+        </div>
+      </div>
+
       <h3 className="text-sm font-bold text-gray-400 mb-2">本日の勤怠 ({todayStr})</h3>
 
       {todayRecords.length === 0 ? (
@@ -976,6 +1252,11 @@ function AttendanceManager({ attendanceRecords, addAttendance, updateAttendance,
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-sm">{r.staffName}</span>
                   <span className="text-xs bg-white/5 text-gray-400 px-1.5 py-0.5 rounded">{r.staffType === 'cast' ? 'キャスト' : 'ボーイ'}</span>
+                  {r.scheduledClockIn && r.clockIn && r.scheduledClockIn !== r.clockIn && (
+                    <span className="text-[10px] text-amber-400" title={`予定: ${r.scheduledClockIn}`}>
+                      {r.clockIn > r.scheduledClockIn ? '遅刻' : '早出'}
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <Clock size={12} className="text-gray-500" />
@@ -987,12 +1268,13 @@ function AttendanceManager({ attendanceRecords, addAttendance, updateAttendance,
               <div className="flex items-center gap-3 text-xs">
                 <div className="flex items-center gap-1">
                   <span className="text-gray-500">休憩:</span>
-                  <input
-                    type="number"
+                  <NumberInput
                     value={r.breakMinutes}
-                    onChange={(e) => handleBreakUpdate(r, Number(e.target.value) || 0)}
-                    className="w-14 bg-white/5 border border-white/10 rounded px-2 py-1 text-right tabular-nums"
-                    min="0"
+                    onChange={(v) => handleBreakUpdate(r, v)}
+                    min={0}
+                    step={5}
+                    className="w-14"
+                    inputClassName="!px-2 !py-1 text-right !text-xs"
                   />
                   <span className="text-gray-500">分</span>
                 </div>
@@ -1479,6 +1761,217 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
           <Plus size={14} /> ユーザー追加
         </button>
       )}
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────
+// 追補02 R11-1: 日払い管理 (基本運用)
+// ────────────────────────────────────────────────────────────
+function DailyPayManager({
+  casts, attendanceRecords, dailyPayRequests, addDailyPayRequest,
+}: {
+  casts: Cast[]
+  attendanceRecords: AttendanceRecord[]
+  dailyPayRequests: import('../data/mock').DailyPayRequest[]
+  addDailyPayRequest: (req: import('../data/mock').DailyPayRequest) => void
+}) {
+  // 追補02 R11-3: 営業日の定義 (朝 6:00 境界、開始日基準)
+  const [targetDate, setTargetDate] = useState<string>(() => getTodayBusinessDay())
+
+  // その営業日にシフト in / out があったキャストの集計
+  const records = attendanceRecords.filter((r) => r.date === targetDate && r.staffType === 'cast')
+  const activeTodayCasts = casts.filter((c) => records.some((r) => r.staffId === c.id))
+
+  const [paying, setPaying] = useState<{ castId: number; castName: string; amount: number } | null>(null)
+
+  const computePay = (cast: Cast, rec?: AttendanceRecord) => {
+    const hours = rec?.workHours ?? 0
+    const basePay = Math.floor(cast.hourlyRate * hours)
+    const deductible = Math.floor(basePay * 0.1) // 一律 10% 控除
+    return { basePay, net: basePay - deductible, hours }
+  }
+
+  const alreadyPaid = (castId: number) =>
+    dailyPayRequests.some((r) => r.castId === castId && r.date === targetDate)
+
+  return (
+    <div className="space-y-4">
+      <div className="panel p-4">
+        <h3 className="text-sm font-bold text-gold mb-2">日払い管理</h3>
+        <p className="text-xs text-gray-500 mb-3">
+          営業日 (朝 6:00 境界、開始日基準) ごとに、その日に出勤したキャスト全員を表示します。
+        </p>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-gray-400">営業日</label>
+          <input
+            type="date"
+            value={targetDate}
+            onChange={(e) => setTargetDate(e.target.value)}
+            className="bg-white/5 border border-white/10 rounded px-2 py-1 text-sm"
+          />
+          <button onClick={() => setTargetDate(getTodayBusinessDay())} className="btn-ghost text-xs px-3 py-1">本日</button>
+          <span className="text-xs text-gray-500">{formatBusinessDay(targetDate)}</span>
+        </div>
+      </div>
+
+      <div className="panel p-4">
+        <div className="text-xs text-gray-400 tracking-wider mb-2">
+          出勤キャスト ({activeTodayCasts.length} 名)
+        </div>
+        {activeTodayCasts.length === 0 ? (
+          <div className="text-center text-gray-500 py-6 text-sm">この営業日の出勤キャストがいません</div>
+        ) : (
+          <div className="divide-y divide-white/5">
+            {activeTodayCasts.map((c) => {
+              const rec = records.find((r) => r.staffId === c.id)
+              const { basePay, net, hours } = computePay(c, rec)
+              const paid = alreadyPaid(c.id)
+              return (
+                <div key={c.id} className="py-3 flex items-center gap-3">
+                  <div className="shrink-0 w-9 h-9 rounded-full bg-gradient-to-br from-gold to-gold-dark flex items-center justify-center text-primary font-bold text-sm">
+                    {c.name.slice(0, 1)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium">{c.name}</div>
+                    <div className="text-xs text-gray-500 tabular-nums">
+                      {rec?.clockIn ?? '--:--'} 〜 {rec?.clockOut ?? '進行中'} / {hours.toFixed(1)}h
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs text-gray-500">現時点給料</div>
+                    <div className="text-sm font-bold text-gold tabular-nums">¥{net.toLocaleString()}</div>
+                    <div className="text-[10px] text-gray-600">(10% 控除前 ¥{basePay.toLocaleString()})</div>
+                  </div>
+                  {paid ? (
+                    <span className="shrink-0 text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-1 rounded">支払済</span>
+                  ) : (
+                    <button
+                      onClick={() => setPaying({ castId: c.id, castName: c.name, amount: net })}
+                      className="shrink-0 btn-gold text-xs px-3 py-1.5"
+                    >
+                      支払う
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      <ConfirmDialog
+        open={!!paying}
+        title="日払い確認"
+        message={paying ? `${paying.castName} に ¥${paying.amount.toLocaleString()} を日払いしますか?` : ''}
+        confirmLabel="支払う"
+        onConfirm={() => {
+          if (!paying) return
+          addDailyPayRequest({
+            id: Date.now(),
+            castId: paying.castId,
+            castName: paying.castName,
+            amount: paying.amount,
+            date: targetDate,
+            staffType: 'cast',
+          })
+          setPaying(null)
+        }}
+        onCancel={() => setPaying(null)}
+      />
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────
+// 追補02 R11-5: 前払い管理 (出勤・未出勤問わず登録可)
+// ────────────────────────────────────────────────────────────
+function PrepayManager({
+  casts, advancePayments, addAdvancePayment,
+}: {
+  casts: Cast[]
+  advancePayments: AdvancePayment[]
+  addAdvancePayment: (p: AdvancePayment) => void
+}) {
+  const [castId, setCastId] = useState<number>(casts[0]?.id ?? 0)
+  const [amount, setAmount] = useState(0)
+  const [reason, setReason] = useState('')
+
+  // 前払いは advancePayments テーブルで前借りと同居。reason に先頭 "前払い: " を付けて区別。
+  const prepayRecords = advancePayments.filter((p) => p.reason.startsWith('前払い:'))
+  const totalPrepay = prepayRecords.reduce((s, p) => s + p.amount, 0)
+
+  const handleAdd = () => {
+    const cast = casts.find((c) => c.id === castId)
+    if (!cast || amount <= 0) return
+    addAdvancePayment({
+      id: Date.now(),
+      castId: cast.id,
+      castName: cast.name,
+      amount,
+      source: 'register',
+      reason: `前払い: ${reason || '理由なし'}`,
+      date: new Date().toISOString().slice(0, 10),
+      timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
+    })
+    setAmount(0)
+    setReason('')
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="panel p-4">
+        <h3 className="text-sm font-bold text-gold mb-1">前払い管理</h3>
+        <p className="text-xs text-gray-500 mb-3">
+          出勤・未出勤問わず、キャストに前払いを登録できます。給与明細と突合可能です。
+        </p>
+        <div className="text-xs text-gray-400 mb-1">
+          今月の前払い合計 <span className="text-gold font-bold ml-1">¥{totalPrepay.toLocaleString()}</span>
+        </div>
+      </div>
+
+      <div className="panel p-4">
+        <h3 className="text-xs text-gray-400 tracking-wider mb-2">+ 前払い登録</h3>
+        <div className="space-y-2">
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">対象キャスト</label>
+            <select value={castId} onChange={(e) => setCastId(Number(e.target.value))} className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm">
+              {casts.map((c) => <option key={c.id} value={c.id}>{c.name}{!c.active && ' (非アクティブ)'}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">金額</label>
+            <NumberInput value={amount} onChange={setAmount} step={1000} min={0} unit="円" />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">理由 (任意)</label>
+            <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="例: 美容院代、引越し費用等" className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm" />
+          </div>
+          <button onClick={handleAdd} disabled={amount <= 0} className="btn-gold text-xs px-4 py-2 disabled:opacity-40">登録する</button>
+        </div>
+      </div>
+
+      <div className="panel p-4">
+        <h3 className="text-xs text-gray-400 tracking-wider mb-2">前払い履歴</h3>
+        {prepayRecords.length === 0 ? (
+          <div className="text-center text-gray-500 py-6 text-sm">まだ前払いレコードがありません</div>
+        ) : (
+          <div className="divide-y divide-white/5">
+            {[...prepayRecords].reverse().map((p) => (
+              <div key={p.id} className="py-2 flex justify-between items-center">
+                <div className="text-sm">
+                  <span className="font-medium">{p.castName}</span>
+                  <span className="text-xs text-gray-500 ml-2">{p.date} {p.timestamp}</span>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm tabular-nums">¥{p.amount.toLocaleString()}</div>
+                  <div className="text-[10px] text-gray-500">{p.reason.replace(/^前払い: ?/, '')}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

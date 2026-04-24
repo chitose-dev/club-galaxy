@@ -19,7 +19,7 @@ const HELP_BACK_ITEM: CastMenuItem = {
   cost: 0,
   castBack: 0,
   category: 'cast',
-  subcategory: 'fd',
+  subcategory: 'fdrink',
   backType: 'ヘルプ',
 }
 
@@ -54,10 +54,12 @@ const categories: Array<{ key: CategoryKey; label: string }> = [
  */
 export default function OrderPage() {
   const {
-    tables, guestMenu, castMenu, storeSettings,
+    tables, casts, guestMenu, castMenu, storeSettings,
     addOrderToTable, removeOrderFromTable,
+    moveCast,
     bottleKeeps, addBottleKeep, updateBottleKeep, removeBottleKeep,
   } = useStore()
+  const [showAddCast, setShowAddCast] = useState(false)
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
 
@@ -112,11 +114,16 @@ export default function OrderPage() {
       addOrderToTable(selectedTableId, { menuItem: item, quantity: 1, castName: selectedCastName })
       return
     }
-    // guest メニューは選択中キャストがいればバック付与、なければ紐付けなし
+    // 先方フィードバック (2026-04-23): guest メニューは以下のロジックで売上帰属を決定
+    //   1. キャスト明示選択 → そのキャストの売上 (最優先)
+    //   2. 指名なし + 本指名卓 → 本指名担当の売上 (自動帰属)
+    //   3. 指名なし + フリー卓 → 店舗売上のみ (キャスト紐付けなし)
+    // ※ ゲストドリンク (ショット・ピッチャー・ビール等) はバック無し。売上帰属のみ変動。
+    const castName = selectedCastName ?? selectedTable.mainNominationCastName
     addOrderToTable(selectedTableId, {
       menuItem: item,
       quantity: 1,
-      castName: selectedCastName ?? undefined,
+      castName: castName || undefined,
     })
   }
 
@@ -362,6 +369,14 @@ export default function OrderPage() {
             ))}
           </div>
 
+          {/* 追補02 R2-1: 「女の子を追加」で他卓キャストをこの卓に移動 (排他移動) */}
+          <button
+            onClick={() => setShowAddCast(true)}
+            className="mt-2 w-full btn-ghost text-xs py-1.5 flex items-center justify-center gap-1"
+          >
+            <Plus size={12} /> 女の子を追加
+          </button>
+
           {recipient === 'guest' && (
             <div className="mt-3 text-[10px] text-gray-500 leading-relaxed">
               選択したキャストに<br />バック・売上が帰属します
@@ -454,6 +469,56 @@ export default function OrderPage() {
           onSave={handleAddBottleKeep}
         />
       )}
+
+      {/* 追補02 R2: 「女の子を追加」 — 他卓対応中 or 待機中キャストを排他的に移動 */}
+      <Modal
+        open={showAddCast && !!selectedTable}
+        onClose={() => setShowAddCast(false)}
+        size="md"
+        title={`卓 ${selectedTable?.number ?? ''} に追加する女の子`}
+        footer={<GhostButton onClick={() => setShowAddCast(false)} className="flex-1">キャンセル</GhostButton>}
+      >
+        {selectedTable && (() => {
+          // この卓の assignedCasts に含まれない、active かつ非休憩のキャスト
+          const candidateCasts = casts.filter(
+            (c) => c.active && !c.onBreak && !selectedTable.assignedCasts.includes(c.name),
+          )
+          // 他卓対応中のマップ
+          const castTableMap = new Map<string, typeof selectedTable>()
+          for (const t of tables) {
+            if (t.id === selectedTable.id) continue
+            for (const n of t.assignedCasts) castTableMap.set(n, t)
+          }
+          return (
+            <div className="space-y-2">
+              {candidateCasts.length === 0 && (
+                <div className="text-center text-gray-500 py-6 text-sm">追加可能なキャストがいません</div>
+              )}
+              {candidateCasts.map((c) => {
+                const busyAt = castTableMap.get(c.name)
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => {
+                      moveCast(c.name, selectedTable.id)
+                      setShowAddCast(false)
+                    }}
+                    className="w-full panel p-3 flex items-center justify-between hover:bg-white/10 transition-colors text-left"
+                  >
+                    <div>
+                      <div className="font-bold">{c.name}</div>
+                      <div className="text-xs text-gray-400 mt-0.5">
+                        {busyAt ? `現在: 卓 ${busyAt.number} 対応中 (移動すると元の卓から外れます)` : '待機中'}
+                      </div>
+                    </div>
+                    <Plus size={18} className="text-gold" />
+                  </button>
+                )
+              })}
+            </div>
+          )
+        })()}
+      </Modal>
     </div>
   )
 }

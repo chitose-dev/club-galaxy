@@ -28,6 +28,7 @@ import {
   type StoreSettings,
   type UserAccount,
   type AttendanceRecord,
+  type AttendanceSchedule,
   type Expense,
   type AdvancePayment,
   type ArchivedData,
@@ -60,6 +61,12 @@ interface Store {
   deductions: Deduction[]
   storeSettings: StoreSettings
   updateTable: (id: number, patch: Partial<Table>) => void
+  /**
+   * キャストを卓間/待機とで排他的に移動させる (追補02 R2, R10)。
+   * toTableId = null で待機 (どの卓からも外す)。
+   * 本指名担当のマークは元の卓に残る (R10-4)。
+   */
+  moveCast: (castName: string, toTableId: number | null) => void
   addOrderToTable: (tableId: number, order: OrderItem) => void
   removeOrderFromTable: (tableId: number, menuItemId: number, castName?: string) => void
   resetTable: (id: number) => void
@@ -87,6 +94,11 @@ interface Store {
   attendanceRecords: AttendanceRecord[]
   addAttendance: (record: AttendanceRecord) => void
   updateAttendance: (id: number, patch: Partial<AttendanceRecord>) => void
+  // 追補02 R4: 事前出勤予定
+  attendanceSchedules: AttendanceSchedule[]
+  addAttendanceSchedule: (s: AttendanceSchedule) => void
+  removeAttendanceSchedule: (id: number) => void
+  markScheduleProcessed: (id: number) => void
   // 経費管理
   expenses: Expense[]
   addExpense: (expense: Expense) => void
@@ -131,6 +143,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const updateTable = useCallback((id: number, patch: Partial<Table>) => {
     setTables((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)))
+  }, [])
+
+  /**
+   * 追補02 R2/R10: キャストを卓間で排他的に移動。
+   * 全ての卓の assignedCasts から対象を除外した後、移動先に追加する。
+   * 本指名担当の紐付け (mainNominationCastName) は変更しない (R10-4)。
+   */
+  const moveCast = useCallback((castName: string, toTableId: number | null) => {
+    setTables((prev) =>
+      prev.map((t) => {
+        const filtered = t.assignedCasts.filter((n) => n !== castName)
+        if (t.id === toTableId) {
+          // 移動先: 担当に追加 (重複回避)
+          return { ...t, assignedCasts: filtered.includes(castName) ? filtered : [...filtered, castName] }
+        }
+        // それ以外の卓: assignedCasts から除外
+        if (filtered.length !== t.assignedCasts.length) {
+          return { ...t, assignedCasts: filtered }
+        }
+        return t
+      }),
+    )
+    if (toTableId !== null) {
+      setCasts((prev) => prev.map((c) => (c.name === castName ? { ...c, lastAssignedAt: new Date().toISOString() } : c)))
+    }
   }, [])
 
   const addOrderToTable = useCallback((tableId: number, order: OrderItem) => {
@@ -231,6 +268,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const updateAttendance = useCallback((id: number, patch: Partial<AttendanceRecord>) => {
     setAttendanceRecords((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)))
+  }, [])
+
+  // 追補02 R4: 事前出勤予定
+  const [attendanceSchedules, setAttendanceSchedules] = useState<AttendanceSchedule[]>([])
+  const addAttendanceSchedule = useCallback((s: AttendanceSchedule) => {
+    setAttendanceSchedules((prev) => [...prev, s])
+  }, [])
+  const removeAttendanceSchedule = useCallback((id: number) => {
+    setAttendanceSchedules((prev) => prev.filter((s) => s.id !== id))
+  }, [])
+  const markScheduleProcessed = useCallback((id: number) => {
+    setAttendanceSchedules((prev) => prev.map((s) => (s.id === id ? { ...s, processed: true } : s)))
   }, [])
 
   const addExpense = useCallback((expense: Expense) => {
@@ -347,6 +396,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         deductions,
         storeSettings,
         updateTable,
+        moveCast,
         addOrderToTable,
         removeOrderFromTable,
         resetTable,
@@ -373,6 +423,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         attendanceRecords,
         addAttendance,
         updateAttendance,
+        attendanceSchedules,
+        addAttendanceSchedule,
+        removeAttendanceSchedule,
+        markScheduleProcessed,
         expenses,
         addExpense,
         removeExpense,
