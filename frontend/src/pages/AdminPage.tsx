@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useStore } from '../store'
-import { sampleDailyWork } from '../data/mock'
+import { sampleDailyWork, isPercentBackType } from '../data/mock'
 import type { Cast, BackType, GuestMenuItem, CastMenuItem, SetPrice, Table, StoreSettings, DailyWork, UserAccount } from '../data/mock'
 import type { AttendanceRecord, Expense, ExpenseCategory, AdvancePayment, ArchivedData } from '../data/mock'
 import React from 'react'
@@ -401,22 +401,30 @@ function CastManager({ casts, setCasts }: { casts: Cast[]; setCasts: React.Dispa
     <div>
       <label className="text-xs text-gray-500 block mb-1.5">バック単価</label>
       <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
-        {backTypes.map((bt) => (
-          <div key={bt} className="flex items-center gap-1.5">
-            <span className="text-[11px] text-gray-400 w-16 shrink-0 truncate">{bt}</span>
-            <div className="relative flex-1">
-              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-600">¥</span>
-              <NumberInput
-                value={rates[bt] ?? 0}
-                onChange={(v) => setRates({ ...rates, [bt]: v })}
-                step={100}
-                min={0}
-                inputClassName="!pl-5 !pr-2 !py-1 !text-xs text-right"
-                className="w-full"
-              />
+        {backTypes.map((bt) => {
+          // 追補03 R19: ボトルバックのみ % 単位 (それ以外は円)
+          const isPercent = isPercentBackType(bt)
+          return (
+            <div key={bt} className="flex items-center gap-1.5">
+              <span className="text-[11px] text-gray-400 w-16 shrink-0 truncate">{bt}</span>
+              <div className="relative flex-1">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-600">
+                  {isPercent ? '' : '¥'}
+                </span>
+                <NumberInput
+                  value={rates[bt] ?? 0}
+                  onChange={(v) => setRates({ ...rates, [bt]: v })}
+                  step={isPercent ? 1 : 100}
+                  min={0}
+                  max={isPercent ? 100 : undefined}
+                  unit={isPercent ? '%' : undefined}
+                  inputClassName={`${isPercent ? '!pl-2' : '!pl-5'} !pr-2 !py-1 !text-xs text-right`}
+                  className="w-full"
+                />
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

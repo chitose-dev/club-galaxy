@@ -68,7 +68,7 @@ export default function OrderPage() {
   const [selectedTableId, setSelectedTableId] = useState<number>(initialTableId)
   const [activeCategory, setActiveCategory] = useState<CategoryKey>('all')
   const [selectedCastName, setSelectedCastName] = useState<string | null>(null)
-  const [recipient, setRecipient] = useState<'guest' | 'staff'>('guest')
+  // 追補03 R17: 「お客さま/スタッフ」トグルは廃止 (仕様未定の dead UI だったため削除)
 
   const [showAddBottle, setShowAddBottle] = useState(false)
   const [bottleName, setBottleName] = useState('')
@@ -336,22 +336,8 @@ export default function OrderPage() {
           )}
         </div>
 
-        {/* ── Column 3: 誰に ── */}
+        {/* ── Column 3: キャスト選択 ── */}
         <div className="overflow-y-auto p-3 border-r border-white/10 bg-primary-dark">
-          <div className="flex mb-3 bg-white/5 rounded-lg p-0.5">
-            {(['guest', 'staff'] as const).map((r) => (
-              <button
-                key={r}
-                onClick={() => setRecipient(r)}
-                className={`flex-1 py-1.5 text-xs rounded-md font-semibold tracking-wider transition-colors ${
-                  recipient === r ? 'bg-gold text-primary' : 'text-gray-400'
-                }`}
-              >
-                {r === 'guest' ? 'お客さま' : 'スタッフ'}
-              </button>
-            ))}
-          </div>
-
           <div className="text-[10px] text-gray-500 mb-2 tracking-wider">キャスト選択</div>
           <div className="grid grid-cols-1 gap-1.5">
             <CastChip
@@ -377,11 +363,10 @@ export default function OrderPage() {
             <Plus size={12} /> 女の子を追加
           </button>
 
-          {recipient === 'guest' && (
-            <div className="mt-3 text-[10px] text-gray-500 leading-relaxed">
-              選択したキャストに<br />バック・売上が帰属します
-            </div>
-          )}
+          <div className="mt-3 text-[10px] text-gray-500 leading-relaxed">
+            選択したキャストにバック・売上が帰属します。
+            <br />本指名卓では「指名なし」でも本指名担当に自動計上されます。
+          </div>
         </div>
 
         {/* ── Column 4: 注文明細 ── */}

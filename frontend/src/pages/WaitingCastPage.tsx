@@ -358,7 +358,7 @@ function CastEditModal({ initial, onClose, onSave }: ModalProps) {
           'FP': 300, '本P': 500,
           'FB': 300, '本B': 500,
           '同伴': 4000, '本指名': 1500, '場内指名': 500,
-          'ボトルバック': 1000, 'ヘルプ': 4000,
+          'ボトルバック': 10, 'ヘルプ': 4000,
         },
       lastAssignedAt: initial?.lastAssignedAt ?? null,
     }
