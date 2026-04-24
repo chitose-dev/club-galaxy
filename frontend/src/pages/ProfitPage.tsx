@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { useStore } from '../store'
 import { sampleDailyWork, type BackType } from '../data/mock'
 import ContextualHeader from '../components/ContextualHeader'
+import { calcHourlyPay } from '../utils/payroll'
 
 type Granularity = 'day' | 'month' | 'year'
 type ViewMode = 'today' | 'trend' | 'calendar' | 'cast'
@@ -369,7 +370,8 @@ function CastTrendView() {
         0,
       )
       b.back += backAmount
-      const hourly = Math.floor(cast.hourlyRate * w.hours)
+      // 追補03 R25: 15 分単位 + ルーズタイム 15 分
+      const hourly = calcHourlyPay(cast.hourlyRate, w.hours)
       b.gross += hourly + backAmount
     }
 

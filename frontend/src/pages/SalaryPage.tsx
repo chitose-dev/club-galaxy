@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { useStore } from '../store'
 import { useAuth } from '../auth'
 import { sampleDailyWork, type BackType, type DailyWork, type UserAccount, type AttendanceRecord } from '../data/mock'
+import { calcHourlyPay } from '../utils/payroll'
 import { Plus, Trash2 } from 'lucide-react'
 import { openPrintWindow } from '../utils/print'
 import { getPaymentDate, formatPaymentDate } from '../utils/paymentDate'
@@ -103,7 +104,8 @@ export default function SalaryPage() {
 
   // 指示書§4.1: 給与 = (時給×時間 + 各種バック) × 0.9 (ホステス税10%控除)
   // 最終振込 = 給与 − 日払い − 天引き
-  const taxablePre = cast ? cast.hourlyRate * totalHours + totalBackAmount : 0   // 税引前
+  // 追補03 R25: 時給計算は 15 分単位 + ルーズタイム 15 分を適用
+  const taxablePre = cast ? calcHourlyPay(cast.hourlyRate, totalHours) + totalBackAmount : 0   // 税引前
   const grossSalary = Math.floor(taxablePre * 0.9)                                // 支給額(指示書)
   const hostessTax = taxablePre - grossSalary                                     // ホステス税(−10%)
   // 参考: 要件定義書 MAX 式での保証額(UI表示のみ、計算には使わない)
@@ -125,7 +127,7 @@ export default function SalaryPage() {
 
   const getDayNikkei = (w: DailyWork): number => {
     if (!cast) return 0
-    return cast.hourlyRate * w.hours + getDayBackAmount(w)
+    return calcHourlyPay(cast.hourlyRate, w.hours) + getDayBackAmount(w)
   }
 
   // 経理連動: 源泉税差額の自動計算
@@ -287,7 +289,7 @@ export default function SalaryPage() {
               </thead>
               <tbody>
                 {filteredWork.map((w) => {
-                  const dailyPay = cast ? cast.hourlyRate * w.hours : 0
+                  const dailyPay = cast ? calcHourlyPay(cast.hourlyRate, w.hours) : 0
                   const pTotal = getDayPTotal(w)
                   const nikkei = getDayNikkei(w)
                   return (
@@ -308,7 +310,7 @@ export default function SalaryPage() {
                 <tr className="font-bold border-t border-white/10">
                   <td className="py-2 px-1">合計</td>
                   <td className="py-2 px-1 text-right tabular-nums">{totalHours}h</td>
-                  <td className="py-2 px-1 text-right tabular-nums">¥{(cast ? cast.hourlyRate * totalHours : 0).toLocaleString()}</td>
+                  <td className="py-2 px-1 text-right tabular-nums">¥{(cast ? calcHourlyPay(cast.hourlyRate, totalHours) : 0).toLocaleString()}</td>
                   {backTypeOrder.map((bt) => (
                     <td key={bt} className="py-2 px-1 text-right tabular-nums">{backTotals[bt] ?? '-'}</td>
                   ))}
@@ -316,7 +318,7 @@ export default function SalaryPage() {
                     {Object.values(backTotals).reduce((s, c) => s + c, 0)}
                   </td>
                   <td className="py-2 px-1 text-right tabular-nums">
-                    ¥{(cast ? cast.hourlyRate * totalHours + totalBackAmount : 0).toLocaleString()}
+                    ¥{(cast ? calcHourlyPay(cast.hourlyRate, totalHours) + totalBackAmount : 0).toLocaleString()}
                   </td>
                 </tr>
               </tfoot>

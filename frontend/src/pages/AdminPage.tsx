@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useStore } from '../store'
 import { sampleDailyWork, isPercentBackType } from '../data/mock'
+import { calcHourlyPay } from '../utils/payroll'
 import type { Cast, BackType, GuestMenuItem, CastMenuItem, SetPrice, Table, StoreSettings, DailyWork, UserAccount } from '../data/mock'
 import type { AttendanceRecord, Expense, ExpenseCategory, AdvancePayment, ArchivedData } from '../data/mock'
 import React from 'react'
@@ -908,7 +909,8 @@ function DataExport({ billingRecords, casts, dailyPayRequests, discountLogs, ded
       const work = (sampleDailyWork[cast.id] ?? []).filter((w) => w.date.startsWith(prefix))
       const totalHours = work.reduce((s, w) => s + w.hours, 0)
       const totalSales = work.reduce((s, w) => s + w.sales, 0)
-      const hourlyTotal = Math.floor(cast.hourlyRate * totalHours)
+      // 追補03 R25: 15 分単位 + ルーズタイム 15 分
+      const hourlyTotal = calcHourlyPay(cast.hourlyRate, totalHours)
       const gross = Math.max(hourlyTotal, Math.floor(totalSales * cast.guaranteeRate))
 
       const dailyPay = dailyPayRequests
@@ -932,7 +934,7 @@ function DataExport({ billingRecords, casts, dailyPayRequests, discountLogs, ded
       const deduction10 = Math.floor(gross * 0.1)
       // 法定源泉: 日給5,000円超過分の10.21%
       const withholdingTax = work.reduce((s, w) => {
-        const daily = Math.floor(cast.hourlyRate * w.hours)
+        const daily = calcHourlyPay(cast.hourlyRate, w.hours)
         const over = Math.max(0, daily - 5000)
         return s + Math.floor(over * 0.1021)
       }, 0)
@@ -1795,7 +1797,8 @@ function DailyPayManager({
 
   const computePay = (cast: Cast, rec?: AttendanceRecord) => {
     const hours = rec?.workHours ?? 0
-    const basePay = Math.floor(cast.hourlyRate * hours)
+    // 追補03 R25: 時給は 15 分単位 + ルーズタイム 15 分
+    const basePay = calcHourlyPay(cast.hourlyRate, hours)
     const deductible = Math.floor(basePay * 0.1) // 一律 10% 控除
     return { basePay, net: basePay - deductible, hours }
   }
