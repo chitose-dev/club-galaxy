@@ -265,6 +265,14 @@ export default function BillingPage() {
 
     const receiptNumberForRecord = getNextReceiptNumber()
 
+    const nowIso = new Date().toISOString().slice(0, 10)
+    const nowTime = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+
+    // 追補02 R13-5 完全対応: 合算会計の場合、各構成卓ごとに独立した
+    //   BillingRecord を生成し、売上・バック帰属を卓単位で保持する。
+    //   代表卓レコード = 領収書番号と支払方法を持つ "main" レコード。
+    //   合算対象卓レコード = 各卓の subtotal/setFee/orders/nominatedCastId
+    //     を持つ "shadow" レコード (paymentMethod は 'mixed'、total は卓単位の税込小計)。
     addBillingRecord({
       id: Date.now(),
       tableNumber: table.number,
@@ -273,8 +281,8 @@ export default function BillingPage() {
       cashAmount: paymentMethod === 'cash' ? finalTotal : paymentMethod === 'mixed' ? mixedCashAmount : 0,
       cardAmount: paymentMethod === 'card' ? finalTotal : paymentMethod === 'mixed' ? mixedCardAmount : 0,
       cardFee: cardFee > 0 || mixedCardFee > 0 ? (paymentMethod === 'mixed' ? mixedCardFee : cardFee) : undefined,
-      timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
-      date: new Date().toISOString().slice(0, 10),
+      timestamp: nowTime,
+      date: nowIso,
       nominatedCastId,
       subtotalBeforeTax: subtotalAll,
       castNamesSnapshot: [...table.assignedCasts],
@@ -294,6 +302,35 @@ export default function BillingPage() {
         completedAt: new Date().toLocaleString('ja-JP'),
       },
     })
+
+    // 追補02 R13-5 完全対応: 合算対象卓ごとに shadow レコードを生成
+    for (const mid of mergeTableIds) {
+      const mt = tables.find((t) => t.id === mid)
+      if (!mt || !mt.startTime) continue
+      const mSet = getSetPriceForTime(mt.startTime)
+      const mDisc = mt.setDiscountPerSet ?? 0
+      const mSetTotal = Math.max(0, mSet - mDisc) * mt.guestCount * mt.setCount
+      const mDrink = mt.orders.reduce((s, o) => s + o.menuItem.price * o.quantity, 0)
+      const mSubtotal = mSetTotal + mDrink
+      const mTax = Math.floor(mSubtotal * taxRate)
+      const mTotal = mSubtotal + mTax
+      const mNomName = mt.mainNominationCastNames[0]
+      const mNomCastId = mNomName ? casts.find((c) => c.name === mNomName)?.id : undefined
+      addBillingRecord({
+        id: Date.now() + mid,
+        tableNumber: mt.number,
+        total: mTotal,
+        paymentMethod: 'mixed', // 代表卓に合算されたため "mixed" でマーク
+        cashAmount: 0,
+        cardAmount: 0,
+        timestamp: nowTime,
+        date: nowIso,
+        nominatedCastId: mNomCastId,
+        subtotalBeforeTax: mSubtotal,
+        castNamesSnapshot: [...mt.assignedCasts],
+        // shadow レコードには receiptSnapshot を付けない (代表卓 1 枚で印字済)
+      })
+    }
 
     setLastBillingData({
       tableNumber: table.number,
