@@ -6,6 +6,8 @@ import {
   castMenuItems as initialCastMenu,
   setPrices as initialSetPrices,
   chargeItems as initialChargeItems,
+  initialMenuCategories,
+  type MenuCategory,
   initialBillingRecords,
   initialDailyPayRequests,
   initialBottleKeeps,
@@ -81,6 +83,9 @@ interface Store {
   setCasts: React.Dispatch<React.SetStateAction<Cast[]>>
   setGuestMenu: React.Dispatch<React.SetStateAction<GuestMenuItem[]>>
   setCastMenu: React.Dispatch<React.SetStateAction<CastMenuItem[]>>
+  /** 追補02 R5-2/R5-3: メニューカテゴリ管理 */
+  menuCategories: MenuCategory[]
+  setMenuCategories: React.Dispatch<React.SetStateAction<MenuCategory[]>>
   setSetPrices: React.Dispatch<React.SetStateAction<SetPrice[]>>
   setChargeItems: React.Dispatch<React.SetStateAction<SetPrice[]>>
   setTables: React.Dispatch<React.SetStateAction<Table[]>>
@@ -130,6 +135,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [casts, setCasts] = useState<Cast[]>(initialCasts)
   const [guestMenu, setGuestMenu] = useState<GuestMenuItem[]>(initialGuestMenu)
   const [castMenu, setCastMenu] = useState<CastMenuItem[]>(initialCastMenu)
+  const [menuCategories, setMenuCategories] = useState<MenuCategory[]>(initialMenuCategories)
   const [setPricesState, setSetPrices] = useState<SetPrice[]>(initialSetPrices)
   const [chargeItemsState, setChargeItems] = useState<SetPrice[]>(initialChargeItems)
   const [discountLogs, setDiscountLogs] = useState<DiscountLog[]>([])
@@ -447,6 +453,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setCasts,
         setGuestMenu,
         setCastMenu,
+        menuCategories,
+        setMenuCategories,
         setSetPrices,
         setChargeItems,
         setTables,

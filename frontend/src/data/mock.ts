@@ -85,6 +85,55 @@ export interface CastMenuItem {
 export type MenuItem = GuestMenuItem | CastMenuItem
 
 /**
+ * 追補02 R5-2/R5-3: メニューカテゴリのマスター。
+ * 並び替え・非表示・追加を管理画面から制御するため、subcategory に対応する
+ * ラベルと表示順序をデータとして保持する。
+ *
+ * 既存メニューの subcategory enum (固定) と独立して、追加カテゴリは
+ * customSubcategoryId (任意) として扱う。新規追加メニューはこの ID を
+ * subcategory に持つ仮想カテゴリとして OrderPage に表示される。
+ */
+export interface MenuCategory {
+  /** kind が 'guest' なら GuestMenuItem.subcategory、'cast' なら CastMenuItem.subcategory に対応 */
+  kind: 'guest' | 'cast'
+  /** subcategory 値 (例: 'shochu', 'fdrink', 'custom-no-alcohol') */
+  id: string
+  /** 表示ラベル (例: '焼酎', 'Lドリンク(F)', 'ノンアルコール') */
+  label: string
+  /** 並び順 (昇順) */
+  order: number
+  /** true = 非表示 */
+  hidden?: boolean
+  /** ユーザーが追加したカテゴリは true (削除可能の判定用) */
+  custom?: boolean
+}
+
+export const initialMenuCategories: MenuCategory[] = [
+  // ゲスト
+  { kind: 'guest', id: 'shochu', label: '焼酎', order: 1 },
+  { kind: 'guest', id: 'whisky', label: 'ウイスキー', order: 2 },
+  { kind: 'guest', id: 'brandy', label: 'ブランデー', order: 3 },
+  { kind: 'guest', id: 'champagne', label: 'シャンパン', order: 4 },
+  { kind: 'guest', id: 'wine', label: 'ワイン', order: 5 },
+  { kind: 'guest', id: 'shot', label: 'ショット', order: 6 },
+  { kind: 'guest', id: 'pitcher', label: 'ピッチャー', order: 7 },
+  { kind: 'guest', id: 'beer', label: 'ビール', order: 8 },
+  { kind: 'guest', id: 'warimono', label: '割り物', order: 9 },
+  // キャスト
+  { kind: 'cast', id: 'fdrink', label: 'Lドリンク(F)', order: 10 },
+  { kind: 'cast', id: 'hondrink', label: 'Lドリンク(本)', order: 11 },
+  { kind: 'cast', id: 'fkaku', label: 'Lカクテル(F)', order: 12 },
+  { kind: 'cast', id: 'honkaku', label: 'Lカクテル(本)', order: 13 },
+  { kind: 'cast', id: 'honkakuW', label: 'Lカクテル(本W)', order: 14 },
+  { kind: 'cast', id: 'fshot', label: 'Lショット(F)', order: 15 },
+  { kind: 'cast', id: 'honshot', label: 'Lショット(本)', order: 16 },
+  { kind: 'cast', id: 'fpitcher', label: 'Lピッチャー(F)', order: 17 },
+  { kind: 'cast', id: 'honpitcher', label: 'Lピッチャー(本)', order: 18 },
+  { kind: 'cast', id: 'fbeer', label: 'Lビール(F)', order: 19 },
+  { kind: 'cast', id: 'honbeer', label: 'Lビール(本)', order: 20 },
+]
+
+/**
  * 追補03 R19: ボトルバックのみ「%」単位で格納する BackType リスト。
  * 値は 0-100 の整数で格納し、実計算時に 100 で割って率として使う。
  * (他の BackType は「円」単位)
