@@ -419,17 +419,12 @@ export default function FloorPage() {
   }
 
   // 50分経過で未印字の「ご延長交渉」対象卓 (追補02 R7-1: 旧「チェック票」)
-  const pendingCheckTickets = tables.filter(
-    (t) => t.status !== 'empty' && t.startTime && calcElapsedMinutes(t.startTime) >= 50 && !t.checkTicketPrintedAt,
-  )
+  // 追補03 R21: 自動「ご延長交渉」印字機能は削除 (チェック票と重複)。
+  // 手動でのご延長交渉印字は卓詳細の「ご延長交渉」ボタンから可能。
+  const pendingCheckTickets: typeof tables = []
 
-  const handlePrintPendingChecks = () => {
-    const now = new Date().toISOString()
-    for (const t of pendingCheckTickets) {
-      handlePrintCheckTicket(t)
-      updateTable(t.id, { checkTicketPrintedAt: now })
-    }
-  }
+  // 追補03 R21: 一括自動印字機能は削除済 (旧 handlePrintPendingChecks)
+  const handlePrintPendingChecks = () => {/* no-op (将来削除予定) */}
 
   const busyCastNames = new Set(tables.filter((t) => t.status !== 'empty').flatMap((t) => t.assignedCasts))
   // 待機時間順(lastAssignedAt昇順、null=最優先)にソート
@@ -713,15 +708,8 @@ export default function FloorPage() {
 
             <div className="flex gap-2 mt-2">
               <button
-                onClick={() => {
-                  handlePrintCheckTicket(selected)
-                  updateTable(selected.id, { checkTicketPrintedAt: new Date().toISOString() })
-                }}
-                className={`flex-1 py-3 rounded-[10px] font-bold text-sm flex items-center justify-center gap-1.5 transition-colors ${
-                  selected.startTime && calcElapsedMinutes(selected.startTime) >= 50
-                    ? 'bg-accent/10 border border-accent/30 text-red-300'
-                    : 'panel text-gray-300'
-                }`}
+                onClick={() => handlePrintCheckTicket(selected)}
+                className="flex-1 py-3 rounded-[10px] font-bold text-sm flex items-center justify-center gap-1.5 transition-colors panel text-gray-300"
               >
                 <Printer size={15} /> ご延長交渉
               </button>

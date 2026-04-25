@@ -59,23 +59,7 @@ export default function BillingPage() {
   // 早期 return (会計対象なし状態) でも完了直後に会計履歴からの再印刷が動くよう、
   // この宣言は table の有無判定より先に置く必要がある。
   const receiptPrintBlock = lastBillingData ? (() => {
-    const extensionOrders = lastBillingData.orders.filter((o) => o.menuItem.id >= 2000 && o.menuItem.id < 3000)
-    const nominationOrders = lastBillingData.orders.filter(
-      (o) => !extensionOrders.includes(o) && /指名|同伴|シングルチャージ/.test(o.menuItem.name),
-    )
-    const drinkOrders = lastBillingData.orders.filter(
-      (o) => !extensionOrders.includes(o) && !nominationOrders.includes(o),
-    )
-
-    const nominationTotal = nominationOrders.reduce((s, o) => s + o.menuItem.price * o.quantity, 0)
-    const drinkTotal = drinkOrders.reduce((s, o) => s + o.menuItem.price * o.quantity, 0)
-    const extensionTotal = extensionOrders.reduce((s, o) => s + o.menuItem.price * o.quantity, 0)
-
-    const ext30Count = extensionOrders.filter((o) => /\+30分/.test(o.menuItem.name)).reduce((s, o) => s + o.quantity, 0)
-    const ext60Count = extensionOrders.filter((o) => /\+60分/.test(o.menuItem.name)).reduce((s, o) => s + o.quantity, 0)
-    const extNominationCount = extensionOrders.filter((o) => o.castName).length
-
-    const nowSubtotal = lastBillingData.setFee + nominationTotal + drinkTotal
+    // 追補03 R21: 領収書は金額のみ簡略化のため、内訳カテゴリ集計は不要に
     const stampRequired = lastBillingData.total > 50000
     const paymentBlockTitle = `[ ${paymentLabel(lastBillingData.paymentMethod)}支払い ]`
 
@@ -121,76 +105,7 @@ export default function BillingPage() {
             収入印紙<br />{stampRequired ? '貼付欄' : '(不要)'}
           </div>
         </div>
-        <div className="border-t border-dashed border-gray-500 my-2" />
-
-        {/* ─── [ ただいまの料金 ] ─── */}
-        <div className="text-sm mb-3 print-detail-lines">
-          <div className="font-bold mb-1">[ ただいまの料金 ]</div>
-          <div className="flex justify-between ml-2">
-            <span>基本料金（セット）</span>
-            <span>¥ {lastBillingData.setFee.toLocaleString()}</span>
-          </div>
-          {nominationTotal > 0 && (
-            <div className="flex justify-between ml-2">
-              <span>指名料</span>
-              <span>¥ {nominationTotal.toLocaleString()}</span>
-            </div>
-          )}
-          {drinkTotal > 0 && (
-            <div className="flex justify-between ml-2">
-              <span>ドリンク</span>
-              <span>¥ {drinkTotal.toLocaleString()}</span>
-            </div>
-          )}
-          <div className="flex justify-between ml-2 border-t border-gray-400 mt-1 pt-1 font-bold">
-            <span>小計</span>
-            <span>¥ {nowSubtotal.toLocaleString()}</span>
-          </div>
-        </div>
-
-        {/* ─── [ 延長料金 ] ─── */}
-        {extensionTotal > 0 && (
-          <div className="text-sm mb-3">
-            <div className="font-bold mb-1">[ 延長料金 ]</div>
-            {ext30Count > 0 && (
-              <div className="flex justify-between ml-2">
-                <span>延長（30 分）× {ext30Count}</span>
-                <span>¥ {(1000 * ext30Count).toLocaleString()}</span>
-              </div>
-            )}
-            {ext60Count > 0 && (
-              <div className="flex justify-between ml-2">
-                <span>延長（60 分）× {ext60Count}</span>
-                <span>¥ {(3000 * ext60Count).toLocaleString()}</span>
-              </div>
-            )}
-            {extNominationCount > 0 && (
-              <div className="flex justify-between ml-2">
-                <span>延長指名料</span>
-                <span className="text-xs text-gray-500">※バック帰属先あり</span>
-              </div>
-            )}
-            <div className="flex justify-between ml-2 border-t border-gray-400 mt-1 pt-1 font-bold">
-              <span>延長小計</span>
-              <span>¥ {extensionTotal.toLocaleString()}</span>
-            </div>
-          </div>
-        )}
-
-        {/* 税・値引き */}
-        <div className="text-xs mb-3 text-gray-600">
-          <div className="flex justify-between ml-2">
-            <span>TAX ({(storeSettings.taxRate * 100).toFixed(0)}% 内税)</span>
-            <span>¥ {lastBillingData.tax.toLocaleString()}</span>
-          </div>
-          {lastBillingData.discount > 0 && (
-            <div className="flex justify-between ml-2 text-red-600">
-              <span>値引き</span>
-              <span>-¥ {lastBillingData.discount.toLocaleString()}</span>
-            </div>
-          )}
-        </div>
-
+        {/* 追補03 R21: 領収書には金額のみ。詳細内訳は「ご延長交渉」紙で渡す運用に */}
         <div className="text-sm font-bold border-t border-gray-400 pt-2">
           {paymentBlockTitle}
         </div>
