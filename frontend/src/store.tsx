@@ -69,6 +69,11 @@ interface Store {
   moveCast: (castName: string, toTableId: number | null) => void
   addOrderToTable: (tableId: number, order: OrderItem) => void
   removeOrderFromTable: (tableId: number, menuItemId: number, castName?: string) => void
+  /**
+   * 追補03 R18: 注文行にボーナス情報をセット / 解除する。
+   * bonusCastName / bonusAmount を undefined にすると解除。
+   */
+  setOrderBonus: (tableId: number, menuItemId: number, castName: string | undefined, bonus: { bonusCastName?: string; bonusAmount?: number }) => void
   resetTable: (id: number) => void
   addDiscountLog: (log: DiscountLog) => void
   addBillingRecord: (record: BillingRecord) => void
@@ -211,11 +216,46 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setTables((prev) =>
       prev.map((t) =>
         t.id === id
-          ? { ...t, status: 'empty' as const, guestCount: 0, startTime: null, castNames: [], nomination: null, setCount: 0, orders: [], checkTicketPrintedAt: null }
+          ? {
+              ...t,
+              status: 'empty' as const,
+              guestCount: 0,
+              startTime: null,
+              assignedCasts: [],
+              mainNominationCastNames: [],
+              isDouhan: undefined,
+              isBanaiShimei: undefined,
+              setCount: 0,
+              orders: [],
+              checkTicketPrintedAt: null,
+              extensionHistory: [],
+              setDiscountPerSet: 0,
+              timeAdjustmentMinutes: 0,
+            }
           : t,
       ),
     )
   }, [])
+
+  // 追補03 R18: 注文行のボーナスを設定 / 解除
+  const setOrderBonus = useCallback(
+    (tableId: number, menuItemId: number, castName: string | undefined, bonus: { bonusCastName?: string; bonusAmount?: number }) => {
+      setTables((prev) =>
+        prev.map((t) => {
+          if (t.id !== tableId) return t
+          return {
+            ...t,
+            orders: t.orders.map((o) =>
+              o.menuItem.id === menuItemId && o.castName === castName
+                ? { ...o, bonusCastName: bonus.bonusCastName, bonusAmount: bonus.bonusAmount }
+                : o,
+            ),
+          }
+        }),
+      )
+    },
+    [],
+  )
 
   const addDiscountLog = useCallback((log: DiscountLog) => {
     setDiscountLogs((prev) => [...prev, log])
@@ -399,6 +439,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         moveCast,
         addOrderToTable,
         removeOrderFromTable,
+        setOrderBonus,
         resetTable,
         addDiscountLog,
         addBillingRecord,

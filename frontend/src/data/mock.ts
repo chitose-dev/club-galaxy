@@ -112,6 +112,18 @@ export interface OrderItem {
   menuItem: MenuItem
   quantity: number
   castName?: string
+  /**
+   * 追補03 R18: 1 件単位のボーナス加算先 (任意)。
+   * 本指名卓でドリンクを注文したが、別のキャスト (例: フリーのキャスト)
+   * にも「ボーナス的な給料を少しだけ」出したいケースに使う。
+   * 売上帰属は変わらず (castName に紐付くまま)、ボーナスだけ別キャストに加算。
+   */
+  bonusCastName?: string
+  /**
+   * ボーナス金額 (円)。設定すれば給与計算時に bonusCastName の「その他」バック
+   * として加算される。
+   */
+  bonusAmount?: number
 }
 
 export interface Cast {

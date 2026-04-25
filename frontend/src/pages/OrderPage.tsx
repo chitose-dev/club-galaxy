@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../store'
 import type { MenuItem, CastMenuItem, OrderItem } from '../data/mock'
 import { displayOrderName, chargeItems } from '../data/mock'
-import { Minus, Plus, Trash2, Wine, CreditCard, Printer } from 'lucide-react'
+import { Minus, Plus, Trash2, Wine, CreditCard, Printer, Gift } from 'lucide-react'
 import ContextualHeader from '../components/ContextualHeader'
 import BottomActionBar from '../components/BottomActionBar'
 import CastChip from '../components/CastChip'
@@ -55,11 +55,15 @@ const categories: Array<{ key: CategoryKey; label: string }> = [
 export default function OrderPage() {
   const {
     tables, casts, guestMenu, castMenu, storeSettings,
-    addOrderToTable, removeOrderFromTable,
+    addOrderToTable, removeOrderFromTable, setOrderBonus,
     moveCast,
     bottleKeeps, addBottleKeep, updateBottleKeep, removeBottleKeep,
   } = useStore()
   const [showAddCast, setShowAddCast] = useState(false)
+  /** 追補03 R18: ボーナス設定対象の注文行 */
+  const [bonusTarget, setBonusTarget] = useState<OrderItem | null>(null)
+  const [bonusCastName, setBonusCastName] = useState<string>('')
+  const [bonusAmount, setBonusAmount] = useState(0)
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
 
@@ -384,26 +388,46 @@ export default function OrderPage() {
               {orders.map((o, idx) => (
                 <div
                   key={`${o.menuItem.id}-${o.castName ?? ''}-${idx}`}
-                  className="panel p-2.5 flex items-center gap-2"
+                  className="panel p-2.5 flex flex-col gap-1"
                 >
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm text-white truncate">{displayOrderName(o)}</div>
-                    <div className="text-[10px] text-gray-400 tabular-nums">
-                      ¥{o.menuItem.price.toLocaleString()} × {o.quantity}
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-white truncate">{displayOrderName(o)}</div>
+                      <div className="text-[10px] text-gray-400 tabular-nums">
+                        ¥{o.menuItem.price.toLocaleString()} × {o.quantity}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => {
+                          setBonusTarget(o)
+                          setBonusCastName(o.bonusCastName ?? '')
+                          setBonusAmount(o.bonusAmount ?? 0)
+                        }}
+                        className={`w-7 h-7 flex items-center justify-center rounded-md ${
+                          o.bonusCastName ? 'bg-amber-500/20 text-amber-300' : 'bg-white/5 text-gray-400'
+                        }`}
+                        title="ボーナス追加"
+                      >
+                        <Gift size={13} />
+                      </button>
+                      <button onClick={() => handleRemove(o.menuItem.id, o.castName)} className="w-7 h-7 flex items-center justify-center bg-white/5 rounded-md text-gray-300">
+                        <Minus size={14} />
+                      </button>
+                      <span className="w-6 text-center font-bold tabular-nums text-sm">{o.quantity}</span>
+                      <button onClick={() => handleIncrement(o)} className="w-7 h-7 flex items-center justify-center bg-white/5 rounded-md text-gray-300">
+                        <Plus size={14} />
+                      </button>
+                      <button onClick={() => handleDelete(o.menuItem.id, o.castName)} className="w-7 h-7 flex items-center justify-center bg-red-500/10 rounded-md text-red-400 ml-1">
+                        <Trash2 size={13} />
+                      </button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button onClick={() => handleRemove(o.menuItem.id, o.castName)} className="w-7 h-7 flex items-center justify-center bg-white/5 rounded-md text-gray-300">
-                      <Minus size={14} />
-                    </button>
-                    <span className="w-6 text-center font-bold tabular-nums text-sm">{o.quantity}</span>
-                    <button onClick={() => handleIncrement(o)} className="w-7 h-7 flex items-center justify-center bg-white/5 rounded-md text-gray-300">
-                      <Plus size={14} />
-                    </button>
-                    <button onClick={() => handleDelete(o.menuItem.id, o.castName)} className="w-7 h-7 flex items-center justify-center bg-red-500/10 rounded-md text-red-400 ml-1">
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
+                  {o.bonusCastName && o.bonusAmount && (
+                    <div className="text-[10px] text-amber-300 flex items-center gap-1">
+                      <Gift size={10} /> ボーナス: {o.bonusCastName} +¥{o.bonusAmount.toLocaleString()}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -455,6 +479,78 @@ export default function OrderPage() {
           onSave={handleAddBottleKeep}
         />
       )}
+
+      {/* 追補03 R18: 注文行のボーナス加算設定 */}
+      <Modal
+        open={!!bonusTarget}
+        onClose={() => setBonusTarget(null)}
+        size="sm"
+        title="ボーナス加算"
+        footer={
+          <>
+            <GhostButton onClick={() => setBonusTarget(null)} className="flex-1">キャンセル</GhostButton>
+            {bonusTarget?.bonusCastName && (
+              <DangerButton
+                onClick={() => {
+                  if (!selectedTableId || !bonusTarget) return
+                  setOrderBonus(selectedTableId, bonusTarget.menuItem.id, bonusTarget.castName, {})
+                  setBonusTarget(null)
+                }}
+                className="flex-1"
+              >
+                解除
+              </DangerButton>
+            )}
+            <GoldButton
+              onClick={() => {
+                if (!selectedTableId || !bonusTarget) return
+                if (!bonusCastName || bonusAmount <= 0) return
+                setOrderBonus(selectedTableId, bonusTarget.menuItem.id, bonusTarget.castName, {
+                  bonusCastName,
+                  bonusAmount,
+                })
+                setBonusTarget(null)
+              }}
+              className="flex-1"
+              disabled={!bonusCastName || bonusAmount <= 0}
+            >
+              設定
+            </GoldButton>
+          </>
+        }
+      >
+        {bonusTarget && (
+          <div className="space-y-3">
+            <div className="text-xs text-gray-400">
+              対象: {displayOrderName(bonusTarget)} {bonusTarget.castName && <span className="text-gold">→ {bonusTarget.castName}</span>}
+            </div>
+            <p className="text-xs text-gray-500">
+              この注文に対して、別のキャストにもボーナス的な給与を少し加算します。
+              売上帰属は変わりません (そのキャストへのご褒美金のみ)。
+            </p>
+            <FormField label="ボーナス対象キャスト">
+              <select
+                value={bonusCastName}
+                onChange={(e) => setBonusCastName(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded px-2 py-2 text-sm"
+              >
+                <option value="">(未選択)</option>
+                {casts.filter((c) => c.active).map((c) => (
+                  <option key={c.id} value={c.name}>{c.name}</option>
+                ))}
+              </select>
+            </FormField>
+            <FormField label="ボーナス金額">
+              <Input
+                type="number"
+                value={bonusAmount || ''}
+                onChange={(e) => setBonusAmount(Math.max(0, Number(e.target.value) || 0))}
+                placeholder="例: 500"
+              />
+            </FormField>
+          </div>
+        )}
+      </Modal>
 
       {/* 追補02 R2: 「女の子を追加」 — 他卓対応中 or 待機中キャストを排他的に移動 */}
       <Modal
