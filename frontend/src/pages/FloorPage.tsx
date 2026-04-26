@@ -168,20 +168,8 @@ export default function FloorPage() {
     setShowCheckIn(true)
   }
 
-  const toggleCast = (name: string) => {
-    setCiCastNames((prev) => {
-      const next = prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
-      // 担当から外れたキャストは本指名担当からも自動除外 (R24 対応)
-      setCiMainNominations((prevMains) => prevMains.filter((n) => next.includes(n)))
-      return next
-    })
-  }
-
-  const toggleMainNomination = (name: string) => {
-    setCiMainNominations((prev) =>
-      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
-    )
-  }
+  // ビデオレビュー C1: 入店モーダルからキャスト選択 UI を削除したため、
+  // toggleCast / toggleMainNomination も不要になった (卓詳細から直接編集する)
 
   const confirmCheckIn = () => {
     if (!selected) return
@@ -524,19 +512,11 @@ export default function FloorPage() {
         <span>今月 <span className="font-bold">¥{flMetrics.monthlyProfit.toLocaleString()}</span> <span className={`text-xs ${flColor(flMetrics.monthlyFlRate)}`}>(FL {flMetrics.monthlyFlRate.toFixed(1)}%)</span></span>
       </div>
 
-      {/* Table Grid (要件定義書4A: 終了間近を左上優先) */}
+      {/* Table Grid — ビデオレビュー C18: 並び順は固定 (id 昇順)
+          時間で入れ替わると目で覚えた配置と合わなくなり混乱する。
+          状態は色 (statusStyle) で表現。 */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-        {[...tables].sort((a, b) => {
-          // 空き卓は末尾
-          if (a.status === 'empty' && b.status !== 'empty') return 1
-          if (a.status !== 'empty' && b.status === 'empty') return -1
-          if (a.status === 'empty' && b.status === 'empty') return a.id - b.id
-          // 使用中卓は残り時間昇順(終了間近を左上)
-          const remA = a.startTime ? calcRemainingMinutes(a.startTime, a.setCount, a.timeAdjustmentMinutes ?? 0, totalExtensionMinutes(a)) : Infinity
-          const remB = b.startTime ? calcRemainingMinutes(b.startTime, b.setCount, b.timeAdjustmentMinutes ?? 0, totalExtensionMinutes(b)) : Infinity
-          if (remA !== remB) return remA - remB
-          return a.id - b.id
-        }).map((table) => {
+        {[...tables].sort((a, b) => a.id - b.id).map((table) => {
           const remaining = table.startTime ? calcRemainingMinutes(table.startTime, table.setCount, table.timeAdjustmentMinutes ?? 0, totalExtensionMinutes(table)) : null
           const elapsed = table.startTime ? calcElapsedMinutes(table.startTime) : 0
           const style = statusStyle[table.status]
@@ -612,39 +592,118 @@ export default function FloorPage() {
               )
             })()}
 
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              {/* 追補02 R1-7: 「対応中」と「本指名」を別枠で視覚的に区別 */}
+            {/* ビデオレビュー C3-C7: 卓詳細を編集モード化 — 全フィールドを直接編集可能に */}
+            <div className="space-y-3 text-sm">
+              {/* 対応中キャスト編集 (C7: 直接抜く + キャスト追加) */}
               <div className="panel p-3">
-                <div className="text-gray-500 text-xs mb-1">対応中</div>
-                <div className="font-medium">
-                  {selected.assignedCasts.length > 0 ? selected.assignedCasts.join(', ') : <span className="text-gray-500">担当なし</span>}
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-gray-500 text-xs">対応中</div>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {selected.assignedCasts.map((name) => (
+                    <span key={name} className="inline-flex items-center gap-1 bg-gold/10 border border-gold/30 text-gold rounded-full px-3 py-1 text-xs">
+                      {name}
+                      <button
+                        onClick={() => updateTable(selected.id, { assignedCasts: selected.assignedCasts.filter((n) => n !== name) })}
+                        className="hover:text-red-400"
+                        aria-label="外す"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  <button
+                    onClick={() => setShowRotation(true)}
+                    className="inline-flex items-center gap-1 bg-white/5 border border-white/20 text-gray-300 hover:text-white rounded-full px-3 py-1 text-xs"
+                  >
+                    <Plus size={12} /> 追加
+                  </button>
                 </div>
               </div>
+
+              {/* 指名タイプ編集 (C5: フリー⇄本指名/同伴/場内指名 切替) */}
               <div className="panel p-3">
-                <div className="text-gray-500 text-xs mb-1">指名タイプ</div>
-                <div className="font-medium">{getNominationLabel(selected)}</div>
-              </div>
-              <div className="panel p-3">
-                <div className="text-gray-500 text-xs mb-1">入店時刻</div>
-                <div className="font-medium">{selected.startTime}</div>
-              </div>
-              <div className="panel p-3">
-                <div className="text-gray-500 text-xs mb-1">人数</div>
-                <div className="font-medium">{selected.guestCount}名</div>
-              </div>
-              <div className="panel p-3">
-                <div className="text-gray-500 text-xs mb-1">セット料金</div>
-                <div className="font-medium">
-                  {selected.startTime ? `¥${Math.max(0, getSetPriceForTime(selected.startTime) - (selected.setDiscountPerSet ?? 0)).toLocaleString()}` : '-'}
-                  {(selected.setDiscountPerSet ?? 0) > 0 && (
-                    <span className="text-[10px] text-amber-300 ml-1">(値引¥{selected.setDiscountPerSet!.toLocaleString()})</span>
-                  )}
+                <div className="text-gray-500 text-xs mb-2">指名タイプ</div>
+                <div className="text-xs text-gold mb-2">{getNominationLabel(selected)}</div>
+                {selected.assignedCasts.length === 0 ? (
+                  <div className="text-xs text-gray-500">担当を追加すると本指名を指定できます</div>
+                ) : (
+                  <>
+                    <div className="text-[10px] text-gray-500 mb-1">本指名担当 (複数選択可)</div>
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {selected.assignedCasts.map((name) => {
+                        const isMain = selected.mainNominationCastNames.includes(name)
+                        return (
+                          <button
+                            key={name}
+                            onClick={() => updateTable(selected.id, {
+                              mainNominationCastNames: isMain
+                                ? selected.mainNominationCastNames.filter((n) => n !== name)
+                                : [...selected.mainNominationCastNames, name],
+                            })}
+                            className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${isMain ? 'bg-gold/20 border-gold text-gold' : 'bg-white/5 border-white/10 text-gray-400'}`}
+                          >
+                            {isMain ? '★ ' : ''}{name}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </>
+                )}
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={() => updateTable(selected.id, { isDouhan: !selected.isDouhan })}
+                    className={`text-xs px-2.5 py-1 rounded-full border ${selected.isDouhan ? 'bg-gold/20 border-gold text-gold' : 'bg-white/5 border-white/10 text-gray-400'}`}
+                  >
+                    {selected.isDouhan ? '✓ ' : ''}同伴
+                  </button>
+                  <button
+                    onClick={() => updateTable(selected.id, { isBanaiShimei: !selected.isBanaiShimei })}
+                    className={`text-xs px-2.5 py-1 rounded-full border ${selected.isBanaiShimei ? 'bg-gold/20 border-gold text-gold' : 'bg-white/5 border-white/10 text-gray-400'}`}
+                  >
+                    {selected.isBanaiShimei ? '✓ ' : ''}場内指名
+                  </button>
                 </div>
-                <div className="text-gray-600 text-xs">{selected.startTime ? getSetPriceLabel(selected.startTime) : ''}</div>
               </div>
-              <div className="panel p-3">
-                <div className="text-gray-500 text-xs mb-1">セット数</div>
-                <div className="font-medium">{selected.setCount}</div>
+
+              {/* 入店時刻 + 人数 + セット料金 + セット数 */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="panel p-3">
+                  <div className="text-gray-500 text-xs mb-1">入店時刻</div>
+                  {/* C3: 入店時刻を後から変更可能 */}
+                  <input
+                    type="time"
+                    value={selected.startTime ?? ''}
+                    onChange={(e) => updateTable(selected.id, { startTime: e.target.value })}
+                    className="bg-primary-dark/60 border border-gold/20 rounded px-2 py-1 text-sm w-full"
+                  />
+                </div>
+                <div className="panel p-3">
+                  <div className="text-gray-500 text-xs mb-1">人数</div>
+                  {/* C4: 人数を後から増減可能 */}
+                  <NumberInput
+                    value={selected.guestCount}
+                    onChange={(v) => updateTable(selected.id, { guestCount: Math.max(1, v) })}
+                    min={1}
+                    max={50}
+                    unit="名"
+                    inputClassName="!py-1 !text-sm"
+                  />
+                </div>
+                <div className="panel p-3">
+                  <div className="text-gray-500 text-xs mb-1">セット料金</div>
+                  <div className="font-medium">
+                    {selected.startTime ? `¥${Math.max(0, getSetPriceForTime(selected.startTime) - (selected.setDiscountPerSet ?? 0)).toLocaleString()}` : '-'}
+                    {(selected.setDiscountPerSet ?? 0) > 0 && (
+                      <span className="text-[10px] text-amber-300 ml-1">(値引¥{selected.setDiscountPerSet!.toLocaleString()})</span>
+                    )}
+                  </div>
+                  <div className="text-gray-600 text-xs">{selected.startTime ? getSetPriceLabel(selected.startTime) : ''}</div>
+                </div>
+                <div className="panel p-3">
+                  <div className="text-gray-500 text-xs mb-1">セット数</div>
+                  <div className="font-medium">{selected.setCount}</div>
+                </div>
               </div>
             </div>
             {/* セット料金値引き (指示書§1.1 / 追補02 R12: 削除時 0 残留を防ぐ)
@@ -732,15 +791,16 @@ export default function FloorPage() {
         )}
       </Modal>
 
-      {/* Check-in Modal */}
+      {/* Check-in Modal — ビデオレビュー C1: 入店時は「人数だけ」のシンプル UI に
+          キャスト・本指名・同伴・場内指名の設定は卓詳細から後でできるようにした */}
       <Modal
         open={showCheckIn && !!selected}
         onClose={() => { setShowCheckIn(false); setSelected(null) }}
         title={selected ? `卓 ${selected.number} 入店` : ''}
-        size="lg"
+        size="md"
       >
         {selected && (
-          <div className="space-y-4">
+          <div className="space-y-5">
             <div>
               <label className="text-sm text-gray-200 block mb-2 font-medium">セット開始時刻</label>
               <div className="flex gap-2">
@@ -753,12 +813,12 @@ export default function FloorPage() {
             </div>
             <div>
               <label className="text-sm text-gray-200 block mb-2 font-medium">来店人数</label>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
                   <button
                     key={n}
                     onClick={() => setCiGuests(n)}
-                    className={`flex-1 py-4 rounded-[10px] text-lg font-bold transition-colors ${
+                    className={`flex-1 min-w-[48px] py-4 rounded-[10px] text-lg font-bold transition-colors ${
                       ciGuests === n ? 'bg-gold text-primary' : 'panel text-gray-200 hover:bg-white/10'
                     }`}
                   >
@@ -766,78 +826,22 @@ export default function FloorPage() {
                   </button>
                 ))}
               </div>
-            </div>
-            <div>
-              <label className="text-sm text-gray-200 block mb-2 font-medium">キャスト（複数選択可）</label>
-              <div className="flex flex-wrap gap-2">
-                {activeCasts.map((c) => (
-                  <CastChip key={c.id} name={c.name} selected={ciCastNames.includes(c.name)} onClick={() => toggleCast(c.name)} />
-                ))}
+              <div className="mt-2 flex items-center gap-2">
+                <span className="text-xs text-gray-400">9 名以上:</span>
+                <NumberInput
+                  value={ciGuests > 8 ? ciGuests : 0}
+                  onChange={(v) => v > 0 && setCiGuests(v)}
+                  min={0}
+                  max={50}
+                  className="w-32"
+                  inputClassName="!py-1.5 !text-sm"
+                  unit="名"
+                />
               </div>
-              {ciCastNames.length > 0 && (
-                <div className="text-sm text-gold mt-2">選択中: {ciCastNames.join(', ')}</div>
-              )}
             </div>
-            {/* 追補02 R1/R9 + 追補03 R24: 本指名担当を複数選択可能に */}
-            <div>
-              <label className="text-sm text-gray-200 block mb-2 font-medium">
-                本指名担当 (任意 / 複数選択可)
-              </label>
-              {ciCastNames.length === 0 ? (
-                <div className="text-sm text-gray-500 panel p-3">担当を選択すると、本指名担当を指定できます</div>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {ciCastNames.map((name) => {
-                    const selected = ciMainNominations.includes(name)
-                    return (
-                      <button
-                        key={name}
-                        onClick={() => toggleMainNomination(name)}
-                        className={`px-4 py-3 rounded-[10px] text-sm font-bold transition-colors flex items-center gap-1.5 ${
-                          selected ? 'bg-gold text-primary' : 'panel text-gray-200 hover:bg-white/10'
-                        }`}
-                      >
-                        <span className="inline-block w-4 h-4 border-2 rounded-sm flex items-center justify-center" style={{ borderColor: selected ? '#1a1a2e' : '#888' }}>
-                          {selected && '✓'}
-                        </span>
-                        {name}
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-            <div>
-              <label className="text-sm text-gray-200 block mb-2 font-medium">追加オプション</label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => setCiIsDouhan((v) => !v)}
-                  className={`py-4 rounded-[10px] text-base font-bold transition-colors flex items-center justify-center gap-2 ${
-                    ciIsDouhan ? 'bg-gold text-primary' : 'panel text-gray-200 hover:bg-white/10'
-                  }`}
-                >
-                  <span className="inline-block w-4 h-4 border-2 rounded-sm flex items-center justify-center" style={{ borderColor: ciIsDouhan ? '#1a1a2e' : '#888' }}>
-                    {ciIsDouhan && '✓'}
-                  </span>
-                  同伴
-                </button>
-                <button
-                  onClick={() => setCiIsBanaiShimei((v) => !v)}
-                  className={`py-4 rounded-[10px] text-base font-bold transition-colors flex items-center justify-center gap-2 ${
-                    ciIsBanaiShimei ? 'bg-gold text-primary' : 'panel text-gray-200 hover:bg-white/10'
-                  }`}
-                >
-                  <span className="inline-block w-4 h-4 border-2 rounded-sm flex items-center justify-center" style={{ borderColor: ciIsBanaiShimei ? '#1a1a2e' : '#888' }}>
-                    {ciIsBanaiShimei && '✓'}
-                  </span>
-                  場内指名
-                </button>
-              </div>
-              {(ciMainNominations.length > 0 || ciIsDouhan || ciIsBanaiShimei) && (
-                <div className="text-sm text-gold mt-2">
-                  指名: {getNominationLabel({ mainNominationCastNames: ciMainNominations, isDouhan: ciIsDouhan, isBanaiShimei: ciIsBanaiShimei })}
-                </div>
-              )}
+            <div className="text-xs text-gray-500 leading-relaxed border-t border-white/10 pt-3">
+              ※ 入店後、卓をタップすると担当キャスト・本指名・同伴・場内指名を編集できます。
+              全ての変更は会計確定時に確定されます。
             </div>
             <GoldButton onClick={confirmCheckIn} className="w-full py-5 text-lg flex items-center justify-center gap-2">
               入店開始 <ChevronRight size={22} />
