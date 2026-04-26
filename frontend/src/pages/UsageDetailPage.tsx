@@ -168,12 +168,22 @@ export default function UsageDetailPage() {
           </DangerButton>
         }
         right={
-          <DarkButton
-            onClick={() => navigate(`/order?table=${table.id}`)}
-            className="text-sm flex items-center gap-1"
-          >
-            <FileText size={15} /> 注文追加
-          </DarkButton>
+          // ビデオレビュー N15: 利用明細から延長交渉ボタンへの導線追加
+          <div className="flex gap-1.5">
+            <DarkButton
+              onClick={() => navigate(`/floor?action=extend&table=${table.id}`)}
+              className="text-sm flex items-center gap-1"
+              title="ご延長交渉印字を表示 (ホール画面で卓を開いて印字)"
+            >
+              <FileText size={15} /> 延長交渉
+            </DarkButton>
+            <DarkButton
+              onClick={() => navigate(`/order?table=${table.id}`)}
+              className="text-sm flex items-center gap-1"
+            >
+              <FileText size={15} /> 注文追加
+            </DarkButton>
+          </div>
         }
       />
     </div>

@@ -688,6 +688,11 @@ function AddBottleModal({
   bottleCustomer: string; setBottleCustomer: (v: string) => void
   onClose: () => void; onSave: () => void
 }) {
+  // ビデオレビュー N9: シャンパンはボトルキープ対象外。ウイスキー/焼酎/ブランデーのみ
+  // 簡易バリデーション: ボトル名にシャンパン銘柄が含まれていればアラート
+  const isChampagneLike = /シャンパン|ヴーヴ|モエ|ソウメイ|アルマンド|エンジェル|クリスタル|サロン|ドンペリ|D\.ROCK|ペリエ/i.test(bottleName)
+  const canSave = !!bottleName && !!bottleCustomer && !isChampagneLike
+
   return (
     <Modal
       open
@@ -697,22 +702,28 @@ function AddBottleModal({
       footer={
         <>
           <GhostButton onClick={onClose} className="flex-1">キャンセル</GhostButton>
-          <GoldButton onClick={onSave} disabled={!bottleName || !bottleCustomer} className="flex-1">登録</GoldButton>
+          <GoldButton onClick={onSave} disabled={!canSave} className="flex-1">登録</GoldButton>
         </>
       }
     >
+      {/* ビデオレビュー N8: 入力欄の順序を整理 (登録順固定で上下入れ替わりを防止) */}
       <div className="space-y-3">
         <FormField label="ボトル名">
           <Input type="text" value={bottleName} onChange={(e) => setBottleName(e.target.value)} placeholder="例: 響 17年" />
+          {isChampagneLike && (
+            <div className="text-[11px] text-red-400 mt-1">
+              ※ シャンパンはボトルキープ対象外です (ウイスキー / 焼酎 / ブランデーのみ)
+            </div>
+          )}
+        </FormField>
+        <FormField label="お客様の名前">
+          <Input type="text" value={bottleCustomer} onChange={(e) => setBottleCustomer(e.target.value)} placeholder="例: 田中様" />
+        </FormField>
+        <FormField label="保管場所 (任意)">
+          <Input type="text" value={bottleStorage} onChange={(e) => setBottleStorage(e.target.value)} placeholder="例: A-3" />
         </FormField>
         <FormField label={`残量: ${bottleRemaining}%`}>
           <input type="range" min="0" max="100" value={bottleRemaining} onChange={(e) => setBottleRemaining(Number(e.target.value))} className="w-full" />
-        </FormField>
-        <FormField label="保管場所">
-          <Input type="text" value={bottleStorage} onChange={(e) => setBottleStorage(e.target.value)} placeholder="例: A-3" />
-        </FormField>
-        <FormField label="担当客名">
-          <Input type="text" value={bottleCustomer} onChange={(e) => setBottleCustomer(e.target.value)} placeholder="例: 田中様" />
         </FormField>
       </div>
     </Modal>
