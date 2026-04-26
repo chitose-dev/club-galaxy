@@ -12,6 +12,7 @@ import {
   displayOrderName,
 } from '../data/mock'
 import { getNominationBadge, getNominationLabel } from '../utils/nomination'
+import { getSetLabel } from '../utils/setCountLabel'
 import { Clock, Users, Plus, Printer, RotateCcw, ChevronRight, FileText, CreditCard, Undo2 } from 'lucide-react'
 import { openPrintWindow } from '../utils/print'
 import BottomActionBar from '../components/BottomActionBar'
@@ -702,7 +703,8 @@ export default function FloorPage() {
                 </div>
                 <div className="panel p-3">
                   <div className="text-gray-500 text-xs mb-1">セット数</div>
-                  <div className="font-medium">{selected.setCount}</div>
+                  {/* ビデオレビュー C9-C11: 1セット目 / EX1半 / EX1 / EX2半 / EX2 表記 */}
+                  <div className="font-medium">{getSetLabel(selected)}</div>
                 </div>
               </div>
             </div>
@@ -948,30 +950,44 @@ export default function FloorPage() {
           const setUnitAdjusted = Math.max(0, setUnit - (selected.setDiscountPerSet ?? 0))
           const fullSetCharge = setUnitAdjusted * selected.guestCount
           const extCharge = pendingExtend.minutes === 60 ? fullSetCharge : Math.round(fullSetCharge / 2)
-          // 本指名は継続 (R8-5)、場内指名は継承するが変更可
+          // ビデオレビュー C13: 場内指名は基本継承
           const shimeiContinue = selected.mainNominationCastNames.length * 1500
           const banaiContinue = selected.isBanaiShimei ? 500 * selected.assignedCasts.length : 0
           const subtotal = extCharge + shimeiContinue + banaiContinue
+
+          // ビデオレビュー C14: 1 セット目確定金額の表示 (税サ込み)
+          const drinkTotal = selected.orders.reduce((s, o) => s + o.menuItem.price * o.quantity, 0)
+          const setSubtotalCommitted = setUnitAdjusted * selected.guestCount * selected.setCount
+          const subtotalAll = setSubtotalCommitted + drinkTotal
+          const tax = Math.floor(subtotalAll * storeSettings.taxRate)
+          const committedTotal = subtotalAll + tax
+
           return (
             <div className="space-y-3">
+              {/* C14: 1 セット目確定金額 */}
+              <div className="panel-gold p-3">
+                <div className="text-xs text-gray-300 mb-1">{getSetLabel(selected)} 確定金額 (税サ込)</div>
+                <div className="text-xl font-bold text-gold tabular-nums">¥{committedTotal.toLocaleString()}</div>
+              </div>
+
               <div className="panel p-3 space-y-1.5">
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-400">延長時間</span>
                   <span className="font-bold">+{pendingExtend.minutes}分</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">延長料金</span>
+                  <span className="text-gray-400">延長料金 ({selected.guestCount}名 × ¥{setUnitAdjusted.toLocaleString()})</span>
                   <span className="font-bold text-gold tabular-nums">¥{extCharge.toLocaleString()}</span>
                 </div>
                 {shimeiContinue > 0 && (
                   <div className="flex justify-between text-xs">
-                    <span className="text-gray-500">本指名料 (継続 / {selected.mainNominationCastNames.join(', ')})</span>
+                    <span className="text-gray-500">本指名料 (継承 / {selected.mainNominationCastNames.join(', ')})</span>
                     <span className="tabular-nums text-gray-300">¥{shimeiContinue.toLocaleString()}</span>
                   </div>
                 )}
                 {banaiContinue > 0 && (
                   <div className="flex justify-between text-xs">
-                    <span className="text-gray-500">場内指名料 (継続 / {selected.assignedCasts.length}名)</span>
+                    <span className="text-gray-500">場内指名料 (継承 / {selected.assignedCasts.length}名)</span>
                     <span className="tabular-nums text-gray-300">¥{banaiContinue.toLocaleString()}</span>
                   </div>
                 )}
@@ -982,14 +998,18 @@ export default function FloorPage() {
                   </div>
                 )}
               </div>
+
+              {/* C12: 本指名 → フリー変更不可。本指名キャストがいる場合はフリー選択肢を出さない */}
               <div>
-                <label className="text-xs text-gray-500 block mb-1.5">指名 (バック帰属先・任意)</label>
+                <label className="text-xs text-gray-500 block mb-1.5">指名 (バック帰属先)</label>
                 <div className="flex gap-2 flex-wrap">
-                  <CastChip
-                    name="フリー"
-                    selected={!pendingExtend.castName}
-                    onClick={() => setPendingExtend({ ...pendingExtend, castName: undefined })}
-                  />
+                  {selected.mainNominationCastNames.length === 0 && (
+                    <CastChip
+                      name="フリー"
+                      selected={!pendingExtend.castName}
+                      onClick={() => setPendingExtend({ ...pendingExtend, castName: undefined })}
+                    />
+                  )}
                   {selected.assignedCasts.map((name) => (
                     <CastChip
                       key={name}
@@ -999,8 +1019,24 @@ export default function FloorPage() {
                     />
                   ))}
                 </div>
-                <p className="text-[10px] text-gray-600 mt-1.5">※ 未選択の場合、延長分のバックは付きません</p>
+                {selected.mainNominationCastNames.length > 0 && (
+                  <p className="text-[10px] text-gray-600 mt-1.5">※ 本指名がついている卓はフリーに変更できません</p>
+                )}
               </div>
+
+              {/* C13: 場内指名は継承するが変更可。トグルで外せる */}
+              {selected.isBanaiShimei !== undefined && (
+                <div className="panel p-2.5 flex items-center justify-between">
+                  <span className="text-xs text-gray-400">場内指名 (継承)</span>
+                  <button
+                    onClick={() => updateTable(selected.id, { isBanaiShimei: !selected.isBanaiShimei })}
+                    className={`text-xs px-3 py-1 rounded-full border ${selected.isBanaiShimei ? 'bg-gold/20 border-gold text-gold' : 'bg-white/5 border-white/10 text-gray-500'}`}
+                  >
+                    {selected.isBanaiShimei ? '✓ 継続' : '解除'}
+                  </button>
+                </div>
+              )}
+
               <p className="text-sm text-gray-400">延長してよろしいですか?</p>
             </div>
           )
