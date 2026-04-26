@@ -105,11 +105,17 @@ export default function SalaryPage() {
   // 指示書§4.1: 給与 = (時給×時間 + 各種バック) × 0.9 (ホステス税10%控除)
   // 最終振込 = 給与 − 日払い − 天引き
   // 追補03 R25: 時給計算は 15 分単位 + ルーズタイム 15 分を適用
-  const taxablePre = cast ? calcHourlyPay(cast.hourlyRate, totalHours) + totalBackAmount : 0   // 税引前
-  const grossSalary = Math.floor(taxablePre * 0.9)                                // 支給額(指示書)
-  const hostessTax = taxablePre - grossSalary                                     // ホステス税(−10%)
-  // 参考: 要件定義書 MAX 式での保証額(UI表示のみ、計算には使わない)
+  const hourlyAndBackTotal = cast ? calcHourlyPay(cast.hourlyRate, totalHours) + totalBackAmount : 0
+
+  // ビデオレビュー N5 (ホ2 03:14): 売上保証ロジックを正式実装
+  //   給与 = MAX(時給+バック合計, 月小型売上 × 保証率)
+  //   - 出勤少 / 売上多 → 売上保証で得
+  //   - 出勤多 / 売上少 → 時給+バックの方が大きい
   const guaranteeBase = cast ? Math.floor(totalSales * cast.guaranteeRate) : 0
+  const taxablePre = Math.max(hourlyAndBackTotal, guaranteeBase)
+  const grossSalary = Math.floor(taxablePre * 0.9)                                // 支給額 (10% ホステス税控除後)
+  const hostessTax = taxablePre - grossSalary                                     // ホステス税
+  const guaranteeApplied = guaranteeBase > hourlyAndBackTotal                     // 売上保証が発動したか
   const netSalary = grossSalary - dailyPayTotal - deductionTotal                  // 最終振込
 
   const getDayBackAmount = (w: DailyWork): number => {
@@ -260,9 +266,9 @@ export default function SalaryPage() {
                 <div className="text-sm font-bold text-gold tabular-nums">¥{netSalary.toLocaleString()}</div>
               </div>
             </div>
-            {guaranteeBase > taxablePre && (
-              <div className="text-[10px] text-amber-400/70 mt-1 text-center">
-                ※参考: 保証金額(売上×{(cast.guaranteeRate * 100).toFixed(0)}%) ¥{guaranteeBase.toLocaleString()} (要件定義書MAX式は衝突記録参照)
+            {guaranteeApplied && (
+              <div className="text-[11px] text-emerald-400 mt-1 text-center bg-emerald-500/10 border border-emerald-500/30 rounded px-2 py-1">
+                ✓ 売上保証適用 (時給+バック ¥{hourlyAndBackTotal.toLocaleString()} → 保証 ¥{guaranteeBase.toLocaleString()} = 売上×{(cast.guaranteeRate * 100).toFixed(0)}%)
               </div>
             )}
           </div>

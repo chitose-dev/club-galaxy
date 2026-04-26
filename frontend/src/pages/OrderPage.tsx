@@ -12,15 +12,20 @@ import { Input, Field as FormField } from '../components/Input'
 import { GoldButton, DangerButton, DarkButton, GhostButton } from '../components/Buttons'
 import { openPrintWindow } from '../utils/print'
 
-const HELP_BACK_ITEM: CastMenuItem = {
+// ビデオレビュー N6 (注1 15:50): ヘルプの再定義
+//   - 待機キャストが場内指名なしで入った状態
+//   - 価格 ¥4,000 (店舗売上として全額計上)
+//   - キャストバック 0 (誰にもバックなし)
+//   - キャストの個人売上には載せない (= castName を紐付けない)
+//   - category: 'guest' で扱い (キャストドリンクではない)
+const HELP_GUEST_ITEM = {
   id: 999,
   name: 'ヘルプ',
-  price: 0,
+  price: 4000,
   cost: 0,
   castBack: 0,
-  category: 'cast',
-  subcategory: 'fdrink',
-  backType: 'ヘルプ',
+  category: 'guest' as const,
+  subcategory: 'warimono' as const,
 }
 
 type CategoryKey =
@@ -153,11 +158,8 @@ export default function OrderPage() {
 
   const handleAddHelp = () => {
     if (!selectedTableId) return
-    if (!selectedCastName) {
-      alert('ヘルプバックはキャストを選択してから追加してください')
-      return
-    }
-    addOrderToTable(selectedTableId, { menuItem: HELP_BACK_ITEM, quantity: 1, castName: selectedCastName })
+    // ビデオレビュー N6: ヘルプはキャスト紐付けなし、全額店舗売上
+    addOrderToTable(selectedTableId, { menuItem: HELP_GUEST_ITEM, quantity: 1 })
   }
 
   const handleRemove = (itemId: number, castName?: string) => {

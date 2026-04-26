@@ -658,13 +658,27 @@ export default function FloorPage() {
                   >
                     {selected.isDouhan ? '✓ ' : ''}同伴
                   </button>
+                  {/* ビデオレビュー N7: 本指名と場内指名は排他 (本指名キャストには場内指名つかない) */}
                   <button
                     onClick={() => updateTable(selected.id, { isBanaiShimei: !selected.isBanaiShimei })}
-                    className={`text-xs px-2.5 py-1 rounded-full border ${selected.isBanaiShimei ? 'bg-gold/20 border-gold text-gold' : 'bg-white/5 border-white/10 text-gray-400'}`}
+                    disabled={selected.mainNominationCastNames.length > 0}
+                    className={`text-xs px-2.5 py-1 rounded-full border ${
+                      selected.mainNominationCastNames.length > 0
+                        ? 'bg-white/5 border-white/10 text-gray-700 cursor-not-allowed'
+                        : selected.isBanaiShimei
+                        ? 'bg-gold/20 border-gold text-gold'
+                        : 'bg-white/5 border-white/10 text-gray-400'
+                    }`}
+                    title={selected.mainNominationCastNames.length > 0 ? '本指名がある卓には場内指名はつきません' : ''}
                   >
                     {selected.isBanaiShimei ? '✓ ' : ''}場内指名
                   </button>
                 </div>
+                {selected.mainNominationCastNames.length > 0 && selected.isBanaiShimei && (
+                  <div className="text-[10px] text-amber-400 mt-1">
+                    ※ 本指名がついているため場内指名は外してください
+                  </div>
+                )}
               </div>
 
               {/* 入店時刻 + 人数 + セット料金 + セット数 */}
