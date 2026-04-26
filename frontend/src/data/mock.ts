@@ -535,12 +535,7 @@ export const castMenuItems: CastMenuItem[] = [
   // ─── Lビール ───
   { id: 205, name: 'Lビール (FB)', price: 1500, cost: 400, castBack: 300, category: 'cast', subcategory: 'fbeer', backType: 'FB' },
   { id: 215, name: 'Lビール (本B)', price: 2000, cost: 500, castBack: 500, category: 'cast', subcategory: 'honbeer', backType: '本B' },
-
-  // ─── 個別銘柄 (現行を維持、本カク/本ショ 系列として継続) ───
-  { id: 206, name: 'キティ', price: 1500, cost: 300, castBack: 400, category: 'cast', subcategory: 'honkaku', backType: '本カク' },
-  { id: 207, name: 'ミッフィ', price: 1500, cost: 300, castBack: 400, category: 'cast', subcategory: 'honkaku', backType: '本カク' },
-  { id: 208, name: 'コカボム', price: 2500, cost: 500, castBack: 500, category: 'cast', subcategory: 'honshot', backType: '本ショ' },
-  { id: 209, name: 'クライナー各種', price: 2500, cost: 500, castBack: 500, category: 'cast', subcategory: 'honshot', backType: '本ショ' },
+  // ビデオレビュー D1: 「キティ・ミッフィ・コカボム・クライナー」はカテゴリ違い (ショット系) のため削除済
 ]
 
 export const allMenuItems: MenuItem[] = [...guestMenuItems, ...castMenuItems]

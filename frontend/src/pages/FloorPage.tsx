@@ -10,7 +10,6 @@ import {
   SET_DURATION_MINUTES,
   chargeItems,
   displayOrderName,
-  EXTENSION_CHARGES,
 } from '../data/mock'
 import { getNominationBadge, getNominationLabel } from '../utils/nomination'
 import { Clock, Users, Plus, Printer, RotateCcw, ChevronRight, FileText, CreditCard, Undo2 } from 'lucide-react'
@@ -109,7 +108,7 @@ function flColor(rate: number) {
 }
 
 export default function FloorPage() {
-  const { tables, casts, setCasts, updateTable, bottleKeeps, flMetrics, storeSettings } = useStore()
+  const { tables, casts, setCasts, updateTable, flMetrics, storeSettings } = useStore()
   const navigate = useNavigate()
   // selected は ID のみ保持し、tables からの dynamic reference で最新状態を反映
   // (updateTable 後に selected が stale になるバグを防ぐ)
@@ -186,7 +185,23 @@ export default function FloorPage() {
 
   const confirmCheckIn = () => {
     if (!selected) return
-    const assignedNames = ciCastNames.length > 0 ? ciCastNames : [activeCasts[0]?.name ?? '']
+    // ビデオレビュー B1: 入店開始押下時にキャストが勝手に選ばれないように
+    //   従来: ciCastNames が空なら activeCasts[0] を自動セット (= 「あいり」が勝手に入る)
+    //   修正: ciCastNames をそのまま使用 (空なら担当なし = フリー扱い)
+    const assignedNames = ciCastNames
+
+    // ビデオレビュー B2/B3: 1 キャスト 1 卓ロック — 別卓で対応中のキャストはここで自動的に外す
+    if (assignedNames.length > 0) {
+      for (const t of tables) {
+        if (t.id === selected.id) continue
+        const overlap = t.assignedCasts.filter((n) => assignedNames.includes(n))
+        if (overlap.length > 0) {
+          updateTable(t.id, {
+            assignedCasts: t.assignedCasts.filter((n) => !assignedNames.includes(n)),
+          })
+        }
+      }
+    }
     const autoOrders: Table['orders'] = []
 
     // 指示書§1.2: シングルチャージは 1 名様のみ自動付与
@@ -272,7 +287,13 @@ export default function FloorPage() {
   const confirmExtend = () => {
     if (!selected || !pendingExtend) return
     const { minutes, castName } = pendingExtend
-    const charge = EXTENSION_CHARGES[minutes]
+    // ビデオレビュー B7: 延長料金は固定額ではなく、時間帯セット料金 × 人数 で計算
+    //   例: 8 名様、20:00〜セット (4,000円/名) → +60分延長で ¥32,000
+    //   30 分延長は半額相当
+    const setUnit = selected.startTime ? getSetPriceForTime(selected.startTime) : 0
+    const setUnitAdjusted = Math.max(0, setUnit - (selected.setDiscountPerSet ?? 0))
+    const fullSetCharge = setUnitAdjusted * selected.guestCount
+    const charge = minutes === 60 ? fullSetCharge : Math.round(fullSetCharge / 2)
     const entryId = Date.now()
     const orderId = 2000 + entryId  // 延長料金は注文IDの2000番台
     const newEntry = {
@@ -282,7 +303,7 @@ export default function FloorPage() {
       nominatedCastName: castName,
       orderMenuItemId: orderId,
     } as const
-    // 延長料金を注文に追加 (指示書§G-4/G-5: 固定額 1000円/3000円)
+    // 延長料金を注文に追加 (ビデオレビュー B7: 人数連動)
     const extensionOrder = {
       menuItem: {
         id: orderId,
@@ -626,34 +647,24 @@ export default function FloorPage() {
                 <div className="font-medium">{selected.setCount}</div>
               </div>
             </div>
-            {/* セット料金値引き (指示書§1.1 / 追補02 R12: 削除時 0 残留を防ぐ) */}
+            {/* セット料金値引き (指示書§1.1 / 追補02 R12: 削除時 0 残留を防ぐ)
+                ビデオレビュー D3: 値引き 0 のときは説明文を控えめに */}
             <div className="mt-3 panel p-3">
-              <label className="text-xs text-gray-500 block mb-1.5">セット料金値引き (1セットあたりの割引額)</label>
+              <label className="text-xs text-gray-500 block mb-1.5">
+                セット料金値引き
+                {(selected.setDiscountPerSet ?? 0) > 0 ? ' (1セットあたりの割引額)' : <span className="text-gray-700"> (任意)</span>}
+              </label>
               <NumberInput
                 value={selected.setDiscountPerSet ?? 0}
                 onChange={(v) => updateTable(selected.id, { setDiscountPerSet: v })}
                 min={0}
                 step={100}
-                unit="円 / セット"
+                unit={(selected.setDiscountPerSet ?? 0) > 0 ? '円 / セット' : undefined}
               />
             </div>
 
-            {/* Bottle keeps */}
-            {(() => {
-              const keeps = bottleKeeps.filter((b) => b.tableNumber === selected.number)
-              if (keeps.length === 0) return null
-              return (
-                <div className="mt-4 panel-gold p-3">
-                  <div className="text-xs text-gold font-bold mb-2">キープボトル</div>
-                  {keeps.map((k) => (
-                    <div key={k.id} className="flex justify-between text-sm mb-1">
-                      <span>{k.bottleName} ({k.customerName})</span>
-                      <span className={k.remaining <= 20 ? 'text-accent font-bold' : ''}>{k.remaining}%</span>
-                    </div>
-                  ))}
-                </div>
-              )
-            })()}
+            {/* ビデオレビュー D2: 卓詳細からキープボトル表示を削除
+                (操作がややこしいため、ボトルキープページに集約) */}
 
             {selected.orders.length > 0 && (
               <div className="mt-4 panel p-3">
@@ -928,9 +939,12 @@ export default function FloorPage() {
         }
       >
         {pendingExtend && selected && (() => {
-          // 追補02 R8-2/R8-6: 延長料金 + 継続指名料金のシミュレーション
-          const extCharge = EXTENSION_CHARGES[pendingExtend.minutes]
-          // 本指名は継続 (R8-5)、場内指名は継承するが変更可 (今のダイアログでの簡易表示)
+          // ビデオレビュー B7: 延長料金は時間帯セット料金 × 人数 で計算
+          const setUnit = selected.startTime ? getSetPriceForTime(selected.startTime) : 0
+          const setUnitAdjusted = Math.max(0, setUnit - (selected.setDiscountPerSet ?? 0))
+          const fullSetCharge = setUnitAdjusted * selected.guestCount
+          const extCharge = pendingExtend.minutes === 60 ? fullSetCharge : Math.round(fullSetCharge / 2)
+          // 本指名は継続 (R8-5)、場内指名は継承するが変更可
           const shimeiContinue = selected.mainNominationCastNames.length * 1500
           const banaiContinue = selected.isBanaiShimei ? 500 * selected.assignedCasts.length : 0
           const subtotal = extCharge + shimeiContinue + banaiContinue

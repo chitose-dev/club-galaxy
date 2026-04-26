@@ -118,17 +118,14 @@ export default function OrderPage() {
       addOrderToTable(selectedTableId, { menuItem: item, quantity: 1, castName: selectedCastName })
       return
     }
-    // 先方フィードバック (2026-04-23): guest メニューは以下のロジックで売上帰属を決定
-    //   1. キャスト明示選択 → そのキャストの売上 (最優先)
-    //   2. 指名なし + 本指名卓 → 本指名担当の売上 (自動帰属)
-    //   3. 指名なし + フリー卓 → 店舗売上のみ (キャスト紐付けなし)
-    // ※ ゲストドリンク (ショット・ピッチャー・ビール等) はバック無し。売上帰属のみ変動。
-    // 追補03 R24: 複数本指名の場合、指名なしゲストドリンクは先頭 1 名に帰属
-    const castName = selectedCastName ?? selectedTable.mainNominationCastNames[0]
+    // ビデオレビュー B6: 「指名なし」を選んだ場合は本当に誰にも紐付かない
+    //   従来 (R18): 指名なし + 本指名卓 → 本指名担当に自動帰属
+    //   修正: ユーザーが明示的に「指名なし」を選んだ場合は店舗売上のみとして扱う
+    //   本指名担当に紐付けたい場合は、本指名キャストのチップを明示的にタップ
     addOrderToTable(selectedTableId, {
       menuItem: item,
       quantity: 1,
-      castName: castName || undefined,
+      castName: selectedCastName ?? undefined,
     })
   }
 
@@ -614,7 +611,9 @@ function BottleSection({
   onUpdate: (id: number, patch: Partial<{ remaining: number }>) => void
   onRemove: (id: number) => void
 }) {
-  const sorted = [...bottleKeeps].sort((a, b) => a.remaining - b.remaining)
+  // ビデオレビュー B9: 残量で並び替えると操作のたびに上下が入れ替わって混乱する
+  //   id (登録順) で固定ソートに変更
+  const sorted = [...bottleKeeps].sort((a, b) => a.id - b.id)
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
