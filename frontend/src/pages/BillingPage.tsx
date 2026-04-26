@@ -30,7 +30,8 @@ export default function BillingPage() {
   const [selectedTableId, setSelectedTableId] = useState<number>(initialTableId)
   const [mergeTableIds, setMergeTableIds] = useState<number[]>([])
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash')
-  const [cardInputAmount, setCardInputAmount] = useState('')
+  // ビデオレビュー C15: 「現金額入力 → 残額をカードに」方式に変更 (旧: カード額入力)
+  const [cashInputAmount, setCashInputAmount] = useState('')
   const [discount, setDiscount] = useState(0)
   const [discountReason, setDiscountReason] = useState('')
   const [showConfirm, setShowConfirm] = useState(false)
@@ -59,55 +60,72 @@ export default function BillingPage() {
   // 早期 return (会計対象なし状態) でも完了直後に会計履歴からの再印刷が動くよう、
   // この宣言は table の有無判定より先に置く必要がある。
   const receiptPrintBlock = lastBillingData ? (() => {
-    // 追補03 R21: 領収書は金額のみ簡略化のため、内訳カテゴリ集計は不要に
+    // ビデオレビュー W2: ダイソー風 横長レシートに再変更
+    //   - 横長 (左右に情報配置)
+    //   - 「領収書」見出しを右上 + No
+    //   - 年月日 / 担当不要 / ○○様 ¥金額 / うち消費税 / 但書「飲食代として」
+    //   - 印影スペース / 左下に CLUB GALAXY・住所・電話番号
     const stampRequired = lastBillingData.total > 50000
-    const paymentBlockTitle = `[ ${paymentLabel(lastBillingData.paymentMethod)}支払い ]`
 
     return (
     <div className="print-only">
-      <div ref={receiptRef} className="bg-white text-black p-6 mb-4 print-receipt" style={{ fontFamily: 'serif' }}>
-        <div className="text-center mb-2">
-          <h2 className="text-lg font-bold tracking-widest">{storeSettings.storeName}</h2>
-          <div className="text-2xl font-bold tracking-[0.5em] mt-1 mb-1">領 収 証</div>
-        </div>
-        <div className="flex justify-between text-xs mb-1">
-          <span>{new Date().toLocaleString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-          <span>No. {String(lastBillingData.receiptNumber).padStart(6, '0')}</span>
-        </div>
-        {storeSettings.storeAddress && <div className="text-xs">{storeSettings.storeAddress}</div>}
-        {storeSettings.storePhone && <div className="text-xs">TEL: {storeSettings.storePhone}</div>}
-        <div className="text-xs mb-2">登録番号: {storeSettings.invoiceNumber}</div>
-        <div className="border-t border-dashed border-gray-500 my-2" />
-
-        <div className="text-sm my-3">
-          <span>宛名 : </span>
-          <span className="inline-block min-w-[180px] text-center border-b border-black pb-0.5">
-            {lastBillingData.receiptName || '　上様　'}
-          </span>
-          <span className="ml-2">様</span>
-        </div>
-
-        <div className="text-lg mb-2">
-          <span>金額 : </span>
-          <span className="text-2xl font-bold tracking-wider">¥ {lastBillingData.total.toLocaleString()} －</span>
-        </div>
-
-        <div className="text-sm mb-3">
-          但し、{lastBillingData.receiptPurpose || 'ご飲食代'}として上記正に領収いたしました
-        </div>
-
-        <div className="flex items-start justify-between mb-3">
-          <div className="text-sm pt-6">ご来店ありがとうございました。</div>
-          <div
-            className={`border-2 rounded-sm px-4 py-3 text-center text-xs ${stampRequired ? 'border-black text-black' : 'border-gray-300 text-gray-300'}`}
-            style={{ minWidth: 90 }}
-          >
-            収入印紙<br />{stampRequired ? '貼付欄' : '(不要)'}
+      <div ref={receiptRef} className="bg-white text-black p-5 mb-4 print-receipt" style={{ fontFamily: 'serif', minWidth: 600 }}>
+        {/* 横長 2 列レイアウト */}
+        <div className="flex justify-between items-start mb-3 border-b-2 border-black pb-2">
+          {/* 左: 年月日 + 宛名 */}
+          <div>
+            <div className="text-xs mb-1">
+              {new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' })}
+            </div>
+            <div className="text-base">
+              <span className="inline-block min-w-[160px] border-b border-black px-2">
+                {lastBillingData.receiptName || '　上様　'}
+              </span>
+              <span className="ml-1">様</span>
+            </div>
+          </div>
+          {/* 右: 領収書見出し + No */}
+          <div className="text-right">
+            <h2 className="text-2xl font-bold tracking-[0.5em]">領収書</h2>
+            <div className="text-xs mt-1">No. {String(lastBillingData.receiptNumber).padStart(6, '0')}</div>
           </div>
         </div>
-        {/* 追補03 R21: 領収書には金額のみ。詳細内訳は「ご延長交渉」紙で渡す運用に */}
-        <div className="text-sm font-bold border-t border-gray-400 pt-2">
-          {paymentBlockTitle}
+
+        {/* 中央: 金額大表示 */}
+        <div className="flex justify-center my-3">
+          <div className="text-3xl font-bold tracking-wider">
+            ¥ {lastBillingData.total.toLocaleString()} －
+          </div>
+        </div>
+
+        <div className="text-sm text-center mb-3">
+          但し、{lastBillingData.receiptPurpose || '飲食代'}として
+        </div>
+        <div className="text-xs text-center text-gray-600 mb-3">
+          うち消費税 (10%): ¥{lastBillingData.consumptionTax.toLocaleString()}
+        </div>
+
+        {/* 下部: 左に店舗情報 / 右に印紙 */}
+        <div className="flex justify-between items-end pt-3 border-t border-dashed border-gray-400">
+          <div className="text-xs">
+            <div className="font-bold tracking-widest">{storeSettings.storeName}</div>
+            {storeSettings.storeAddress && <div>{storeSettings.storeAddress}</div>}
+            {storeSettings.storePhone && <div>TEL: {storeSettings.storePhone}</div>}
+            <div className="text-gray-600">登録番号: {storeSettings.invoiceNumber}</div>
+          </div>
+          <div className="flex items-end gap-3">
+            {/* 印影スペース */}
+            <div className="border border-gray-400 rounded-full w-16 h-16 flex items-center justify-center text-[10px] text-gray-400">
+              印
+            </div>
+            {/* 印紙 */}
+            <div
+              className={`border-2 rounded-sm px-3 py-2 text-center text-[10px] ${stampRequired ? 'border-black text-black' : 'border-gray-300 text-gray-300'}`}
+              style={{ minWidth: 80 }}
+            >
+              収入印紙<br />{stampRequired ? '貼付欄' : '(不要)'}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -225,19 +243,17 @@ export default function BillingPage() {
 
   const cardFee = paymentMethod === 'card'
     ? Math.floor(preCardTotal * cardFeeRate)
-    : paymentMethod === 'mixed'
-    ? (() => {
-        const cardAmt = Number(cardInputAmount) || 0
-        return cardAmt > 0 ? Math.floor(cardAmt * cardFeeRate) : 0
-      })()
     : 0
 
-  const total = preCardTotal + cardFee
-
-  const mixedCardAmount = paymentMethod === 'mixed' ? (Number(cardInputAmount) || 0) : 0
+  // ビデオレビュー C15: 現金額入力 → 残額を自動的にカードへ
+  //   例: preCardTotal = 38,400、現金 30,000 → カード差額 = 8,400、手数料 = 840
+  //   会計総額 = preCardTotal + カード手数料 (= 元金 + 残額の手数料)
+  const mixedCashAmount = paymentMethod === 'mixed' ? (Number(cashInputAmount) || 0) : 0
+  const mixedCardAmount = paymentMethod === 'mixed' ? Math.max(0, preCardTotal - mixedCashAmount) : 0
   const mixedCardFee = paymentMethod === 'mixed' && mixedCardAmount > 0 ? Math.floor(mixedCardAmount * cardFeeRate) : 0
-  const mixedTotalWithFee = paymentMethod === 'mixed' ? preCardTotal + mixedCardFee : total
-  const mixedCashAmount = paymentMethod === 'mixed' ? Math.max(0, mixedTotalWithFee - mixedCardAmount) : 0
+  const mixedTotalWithFee = paymentMethod === 'mixed' ? preCardTotal + mixedCardFee : preCardTotal + cardFee
+
+  const total = preCardTotal + cardFee
 
   const finalTotal = paymentMethod === 'mixed' ? mixedTotalWithFee : total
   const perPerson = splitCount > 0 ? Math.ceil(finalTotal / splitCount) : 0
@@ -360,8 +376,6 @@ export default function BillingPage() {
     for (const mid of mergeTableIds) {
       resetTable(mid)
     }
-    const excludeIds = new Set<number>([table.id, ...mergeTableIds])
-    const nextOccupied = occupiedTables.find((t) => !excludeIds.has(t.id))
     resetTable(table.id)
     setShowConfirm(false)
     setShowReceipt(true)
@@ -369,15 +383,13 @@ export default function BillingPage() {
     setDiscountReason('')
     setSplitCount(0)
     setMergeTableIds([])
-    // 会計完了後、次の卓があれば自動選択 (ポップアップを閉じたらそのまま次の卓の会計画面へ)
-    if (nextOccupied) setSelectedTableId(nextOccupied.id)
   }
 
   const handleDismissReceipt = () => {
     setShowReceipt(false)
     setLastBillingData(null)
-    // 次の卓もなければホールに戻る
-    if (occupiedTables.length === 0) navigate('/floor')
+    // ビデオレビュー C17: 会計完了後は常にホール画面に戻る (次の卓自動遷移をやめる)
+    navigate('/floor')
   }
 
   const doPrint = (mode: 'detailed' | 'summary') => {
@@ -431,7 +443,7 @@ export default function BillingPage() {
         right={
           <select
             value={selectedTableId}
-            onChange={(e) => { setSelectedTableId(Number(e.target.value)); setDiscount(0); setDiscountReason(''); setSplitCount(0); setPaymentMethod('cash'); setCardInputAmount('') }}
+            onChange={(e) => { setSelectedTableId(Number(e.target.value)); setDiscount(0); setDiscountReason(''); setSplitCount(0); setPaymentMethod('cash'); setCashInputAmount('') }}
             className="bg-primary-dark/60 border border-gold/20 rounded-lg px-3 py-1.5 text-sm text-white"
           >
             {occupiedTables.map((t) => (
@@ -575,7 +587,7 @@ export default function BillingPage() {
                   <Tabs<PaymentMethod>
                     variant="pills"
                     value={paymentMethod}
-                    onChange={(m) => { setPaymentMethod(m); setCardInputAmount('') }}
+                    onChange={(m) => { setPaymentMethod(m); setCashInputAmount('') }}
                     items={[
                       { key: 'cash', label: '現金' },
                       { key: 'card', label: 'カード' },
@@ -585,20 +597,47 @@ export default function BillingPage() {
                   />
                   {paymentMethod === 'mixed' && (
                     <div className="mt-2">
-                      <Field label="カード決済金額">
+                      <Field label="現金額 (残額をカード決済)">
                         <Input
                           type="number"
-                          value={cardInputAmount}
-                          onChange={(e) => setCardInputAmount(e.target.value)}
-                          placeholder="カード金額を入力"
+                          value={cashInputAmount}
+                          onChange={(e) => setCashInputAmount(e.target.value)}
+                          placeholder="現金で受け取る金額"
                           className="tabular-nums"
                         />
                       </Field>
-                      {mixedCardAmount > 0 && (
+                      {/* ビデオレビュー C16: ハスカット (端数カット) ボタン
+                          残額 (= preCardTotal - 現金) の 100 円未満端数を切り捨てる */}
+                      <div className="flex gap-1.5 mt-2">
+                        {[1000, 5000, 10000, 30000].map((qa) => (
+                          <button
+                            key={qa}
+                            onClick={() => setCashInputAmount(String((Number(cashInputAmount) || 0) + qa))}
+                            className="flex-1 text-xs panel py-1.5 hover:bg-white/10 rounded"
+                          >
+                            +{qa.toLocaleString()}
+                          </button>
+                        ))}
+                        <button
+                          onClick={() => {
+                            // ハスカット: 現金額を調整して、カード残額を 1000 円単位の丸い数字に
+                            const cur = Number(cashInputAmount) || 0
+                            const remainder = Math.max(0, preCardTotal - cur)
+                            const trim = remainder % 1000
+                            setCashInputAmount(String(cur + trim))
+                          }}
+                          className="text-xs px-3 py-1.5 bg-amber-500/15 border border-amber-500/30 text-amber-300 rounded"
+                          title="残額の 1000 円未満を現金に吸収して丸める"
+                        >
+                          ハスカット
+                        </button>
+                      </div>
+                      {mixedCashAmount > 0 && (
                         <div className="mt-2 space-y-1 text-sm">
-                          <div className="flex justify-between text-blue-300"><span>カード手数料</span><span className="tabular-nums">¥{mixedCardFee.toLocaleString()}</span></div>
-                          <div className="flex justify-between"><span className="text-gray-500">カード支払</span><span className="tabular-nums">¥{mixedCardAmount.toLocaleString()}</span></div>
-                          <div className="flex justify-between font-bold"><span>現金支払</span><span className="tabular-nums">¥{mixedCashAmount.toLocaleString()}</span></div>
+                          <div className="flex justify-between font-bold"><span>現金受取</span><span className="tabular-nums">¥{mixedCashAmount.toLocaleString()}</span></div>
+                          <div className="flex justify-between"><span className="text-gray-500">カード差額</span><span className="tabular-nums">¥{mixedCardAmount.toLocaleString()}</span></div>
+                          <div className="flex justify-between text-blue-300"><span>カード手数料 (+{(cardFeeRate * 100).toFixed(0)}%)</span><span className="tabular-nums">¥{mixedCardFee.toLocaleString()}</span></div>
+                          <div className="flex justify-between border-t border-white/10 pt-1 mt-1 font-bold text-gold"><span>合計</span><span className="tabular-nums">¥{mixedTotalWithFee.toLocaleString()}</span></div>
                         </div>
                       )}
                     </div>
