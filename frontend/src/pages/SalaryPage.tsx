@@ -27,26 +27,11 @@ export default function SalaryPage() {
     ? activeCasts.filter((c) => c.id === user.castId)
     : activeCasts
 
+  // 全 useState/useMemo は早期 return より前に宣言する (React Rules of Hooks)
+  //   ボーイ↔キャスト 切替時に hook 順序が変わるとアンマウントされ画面真っ黒になるバグを回避
   const [staffType, setStaffType] = useState<StaffType>('cast')
   const [selectedCastId, setSelectedCastId] = useState<number>(availableCasts[0]?.id ?? 0)
   const [period, setPeriod] = useState<Period>('first')
-
-  // ボーイ(staff)モード: キャストロールでは使用不可
-  if (staffType === 'boy' && user?.role !== 'cast') {
-    return (
-      <BoySalaryView
-        period={period}
-        setPeriod={setPeriod}
-        staffType={staffType}
-        setStaffType={setStaffType}
-        userAccounts={userAccounts}
-        attendanceRecords={attendanceRecords}
-        deductions={deductions}
-        setDeductions={setDeductions}
-        dailyPayRequests={dailyPayRequests}
-      />
-    )
-  }
 
   const [showDailyPayRecord, setShowDailyPayRecord] = useState(false)
   const [dailyPayAmount, setDailyPayAmount] = useState('')
@@ -55,6 +40,10 @@ export default function SalaryPage() {
   const [deductionAmount, setDeductionAmount] = useState('')
   const [deductionReason, setDeductionReason] = useState('')
   const [deductionSource, setDeductionSource] = useState<'register' | 'transfer'>('register')
+
+  // ボーイ(staff)モード判定 (実際のコンポーネント切替は最後の return で実行)
+  //   ※早期 return すると Rules of Hooks 違反で画面真っ黒になるので注意
+  const isBoyMode = staffType === 'boy' && user?.role !== 'cast'
 
   const cast = casts.find((c) => c.id === selectedCastId)
   // TODO(backend): バックエンド実装後、billingRecords + attendanceRecords から日次集計を生成する関数に差し替える
@@ -184,6 +173,23 @@ export default function SalaryPage() {
 
   const handleRemoveDeduction = (id: number) => {
     setDeductions((prev) => prev.filter((d) => d.id !== id))
+  }
+
+  // ボーイモード時はここで委譲 (全 hook 宣言済みなので Rules of Hooks 違反にはならない)
+  if (isBoyMode) {
+    return (
+      <BoySalaryView
+        period={period}
+        setPeriod={setPeriod}
+        staffType={staffType}
+        setStaffType={setStaffType}
+        userAccounts={userAccounts}
+        attendanceRecords={attendanceRecords}
+        deductions={deductions}
+        setDeductions={setDeductions}
+        dailyPayRequests={dailyPayRequests}
+      />
+    )
   }
 
   return (
