@@ -14,11 +14,12 @@ export interface Table {
    */
   assignedCasts: string[]
   /**
-   * 本指名担当の源氏名 (追補02 R1-2/R1-3/R1-4)。
+   * 本指名担当の源氏名 (追補02 R1-2/R1-3/R1-4 + 追補03 R24: 複数対応)。
    * 卓に対して固定で、キャストが他卓へ移動しても消えない (売上・バック帰属用)。
-   * undefined = 本指名なし (フリー扱いの基礎条件)。
+   * 空配列 = 本指名なし (フリー扱いの基礎条件)。
+   * 複数指定時は売上を均等割りで分配 (PR 暫定、運用後に要 再調整)。
    */
-  mainNominationCastName?: string
+  mainNominationCastNames: string[]
   /** 同伴フラグ (追補02 R9: 本指名と共存可) */
   isDouhan?: boolean
   /** 場内指名フラグ (追補02 R8-5: 延長で変更可) */
@@ -84,6 +85,66 @@ export interface CastMenuItem {
 export type MenuItem = GuestMenuItem | CastMenuItem
 
 /**
+ * 追補02 R5-2/R5-3: メニューカテゴリのマスター。
+ * 並び替え・非表示・追加を管理画面から制御するため、subcategory に対応する
+ * ラベルと表示順序をデータとして保持する。
+ *
+ * 既存メニューの subcategory enum (固定) と独立して、追加カテゴリは
+ * customSubcategoryId (任意) として扱う。新規追加メニューはこの ID を
+ * subcategory に持つ仮想カテゴリとして OrderPage に表示される。
+ */
+export interface MenuCategory {
+  /** kind が 'guest' なら GuestMenuItem.subcategory、'cast' なら CastMenuItem.subcategory に対応 */
+  kind: 'guest' | 'cast'
+  /** subcategory 値 (例: 'shochu', 'fdrink', 'custom-no-alcohol') */
+  id: string
+  /** 表示ラベル (例: '焼酎', 'Lドリンク(F)', 'ノンアルコール') */
+  label: string
+  /** 並び順 (昇順) */
+  order: number
+  /** true = 非表示 */
+  hidden?: boolean
+  /** ユーザーが追加したカテゴリは true (削除可能の判定用) */
+  custom?: boolean
+}
+
+export const initialMenuCategories: MenuCategory[] = [
+  // ゲスト
+  { kind: 'guest', id: 'shochu', label: '焼酎', order: 1 },
+  { kind: 'guest', id: 'whisky', label: 'ウイスキー', order: 2 },
+  { kind: 'guest', id: 'brandy', label: 'ブランデー', order: 3 },
+  { kind: 'guest', id: 'champagne', label: 'シャンパン', order: 4 },
+  { kind: 'guest', id: 'wine', label: 'ワイン', order: 5 },
+  { kind: 'guest', id: 'shot', label: 'ショット', order: 6 },
+  { kind: 'guest', id: 'pitcher', label: 'ピッチャー', order: 7 },
+  { kind: 'guest', id: 'beer', label: 'ビール', order: 8 },
+  { kind: 'guest', id: 'warimono', label: '割り物', order: 9 },
+  // キャスト
+  { kind: 'cast', id: 'fdrink', label: 'Lドリンク(F)', order: 10 },
+  { kind: 'cast', id: 'hondrink', label: 'Lドリンク(本)', order: 11 },
+  { kind: 'cast', id: 'fkaku', label: 'Lカクテル(F)', order: 12 },
+  { kind: 'cast', id: 'honkaku', label: 'Lカクテル(本)', order: 13 },
+  { kind: 'cast', id: 'honkakuW', label: 'Lカクテル(本W)', order: 14 },
+  { kind: 'cast', id: 'fshot', label: 'Lショット(F)', order: 15 },
+  { kind: 'cast', id: 'honshot', label: 'Lショット(本)', order: 16 },
+  { kind: 'cast', id: 'fpitcher', label: 'Lピッチャー(F)', order: 17 },
+  { kind: 'cast', id: 'honpitcher', label: 'Lピッチャー(本)', order: 18 },
+  { kind: 'cast', id: 'fbeer', label: 'Lビール(F)', order: 19 },
+  { kind: 'cast', id: 'honbeer', label: 'Lビール(本)', order: 20 },
+]
+
+/**
+ * 追補03 R19: ボトルバックのみ「%」単位で格納する BackType リスト。
+ * 値は 0-100 の整数で格納し、実計算時に 100 で割って率として使う。
+ * (他の BackType は「円」単位)
+ */
+export const PERCENT_BACK_TYPES: readonly string[] = ['ボトルバック'] as const
+
+export function isPercentBackType(bt: string): boolean {
+  return PERCENT_BACK_TYPES.includes(bt)
+}
+
+/**
  * バック種別。追補02 の先方フィードバック (2026-04-23) で F/本 を全ドリンク系列で区別する仕様に拡張。
  * フリー (F*) はバック安、本指名 (本*) はバック高。
  */
@@ -100,6 +161,18 @@ export interface OrderItem {
   menuItem: MenuItem
   quantity: number
   castName?: string
+  /**
+   * 追補03 R18: 1 件単位のボーナス加算先 (任意)。
+   * 本指名卓でドリンクを注文したが、別のキャスト (例: フリーのキャスト)
+   * にも「ボーナス的な給料を少しだけ」出したいケースに使う。
+   * 売上帰属は変わらず (castName に紐付くまま)、ボーナスだけ別キャストに加算。
+   */
+  bonusCastName?: string
+  /**
+   * ボーナス金額 (円)。設定すれば給与計算時に bonusCastName の「その他」バック
+   * として加算される。
+   */
+  bonusAmount?: number
 }
 
 export interface Cast {
@@ -462,12 +535,7 @@ export const castMenuItems: CastMenuItem[] = [
   // ─── Lビール ───
   { id: 205, name: 'Lビール (FB)', price: 1500, cost: 400, castBack: 300, category: 'cast', subcategory: 'fbeer', backType: 'FB' },
   { id: 215, name: 'Lビール (本B)', price: 2000, cost: 500, castBack: 500, category: 'cast', subcategory: 'honbeer', backType: '本B' },
-
-  // ─── 個別銘柄 (現行を維持、本カク/本ショ 系列として継続) ───
-  { id: 206, name: 'キティ', price: 1500, cost: 300, castBack: 400, category: 'cast', subcategory: 'honkaku', backType: '本カク' },
-  { id: 207, name: 'ミッフィ', price: 1500, cost: 300, castBack: 400, category: 'cast', subcategory: 'honkaku', backType: '本カク' },
-  { id: 208, name: 'コカボム', price: 2500, cost: 500, castBack: 500, category: 'cast', subcategory: 'honshot', backType: '本ショ' },
-  { id: 209, name: 'クライナー各種', price: 2500, cost: 500, castBack: 500, category: 'cast', subcategory: 'honshot', backType: '本ショ' },
+  // ビデオレビュー D1: 「キティ・ミッフィ・コカボム・クライナー」はカテゴリ違い (ショット系) のため削除済
 ]
 
 export const allMenuItems: MenuItem[] = [...guestMenuItems, ...castMenuItems]
@@ -477,23 +545,23 @@ export const allMenuItems: MenuItem[] = [...guestMenuItems, ...castMenuItems]
 export const casts: Cast[] = [
   {
     id: 1, name: 'あいり', hourlyRate: 2500, guaranteeRate: 0.5, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 10, 'ヘルプ': 4000 },
   },
   {
     id: 2, name: 'みく', hourlyRate: 2000, guaranteeRate: 0.45, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 10, 'ヘルプ': 4000 },
   },
   {
     id: 3, name: 'れな', hourlyRate: 2500, guaranteeRate: 0.5, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 10, 'ヘルプ': 4000 },
   },
   {
     id: 4, name: 'ゆい', hourlyRate: 2000, guaranteeRate: 0.4, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 10, 'ヘルプ': 4000 },
   },
   {
     id: 5, name: 'りさ', hourlyRate: 3000, guaranteeRate: 0.55, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 10, 'ヘルプ': 4000 },
   },
 ]
 
@@ -537,31 +605,31 @@ function minutesAgo(minutes: number): string {
 }
 
 export const initialTables: Table[] = [
-  { id: 1, number: '1', status: 'occupied', guestCount: 3, startTime: minutesAgo(30), assignedCasts: ['あいり'], mainNominationCastName: 'あいり', setCount: 1, orders: [
+  { id: 1, number: '1', status: 'occupied', guestCount: 3, startTime: minutesAgo(30), assignedCasts: ['あいり'], mainNominationCastNames: ['あいり'], setCount: 1, orders: [
     { menuItem: castMenuItems[0], quantity: 2 },
     { menuItem: guestMenuItems[4], quantity: 1 },
   ] },
-  { id: 2, number: '2', status: 'occupied', guestCount: 2, startTime: minutesAgo(45), assignedCasts: ['みく'], setCount: 1, orders: [
+  { id: 2, number: '2', status: 'occupied', guestCount: 2, startTime: minutesAgo(45), assignedCasts: ['みく'], mainNominationCastNames: [], setCount: 1, orders: [
     { menuItem: castMenuItems[1], quantity: 1 },
     { menuItem: guestMenuItems[7], quantity: 3 },
   ] },
-  { id: 3, number: '3', status: 'ending', guestCount: 4, startTime: minutesAgo(55), assignedCasts: ['れな'], mainNominationCastName: 'れな', setCount: 1, orders: [
+  { id: 3, number: '3', status: 'ending', guestCount: 4, startTime: minutesAgo(55), assignedCasts: ['れな'], mainNominationCastNames: ['れな'], setCount: 1, orders: [
     { menuItem: castMenuItems[0], quantity: 3 },
     { menuItem: castMenuItems[2], quantity: 1 },
     { menuItem: guestMenuItems[5], quantity: 2 },
   ] },
-  { id: 4, number: '4', status: 'empty', guestCount: 0, startTime: null, assignedCasts: [], setCount: 0, orders: [] },
-  { id: 5, number: '5', status: 'occupied', guestCount: 2, startTime: minutesAgo(15), assignedCasts: ['ゆい'], setCount: 1, orders: [] },
-  { id: 6, number: '6', status: 'empty', guestCount: 0, startTime: null, assignedCasts: [], setCount: 0, orders: [] },
-  // 卓7: 同伴の例。担当2名・本指名担当=りさ・同伴フラグ (R9: 本指名+同伴 同時)
-  { id: 7, number: '7', status: 'alert', guestCount: 5, startTime: minutesAgo(52), assignedCasts: ['りさ', 'あいり'], mainNominationCastName: 'りさ', isDouhan: true, setCount: 1, orders: [
+  { id: 4, number: '4', status: 'empty', guestCount: 0, startTime: null, assignedCasts: [], mainNominationCastNames: [], setCount: 0, orders: [] },
+  { id: 5, number: '5', status: 'occupied', guestCount: 2, startTime: minutesAgo(15), assignedCasts: ['ゆい'], mainNominationCastNames: [], setCount: 1, orders: [] },
+  { id: 6, number: '6', status: 'empty', guestCount: 0, startTime: null, assignedCasts: [], mainNominationCastNames: [], setCount: 0, orders: [] },
+  // 卓7: 同伴 + 複数本指名の例 (追補03 R24: 複数本指名対応)
+  { id: 7, number: '7', status: 'alert', guestCount: 5, startTime: minutesAgo(52), assignedCasts: ['りさ', 'あいり'], mainNominationCastNames: ['りさ', 'あいり'], isDouhan: true, setCount: 1, orders: [
     { menuItem: castMenuItems[0], quantity: 4 },
     { menuItem: castMenuItems[1], quantity: 2 },
     { menuItem: guestMenuItems[6], quantity: 3 },
   ] },
-  { id: 8, number: '8', status: 'empty', guestCount: 0, startTime: null, assignedCasts: [], setCount: 0, orders: [] },
-  { id: 9, number: 'VIP1', status: 'occupied', guestCount: 3, startTime: minutesAgo(20), assignedCasts: ['みく', 'ゆい'], mainNominationCastName: 'みく', setCount: 1, orders: [] },
-  { id: 10, number: 'VIP2', status: 'empty', guestCount: 0, startTime: null, assignedCasts: [], setCount: 0, orders: [] },
+  { id: 8, number: '8', status: 'empty', guestCount: 0, startTime: null, assignedCasts: [], mainNominationCastNames: [], setCount: 0, orders: [] },
+  { id: 9, number: 'VIP1', status: 'occupied', guestCount: 3, startTime: minutesAgo(20), assignedCasts: ['みく', 'ゆい'], mainNominationCastNames: ['みく'], setCount: 1, orders: [] },
+  { id: 10, number: 'VIP2', status: 'empty', guestCount: 0, startTime: null, assignedCasts: [], mainNominationCastNames: [], setCount: 0, orders: [] },
 ]
 
 /**

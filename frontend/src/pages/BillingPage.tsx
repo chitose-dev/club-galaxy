@@ -30,7 +30,8 @@ export default function BillingPage() {
   const [selectedTableId, setSelectedTableId] = useState<number>(initialTableId)
   const [mergeTableIds, setMergeTableIds] = useState<number[]>([])
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash')
-  const [cardInputAmount, setCardInputAmount] = useState('')
+  // ビデオレビュー C15: 「現金額入力 → 残額をカードに」方式に変更 (旧: カード額入力)
+  const [cashInputAmount, setCashInputAmount] = useState('')
   const [discount, setDiscount] = useState(0)
   const [discountReason, setDiscountReason] = useState('')
   const [showConfirm, setShowConfirm] = useState(false)
@@ -59,140 +60,72 @@ export default function BillingPage() {
   // 早期 return (会計対象なし状態) でも完了直後に会計履歴からの再印刷が動くよう、
   // この宣言は table の有無判定より先に置く必要がある。
   const receiptPrintBlock = lastBillingData ? (() => {
-    const extensionOrders = lastBillingData.orders.filter((o) => o.menuItem.id >= 2000 && o.menuItem.id < 3000)
-    const nominationOrders = lastBillingData.orders.filter(
-      (o) => !extensionOrders.includes(o) && /指名|同伴|シングルチャージ/.test(o.menuItem.name),
-    )
-    const drinkOrders = lastBillingData.orders.filter(
-      (o) => !extensionOrders.includes(o) && !nominationOrders.includes(o),
-    )
-
-    const nominationTotal = nominationOrders.reduce((s, o) => s + o.menuItem.price * o.quantity, 0)
-    const drinkTotal = drinkOrders.reduce((s, o) => s + o.menuItem.price * o.quantity, 0)
-    const extensionTotal = extensionOrders.reduce((s, o) => s + o.menuItem.price * o.quantity, 0)
-
-    const ext30Count = extensionOrders.filter((o) => /\+30分/.test(o.menuItem.name)).reduce((s, o) => s + o.quantity, 0)
-    const ext60Count = extensionOrders.filter((o) => /\+60分/.test(o.menuItem.name)).reduce((s, o) => s + o.quantity, 0)
-    const extNominationCount = extensionOrders.filter((o) => o.castName).length
-
-    const nowSubtotal = lastBillingData.setFee + nominationTotal + drinkTotal
+    // ビデオレビュー W2: ダイソー風 横長レシートに再変更
+    //   - 横長 (左右に情報配置)
+    //   - 「領収書」見出しを右上 + No
+    //   - 年月日 / 担当不要 / ○○様 ¥金額 / うち消費税 / 但書「飲食代として」
+    //   - 印影スペース / 左下に CLUB GALAXY・住所・電話番号
     const stampRequired = lastBillingData.total > 50000
-    const paymentBlockTitle = `[ ${paymentLabel(lastBillingData.paymentMethod)}支払い ]`
 
     return (
     <div className="print-only">
-      <div ref={receiptRef} className="bg-white text-black p-6 mb-4 print-receipt" style={{ fontFamily: 'serif' }}>
-        <div className="text-center mb-2">
-          <h2 className="text-lg font-bold tracking-widest">{storeSettings.storeName}</h2>
-          <div className="text-2xl font-bold tracking-[0.5em] mt-1 mb-1">領 収 証</div>
-        </div>
-        <div className="flex justify-between text-xs mb-1">
-          <span>{new Date().toLocaleString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-          <span>No. {String(lastBillingData.receiptNumber).padStart(6, '0')}</span>
-        </div>
-        {storeSettings.storeAddress && <div className="text-xs">{storeSettings.storeAddress}</div>}
-        {storeSettings.storePhone && <div className="text-xs">TEL: {storeSettings.storePhone}</div>}
-        <div className="text-xs mb-2">登録番号: {storeSettings.invoiceNumber}</div>
-        <div className="border-t border-dashed border-gray-500 my-2" />
-
-        <div className="text-sm my-3">
-          <span>宛名 : </span>
-          <span className="inline-block min-w-[180px] text-center border-b border-black pb-0.5">
-            {lastBillingData.receiptName || '　上様　'}
-          </span>
-          <span className="ml-2">様</span>
-        </div>
-
-        <div className="text-lg mb-2">
-          <span>金額 : </span>
-          <span className="text-2xl font-bold tracking-wider">¥ {lastBillingData.total.toLocaleString()} －</span>
-        </div>
-
-        <div className="text-sm mb-3">
-          但し、{lastBillingData.receiptPurpose || 'ご飲食代'}として上記正に領収いたしました
-        </div>
-
-        <div className="flex items-start justify-between mb-3">
-          <div className="text-sm pt-6">ご来店ありがとうございました。</div>
-          <div
-            className={`border-2 rounded-sm px-4 py-3 text-center text-xs ${stampRequired ? 'border-black text-black' : 'border-gray-300 text-gray-300'}`}
-            style={{ minWidth: 90 }}
-          >
-            収入印紙<br />{stampRequired ? '貼付欄' : '(不要)'}
-          </div>
-        </div>
-        <div className="border-t border-dashed border-gray-500 my-2" />
-
-        {/* ─── [ ただいまの料金 ] ─── */}
-        <div className="text-sm mb-3 print-detail-lines">
-          <div className="font-bold mb-1">[ ただいまの料金 ]</div>
-          <div className="flex justify-between ml-2">
-            <span>基本料金（セット）</span>
-            <span>¥ {lastBillingData.setFee.toLocaleString()}</span>
-          </div>
-          {nominationTotal > 0 && (
-            <div className="flex justify-between ml-2">
-              <span>指名料</span>
-              <span>¥ {nominationTotal.toLocaleString()}</span>
+      <div ref={receiptRef} className="bg-white text-black p-5 mb-4 print-receipt" style={{ fontFamily: 'serif', minWidth: 600 }}>
+        {/* 横長 2 列レイアウト */}
+        <div className="flex justify-between items-start mb-3 border-b-2 border-black pb-2">
+          {/* 左: 年月日 + 宛名 */}
+          <div>
+            <div className="text-xs mb-1">
+              {new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' })}
             </div>
-          )}
-          {drinkTotal > 0 && (
-            <div className="flex justify-between ml-2">
-              <span>ドリンク</span>
-              <span>¥ {drinkTotal.toLocaleString()}</span>
-            </div>
-          )}
-          <div className="flex justify-between ml-2 border-t border-gray-400 mt-1 pt-1 font-bold">
-            <span>小計</span>
-            <span>¥ {nowSubtotal.toLocaleString()}</span>
-          </div>
-        </div>
-
-        {/* ─── [ 延長料金 ] ─── */}
-        {extensionTotal > 0 && (
-          <div className="text-sm mb-3">
-            <div className="font-bold mb-1">[ 延長料金 ]</div>
-            {ext30Count > 0 && (
-              <div className="flex justify-between ml-2">
-                <span>延長（30 分）× {ext30Count}</span>
-                <span>¥ {(1000 * ext30Count).toLocaleString()}</span>
-              </div>
-            )}
-            {ext60Count > 0 && (
-              <div className="flex justify-between ml-2">
-                <span>延長（60 分）× {ext60Count}</span>
-                <span>¥ {(3000 * ext60Count).toLocaleString()}</span>
-              </div>
-            )}
-            {extNominationCount > 0 && (
-              <div className="flex justify-between ml-2">
-                <span>延長指名料</span>
-                <span className="text-xs text-gray-500">※バック帰属先あり</span>
-              </div>
-            )}
-            <div className="flex justify-between ml-2 border-t border-gray-400 mt-1 pt-1 font-bold">
-              <span>延長小計</span>
-              <span>¥ {extensionTotal.toLocaleString()}</span>
+            <div className="text-base">
+              <span className="inline-block min-w-[160px] border-b border-black px-2">
+                {lastBillingData.receiptName || '　上様　'}
+              </span>
+              <span className="ml-1">様</span>
             </div>
           </div>
-        )}
-
-        {/* 税・値引き */}
-        <div className="text-xs mb-3 text-gray-600">
-          <div className="flex justify-between ml-2">
-            <span>TAX ({(storeSettings.taxRate * 100).toFixed(0)}% 内税)</span>
-            <span>¥ {lastBillingData.tax.toLocaleString()}</span>
+          {/* 右: 領収書見出し + No */}
+          <div className="text-right">
+            <h2 className="text-2xl font-bold tracking-[0.5em]">領収書</h2>
+            <div className="text-xs mt-1">No. {String(lastBillingData.receiptNumber).padStart(6, '0')}</div>
           </div>
-          {lastBillingData.discount > 0 && (
-            <div className="flex justify-between ml-2 text-red-600">
-              <span>値引き</span>
-              <span>-¥ {lastBillingData.discount.toLocaleString()}</span>
-            </div>
-          )}
         </div>
 
-        <div className="text-sm font-bold border-t border-gray-400 pt-2">
-          {paymentBlockTitle}
+        {/* 中央: 金額大表示 */}
+        <div className="flex justify-center my-3">
+          <div className="text-3xl font-bold tracking-wider">
+            ¥ {lastBillingData.total.toLocaleString()} －
+          </div>
+        </div>
+
+        <div className="text-sm text-center mb-3">
+          但し、{lastBillingData.receiptPurpose || '飲食代'}として
+        </div>
+        <div className="text-xs text-center text-gray-600 mb-3">
+          うち消費税 (10%): ¥{lastBillingData.consumptionTax.toLocaleString()}
+        </div>
+
+        {/* 下部: 左に店舗情報 / 右に印紙 */}
+        <div className="flex justify-between items-end pt-3 border-t border-dashed border-gray-400">
+          <div className="text-xs">
+            <div className="font-bold tracking-widest">{storeSettings.storeName}</div>
+            {storeSettings.storeAddress && <div>{storeSettings.storeAddress}</div>}
+            {storeSettings.storePhone && <div>TEL: {storeSettings.storePhone}</div>}
+            <div className="text-gray-600">登録番号: {storeSettings.invoiceNumber}</div>
+          </div>
+          <div className="flex items-end gap-3">
+            {/* 印影スペース */}
+            <div className="border border-gray-400 rounded-full w-16 h-16 flex items-center justify-center text-[10px] text-gray-400">
+              印
+            </div>
+            {/* 印紙 */}
+            <div
+              className={`border-2 rounded-sm px-3 py-2 text-center text-[10px] ${stampRequired ? 'border-black text-black' : 'border-gray-300 text-gray-300'}`}
+              style={{ minWidth: 80 }}
+            >
+              収入印紙<br />{stampRequired ? '貼付欄' : '(不要)'}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -310,19 +243,17 @@ export default function BillingPage() {
 
   const cardFee = paymentMethod === 'card'
     ? Math.floor(preCardTotal * cardFeeRate)
-    : paymentMethod === 'mixed'
-    ? (() => {
-        const cardAmt = Number(cardInputAmount) || 0
-        return cardAmt > 0 ? Math.floor(cardAmt * cardFeeRate) : 0
-      })()
     : 0
 
-  const total = preCardTotal + cardFee
-
-  const mixedCardAmount = paymentMethod === 'mixed' ? (Number(cardInputAmount) || 0) : 0
+  // ビデオレビュー C15: 現金額入力 → 残額を自動的にカードへ
+  //   例: preCardTotal = 38,400、現金 30,000 → カード差額 = 8,400、手数料 = 840
+  //   会計総額 = preCardTotal + カード手数料 (= 元金 + 残額の手数料)
+  const mixedCashAmount = paymentMethod === 'mixed' ? (Number(cashInputAmount) || 0) : 0
+  const mixedCardAmount = paymentMethod === 'mixed' ? Math.max(0, preCardTotal - mixedCashAmount) : 0
   const mixedCardFee = paymentMethod === 'mixed' && mixedCardAmount > 0 ? Math.floor(mixedCardAmount * cardFeeRate) : 0
-  const mixedTotalWithFee = paymentMethod === 'mixed' ? preCardTotal + mixedCardFee : total
-  const mixedCashAmount = paymentMethod === 'mixed' ? Math.max(0, mixedTotalWithFee - mixedCardAmount) : 0
+  const mixedTotalWithFee = paymentMethod === 'mixed' ? preCardTotal + mixedCardFee : preCardTotal + cardFee
+
+  const total = preCardTotal + cardFee
 
   const finalTotal = paymentMethod === 'mixed' ? mixedTotalWithFee : total
   const perPerson = splitCount > 0 ? Math.ceil(finalTotal / splitCount) : 0
@@ -340,14 +271,24 @@ export default function BillingPage() {
       })
     }
 
-    // 追補02 R1-3: 本指名担当 (mainNominationCastName) の売上は常にその担当キャストに帰属。
-    // 担当キャストが他卓へ移動しても、本指名担当としての記録は不変 (assignedCasts ではなく mainNominationCastName を見る)。
-    const nominatedCastId = table.mainNominationCastName
-      ? casts.find((c) => c.name === table.mainNominationCastName)?.id
+    // 追補02 R1-3 + 追補03 R24: 本指名担当の売上は常に該当キャストに帰属。
+    // 複数本指名時は先頭 1 名のみ nominatedCastId に記録 (後方互換)。
+    // 将来的には nominatedCastIds: number[] に拡張して正確に分配する予定。
+    const primaryNomName = table.mainNominationCastNames[0]
+    const nominatedCastId = primaryNomName
+      ? casts.find((c) => c.name === primaryNomName)?.id
       : undefined
 
     const receiptNumberForRecord = getNextReceiptNumber()
 
+    const nowIso = new Date().toISOString().slice(0, 10)
+    const nowTime = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+
+    // 追補02 R13-5 完全対応: 合算会計の場合、各構成卓ごとに独立した
+    //   BillingRecord を生成し、売上・バック帰属を卓単位で保持する。
+    //   代表卓レコード = 領収書番号と支払方法を持つ "main" レコード。
+    //   合算対象卓レコード = 各卓の subtotal/setFee/orders/nominatedCastId
+    //     を持つ "shadow" レコード (paymentMethod は 'mixed'、total は卓単位の税込小計)。
     addBillingRecord({
       id: Date.now(),
       tableNumber: table.number,
@@ -356,8 +297,8 @@ export default function BillingPage() {
       cashAmount: paymentMethod === 'cash' ? finalTotal : paymentMethod === 'mixed' ? mixedCashAmount : 0,
       cardAmount: paymentMethod === 'card' ? finalTotal : paymentMethod === 'mixed' ? mixedCardAmount : 0,
       cardFee: cardFee > 0 || mixedCardFee > 0 ? (paymentMethod === 'mixed' ? mixedCardFee : cardFee) : undefined,
-      timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
-      date: new Date().toISOString().slice(0, 10),
+      timestamp: nowTime,
+      date: nowIso,
       nominatedCastId,
       subtotalBeforeTax: subtotalAll,
       castNamesSnapshot: [...table.assignedCasts],
@@ -377,6 +318,35 @@ export default function BillingPage() {
         completedAt: new Date().toLocaleString('ja-JP'),
       },
     })
+
+    // 追補02 R13-5 完全対応: 合算対象卓ごとに shadow レコードを生成
+    for (const mid of mergeTableIds) {
+      const mt = tables.find((t) => t.id === mid)
+      if (!mt || !mt.startTime) continue
+      const mSet = getSetPriceForTime(mt.startTime)
+      const mDisc = mt.setDiscountPerSet ?? 0
+      const mSetTotal = Math.max(0, mSet - mDisc) * mt.guestCount * mt.setCount
+      const mDrink = mt.orders.reduce((s, o) => s + o.menuItem.price * o.quantity, 0)
+      const mSubtotal = mSetTotal + mDrink
+      const mTax = Math.floor(mSubtotal * taxRate)
+      const mTotal = mSubtotal + mTax
+      const mNomName = mt.mainNominationCastNames[0]
+      const mNomCastId = mNomName ? casts.find((c) => c.name === mNomName)?.id : undefined
+      addBillingRecord({
+        id: Date.now() + mid,
+        tableNumber: mt.number,
+        total: mTotal,
+        paymentMethod: 'mixed', // 代表卓に合算されたため "mixed" でマーク
+        cashAmount: 0,
+        cardAmount: 0,
+        timestamp: nowTime,
+        date: nowIso,
+        nominatedCastId: mNomCastId,
+        subtotalBeforeTax: mSubtotal,
+        castNamesSnapshot: [...mt.assignedCasts],
+        // shadow レコードには receiptSnapshot を付けない (代表卓 1 枚で印字済)
+      })
+    }
 
     setLastBillingData({
       tableNumber: table.number,
@@ -406,8 +376,6 @@ export default function BillingPage() {
     for (const mid of mergeTableIds) {
       resetTable(mid)
     }
-    const excludeIds = new Set<number>([table.id, ...mergeTableIds])
-    const nextOccupied = occupiedTables.find((t) => !excludeIds.has(t.id))
     resetTable(table.id)
     setShowConfirm(false)
     setShowReceipt(true)
@@ -415,15 +383,13 @@ export default function BillingPage() {
     setDiscountReason('')
     setSplitCount(0)
     setMergeTableIds([])
-    // 会計完了後、次の卓があれば自動選択 (ポップアップを閉じたらそのまま次の卓の会計画面へ)
-    if (nextOccupied) setSelectedTableId(nextOccupied.id)
   }
 
   const handleDismissReceipt = () => {
     setShowReceipt(false)
     setLastBillingData(null)
-    // 次の卓もなければホールに戻る
-    if (occupiedTables.length === 0) navigate('/floor')
+    // ビデオレビュー C17: 会計完了後は常にホール画面に戻る (次の卓自動遷移をやめる)
+    navigate('/floor')
   }
 
   const doPrint = (mode: 'detailed' | 'summary') => {
@@ -477,7 +443,7 @@ export default function BillingPage() {
         right={
           <select
             value={selectedTableId}
-            onChange={(e) => { setSelectedTableId(Number(e.target.value)); setDiscount(0); setDiscountReason(''); setSplitCount(0); setPaymentMethod('cash'); setCardInputAmount('') }}
+            onChange={(e) => { setSelectedTableId(Number(e.target.value)); setDiscount(0); setDiscountReason(''); setSplitCount(0); setPaymentMethod('cash'); setCashInputAmount('') }}
             className="bg-primary-dark/60 border border-gold/20 rounded-lg px-3 py-1.5 text-sm text-white"
           >
             {occupiedTables.map((t) => (
@@ -559,8 +525,8 @@ export default function BillingPage() {
             <div className="panel p-3 mb-4 flex flex-wrap items-center justify-between gap-2">
               <div className="text-sm text-gray-300">
                 <span className="text-gray-500">担当:</span> {table.assignedCasts.join(', ') || '-'}
-                {table.mainNominationCastName && (
-                  <span className="text-gold/80 ml-2">（本指名: {table.mainNominationCastName}）</span>
+                {table.mainNominationCastNames.length > 0 && (
+                  <span className="text-gold/80 ml-2">（本指名: {table.mainNominationCastNames.join(', ')}）</span>
                 )}
               </div>
               <div className="text-xs text-gray-500">
@@ -621,7 +587,7 @@ export default function BillingPage() {
                   <Tabs<PaymentMethod>
                     variant="pills"
                     value={paymentMethod}
-                    onChange={(m) => { setPaymentMethod(m); setCardInputAmount('') }}
+                    onChange={(m) => { setPaymentMethod(m); setCashInputAmount('') }}
                     items={[
                       { key: 'cash', label: '現金' },
                       { key: 'card', label: 'カード' },
@@ -631,20 +597,47 @@ export default function BillingPage() {
                   />
                   {paymentMethod === 'mixed' && (
                     <div className="mt-2">
-                      <Field label="カード決済金額">
+                      <Field label="現金額 (残額をカード決済)">
                         <Input
                           type="number"
-                          value={cardInputAmount}
-                          onChange={(e) => setCardInputAmount(e.target.value)}
-                          placeholder="カード金額を入力"
+                          value={cashInputAmount}
+                          onChange={(e) => setCashInputAmount(e.target.value)}
+                          placeholder="現金で受け取る金額"
                           className="tabular-nums"
                         />
                       </Field>
-                      {mixedCardAmount > 0 && (
+                      {/* ビデオレビュー C16: ハスカット (端数カット) ボタン
+                          残額 (= preCardTotal - 現金) の 100 円未満端数を切り捨てる */}
+                      <div className="flex gap-1.5 mt-2">
+                        {[1000, 5000, 10000, 30000].map((qa) => (
+                          <button
+                            key={qa}
+                            onClick={() => setCashInputAmount(String((Number(cashInputAmount) || 0) + qa))}
+                            className="flex-1 text-xs panel py-1.5 hover:bg-white/10 rounded"
+                          >
+                            +{qa.toLocaleString()}
+                          </button>
+                        ))}
+                        <button
+                          onClick={() => {
+                            // ハスカット: 現金額を調整して、カード残額を 1000 円単位の丸い数字に
+                            const cur = Number(cashInputAmount) || 0
+                            const remainder = Math.max(0, preCardTotal - cur)
+                            const trim = remainder % 1000
+                            setCashInputAmount(String(cur + trim))
+                          }}
+                          className="text-xs px-3 py-1.5 bg-amber-500/15 border border-amber-500/30 text-amber-300 rounded"
+                          title="残額の 1000 円未満を現金に吸収して丸める"
+                        >
+                          ハスカット
+                        </button>
+                      </div>
+                      {mixedCashAmount > 0 && (
                         <div className="mt-2 space-y-1 text-sm">
-                          <div className="flex justify-between text-blue-300"><span>カード手数料</span><span className="tabular-nums">¥{mixedCardFee.toLocaleString()}</span></div>
-                          <div className="flex justify-between"><span className="text-gray-500">カード支払</span><span className="tabular-nums">¥{mixedCardAmount.toLocaleString()}</span></div>
-                          <div className="flex justify-between font-bold"><span>現金支払</span><span className="tabular-nums">¥{mixedCashAmount.toLocaleString()}</span></div>
+                          <div className="flex justify-between font-bold"><span>現金受取</span><span className="tabular-nums">¥{mixedCashAmount.toLocaleString()}</span></div>
+                          <div className="flex justify-between"><span className="text-gray-500">カード差額</span><span className="tabular-nums">¥{mixedCardAmount.toLocaleString()}</span></div>
+                          <div className="flex justify-between text-blue-300"><span>カード手数料 (+{(cardFeeRate * 100).toFixed(0)}%)</span><span className="tabular-nums">¥{mixedCardFee.toLocaleString()}</span></div>
+                          <div className="flex justify-between border-t border-white/10 pt-1 mt-1 font-bold text-gold"><span>合計</span><span className="tabular-nums">¥{mixedTotalWithFee.toLocaleString()}</span></div>
                         </div>
                       )}
                     </div>

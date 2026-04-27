@@ -9,6 +9,7 @@
 
 import type { Cast, DailyWork, StoreSettings } from '../data/mock'
 import { openPrintWindow } from './print'
+import { calcHourlyPay } from './payroll'
 
 const BACK_COLUMNS: { key: keyof DailyWork['backs']; label: string }[] = [
   { key: 'FD', label: 'Fドリンク' },
@@ -51,7 +52,8 @@ export function printCastLedger(params: CastLedgerParams): void {
   // 日ごとの単価計算 (給与明細と同じロジック)
   const rowsHtml = monthWork
     .map((w) => {
-      const hourly = Math.floor(cast.hourlyRate * w.hours)
+      // 追補03 R25: 時給は 15 分単位 + ルーズタイム 15 分
+      const hourly = calcHourlyPay(cast.hourlyRate, w.hours)
       const backTotal = (Object.keys(w.backs) as Array<keyof typeof w.backs>).reduce(
         (sum, k) => sum + (w.backs[k] ?? 0) * (cast.backRates?.[k] ?? 0),
         0,

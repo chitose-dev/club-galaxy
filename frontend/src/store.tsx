@@ -6,6 +6,8 @@ import {
   castMenuItems as initialCastMenu,
   setPrices as initialSetPrices,
   chargeItems as initialChargeItems,
+  initialMenuCategories,
+  type MenuCategory,
   initialBillingRecords,
   initialDailyPayRequests,
   initialBottleKeeps,
@@ -69,6 +71,11 @@ interface Store {
   moveCast: (castName: string, toTableId: number | null) => void
   addOrderToTable: (tableId: number, order: OrderItem) => void
   removeOrderFromTable: (tableId: number, menuItemId: number, castName?: string) => void
+  /**
+   * 追補03 R18: 注文行にボーナス情報をセット / 解除する。
+   * bonusCastName / bonusAmount を undefined にすると解除。
+   */
+  setOrderBonus: (tableId: number, menuItemId: number, castName: string | undefined, bonus: { bonusCastName?: string; bonusAmount?: number }) => void
   resetTable: (id: number) => void
   addDiscountLog: (log: DiscountLog) => void
   addBillingRecord: (record: BillingRecord) => void
@@ -76,6 +83,9 @@ interface Store {
   setCasts: React.Dispatch<React.SetStateAction<Cast[]>>
   setGuestMenu: React.Dispatch<React.SetStateAction<GuestMenuItem[]>>
   setCastMenu: React.Dispatch<React.SetStateAction<CastMenuItem[]>>
+  /** 追補02 R5-2/R5-3: メニューカテゴリ管理 */
+  menuCategories: MenuCategory[]
+  setMenuCategories: React.Dispatch<React.SetStateAction<MenuCategory[]>>
   setSetPrices: React.Dispatch<React.SetStateAction<SetPrice[]>>
   setChargeItems: React.Dispatch<React.SetStateAction<SetPrice[]>>
   setTables: React.Dispatch<React.SetStateAction<Table[]>>
@@ -125,6 +135,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [casts, setCasts] = useState<Cast[]>(initialCasts)
   const [guestMenu, setGuestMenu] = useState<GuestMenuItem[]>(initialGuestMenu)
   const [castMenu, setCastMenu] = useState<CastMenuItem[]>(initialCastMenu)
+  const [menuCategories, setMenuCategories] = useState<MenuCategory[]>(initialMenuCategories)
   const [setPricesState, setSetPrices] = useState<SetPrice[]>(initialSetPrices)
   const [chargeItemsState, setChargeItems] = useState<SetPrice[]>(initialChargeItems)
   const [discountLogs, setDiscountLogs] = useState<DiscountLog[]>([])
@@ -148,7 +159,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   /**
    * 追補02 R2/R10: キャストを卓間で排他的に移動。
    * 全ての卓の assignedCasts から対象を除外した後、移動先に追加する。
-   * 本指名担当の紐付け (mainNominationCastName) は変更しない (R10-4)。
+   * 本指名担当の紐付け (mainNominationCastNames) は変更しない (R10-4)。
    */
   const moveCast = useCallback((castName: string, toTableId: number | null) => {
     setTables((prev) =>
@@ -211,11 +222,46 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setTables((prev) =>
       prev.map((t) =>
         t.id === id
-          ? { ...t, status: 'empty' as const, guestCount: 0, startTime: null, castNames: [], nomination: null, setCount: 0, orders: [], checkTicketPrintedAt: null }
+          ? {
+              ...t,
+              status: 'empty' as const,
+              guestCount: 0,
+              startTime: null,
+              assignedCasts: [],
+              mainNominationCastNames: [],
+              isDouhan: undefined,
+              isBanaiShimei: undefined,
+              setCount: 0,
+              orders: [],
+              checkTicketPrintedAt: null,
+              extensionHistory: [],
+              setDiscountPerSet: 0,
+              timeAdjustmentMinutes: 0,
+            }
           : t,
       ),
     )
   }, [])
+
+  // 追補03 R18: 注文行のボーナスを設定 / 解除
+  const setOrderBonus = useCallback(
+    (tableId: number, menuItemId: number, castName: string | undefined, bonus: { bonusCastName?: string; bonusAmount?: number }) => {
+      setTables((prev) =>
+        prev.map((t) => {
+          if (t.id !== tableId) return t
+          return {
+            ...t,
+            orders: t.orders.map((o) =>
+              o.menuItem.id === menuItemId && o.castName === castName
+                ? { ...o, bonusCastName: bonus.bonusCastName, bonusAmount: bonus.bonusAmount }
+                : o,
+            ),
+          }
+        }),
+      )
+    },
+    [],
+  )
 
   const addDiscountLog = useCallback((log: DiscountLog) => {
     setDiscountLogs((prev) => [...prev, log])
@@ -399,6 +445,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         moveCast,
         addOrderToTable,
         removeOrderFromTable,
+        setOrderBonus,
         resetTable,
         addDiscountLog,
         addBillingRecord,
@@ -406,6 +453,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setCasts,
         setGuestMenu,
         setCastMenu,
+        menuCategories,
+        setMenuCategories,
         setSetPrices,
         setChargeItems,
         setTables,

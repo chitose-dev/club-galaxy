@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../store'
 import type { MenuItem, CastMenuItem, OrderItem } from '../data/mock'
 import { displayOrderName, chargeItems } from '../data/mock'
-import { Minus, Plus, Trash2, Wine, CreditCard, Printer } from 'lucide-react'
+import { Minus, Plus, Trash2, Wine, CreditCard, Printer, Gift } from 'lucide-react'
 import ContextualHeader from '../components/ContextualHeader'
 import BottomActionBar from '../components/BottomActionBar'
 import CastChip from '../components/CastChip'
@@ -12,15 +12,20 @@ import { Input, Field as FormField } from '../components/Input'
 import { GoldButton, DangerButton, DarkButton, GhostButton } from '../components/Buttons'
 import { openPrintWindow } from '../utils/print'
 
-const HELP_BACK_ITEM: CastMenuItem = {
+// ビデオレビュー N6 (注1 15:50): ヘルプの再定義
+//   - 待機キャストが場内指名なしで入った状態
+//   - 価格 ¥4,000 (店舗売上として全額計上)
+//   - キャストバック 0 (誰にもバックなし)
+//   - キャストの個人売上には載せない (= castName を紐付けない)
+//   - category: 'guest' で扱い (キャストドリンクではない)
+const HELP_GUEST_ITEM = {
   id: 999,
   name: 'ヘルプ',
-  price: 0,
+  price: 4000,
   cost: 0,
   castBack: 0,
-  category: 'cast',
-  subcategory: 'fdrink',
-  backType: 'ヘルプ',
+  category: 'guest' as const,
+  subcategory: 'warimono' as const,
 }
 
 type CategoryKey =
@@ -55,11 +60,15 @@ const categories: Array<{ key: CategoryKey; label: string }> = [
 export default function OrderPage() {
   const {
     tables, casts, guestMenu, castMenu, storeSettings,
-    addOrderToTable, removeOrderFromTable,
+    addOrderToTable, removeOrderFromTable, setOrderBonus,
     moveCast,
     bottleKeeps, addBottleKeep, updateBottleKeep, removeBottleKeep,
   } = useStore()
   const [showAddCast, setShowAddCast] = useState(false)
+  /** 追補03 R18: ボーナス設定対象の注文行 */
+  const [bonusTarget, setBonusTarget] = useState<OrderItem | null>(null)
+  const [bonusCastName, setBonusCastName] = useState<string>('')
+  const [bonusAmount, setBonusAmount] = useState(0)
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
 
@@ -68,7 +77,7 @@ export default function OrderPage() {
   const [selectedTableId, setSelectedTableId] = useState<number>(initialTableId)
   const [activeCategory, setActiveCategory] = useState<CategoryKey>('all')
   const [selectedCastName, setSelectedCastName] = useState<string | null>(null)
-  const [recipient, setRecipient] = useState<'guest' | 'staff'>('guest')
+  // 追補03 R17: 「お客さま/スタッフ」トグルは廃止 (仕様未定の dead UI だったため削除)
 
   const [showAddBottle, setShowAddBottle] = useState(false)
   const [bottleName, setBottleName] = useState('')
@@ -114,16 +123,14 @@ export default function OrderPage() {
       addOrderToTable(selectedTableId, { menuItem: item, quantity: 1, castName: selectedCastName })
       return
     }
-    // 先方フィードバック (2026-04-23): guest メニューは以下のロジックで売上帰属を決定
-    //   1. キャスト明示選択 → そのキャストの売上 (最優先)
-    //   2. 指名なし + 本指名卓 → 本指名担当の売上 (自動帰属)
-    //   3. 指名なし + フリー卓 → 店舗売上のみ (キャスト紐付けなし)
-    // ※ ゲストドリンク (ショット・ピッチャー・ビール等) はバック無し。売上帰属のみ変動。
-    const castName = selectedCastName ?? selectedTable.mainNominationCastName
+    // ビデオレビュー B6: 「指名なし」を選んだ場合は本当に誰にも紐付かない
+    //   従来 (R18): 指名なし + 本指名卓 → 本指名担当に自動帰属
+    //   修正: ユーザーが明示的に「指名なし」を選んだ場合は店舗売上のみとして扱う
+    //   本指名担当に紐付けたい場合は、本指名キャストのチップを明示的にタップ
     addOrderToTable(selectedTableId, {
       menuItem: item,
       quantity: 1,
-      castName: castName || undefined,
+      castName: selectedCastName ?? undefined,
     })
   }
 
@@ -151,11 +158,8 @@ export default function OrderPage() {
 
   const handleAddHelp = () => {
     if (!selectedTableId) return
-    if (!selectedCastName) {
-      alert('ヘルプバックはキャストを選択してから追加してください')
-      return
-    }
-    addOrderToTable(selectedTableId, { menuItem: HELP_BACK_ITEM, quantity: 1, castName: selectedCastName })
+    // ビデオレビュー N6: ヘルプはキャスト紐付けなし、全額店舗売上
+    addOrderToTable(selectedTableId, { menuItem: HELP_GUEST_ITEM, quantity: 1 })
   }
 
   const handleRemove = (itemId: number, castName?: string) => {
@@ -336,22 +340,8 @@ export default function OrderPage() {
           )}
         </div>
 
-        {/* ── Column 3: 誰に ── */}
+        {/* ── Column 3: キャスト選択 ── */}
         <div className="overflow-y-auto p-3 border-r border-white/10 bg-primary-dark">
-          <div className="flex mb-3 bg-white/5 rounded-lg p-0.5">
-            {(['guest', 'staff'] as const).map((r) => (
-              <button
-                key={r}
-                onClick={() => setRecipient(r)}
-                className={`flex-1 py-1.5 text-xs rounded-md font-semibold tracking-wider transition-colors ${
-                  recipient === r ? 'bg-gold text-primary' : 'text-gray-400'
-                }`}
-              >
-                {r === 'guest' ? 'お客さま' : 'スタッフ'}
-              </button>
-            ))}
-          </div>
-
           <div className="text-[10px] text-gray-500 mb-2 tracking-wider">キャスト選択</div>
           <div className="grid grid-cols-1 gap-1.5">
             <CastChip
@@ -377,11 +367,10 @@ export default function OrderPage() {
             <Plus size={12} /> 女の子を追加
           </button>
 
-          {recipient === 'guest' && (
-            <div className="mt-3 text-[10px] text-gray-500 leading-relaxed">
-              選択したキャストに<br />バック・売上が帰属します
-            </div>
-          )}
+          <div className="mt-3 text-[10px] text-gray-500 leading-relaxed">
+            選択したキャストにバック・売上が帰属します。
+            <br />本指名卓では「指名なし」でも本指名担当に自動計上されます。
+          </div>
         </div>
 
         {/* ── Column 4: 注文明細 ── */}
@@ -398,26 +387,46 @@ export default function OrderPage() {
               {orders.map((o, idx) => (
                 <div
                   key={`${o.menuItem.id}-${o.castName ?? ''}-${idx}`}
-                  className="panel p-2.5 flex items-center gap-2"
+                  className="panel p-2.5 flex flex-col gap-1"
                 >
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm text-white truncate">{displayOrderName(o)}</div>
-                    <div className="text-[10px] text-gray-400 tabular-nums">
-                      ¥{o.menuItem.price.toLocaleString()} × {o.quantity}
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-white truncate">{displayOrderName(o)}</div>
+                      <div className="text-[10px] text-gray-400 tabular-nums">
+                        ¥{o.menuItem.price.toLocaleString()} × {o.quantity}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => {
+                          setBonusTarget(o)
+                          setBonusCastName(o.bonusCastName ?? '')
+                          setBonusAmount(o.bonusAmount ?? 0)
+                        }}
+                        className={`w-7 h-7 flex items-center justify-center rounded-md ${
+                          o.bonusCastName ? 'bg-amber-500/20 text-amber-300' : 'bg-white/5 text-gray-400'
+                        }`}
+                        title="ボーナス追加"
+                      >
+                        <Gift size={13} />
+                      </button>
+                      <button onClick={() => handleRemove(o.menuItem.id, o.castName)} className="w-7 h-7 flex items-center justify-center bg-white/5 rounded-md text-gray-300">
+                        <Minus size={14} />
+                      </button>
+                      <span className="w-6 text-center font-bold tabular-nums text-sm">{o.quantity}</span>
+                      <button onClick={() => handleIncrement(o)} className="w-7 h-7 flex items-center justify-center bg-white/5 rounded-md text-gray-300">
+                        <Plus size={14} />
+                      </button>
+                      <button onClick={() => handleDelete(o.menuItem.id, o.castName)} className="w-7 h-7 flex items-center justify-center bg-red-500/10 rounded-md text-red-400 ml-1">
+                        <Trash2 size={13} />
+                      </button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button onClick={() => handleRemove(o.menuItem.id, o.castName)} className="w-7 h-7 flex items-center justify-center bg-white/5 rounded-md text-gray-300">
-                      <Minus size={14} />
-                    </button>
-                    <span className="w-6 text-center font-bold tabular-nums text-sm">{o.quantity}</span>
-                    <button onClick={() => handleIncrement(o)} className="w-7 h-7 flex items-center justify-center bg-white/5 rounded-md text-gray-300">
-                      <Plus size={14} />
-                    </button>
-                    <button onClick={() => handleDelete(o.menuItem.id, o.castName)} className="w-7 h-7 flex items-center justify-center bg-red-500/10 rounded-md text-red-400 ml-1">
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
+                  {o.bonusCastName && o.bonusAmount && (
+                    <div className="text-[10px] text-amber-300 flex items-center gap-1">
+                      <Gift size={10} /> ボーナス: {o.bonusCastName} +¥{o.bonusAmount.toLocaleString()}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -469,6 +478,78 @@ export default function OrderPage() {
           onSave={handleAddBottleKeep}
         />
       )}
+
+      {/* 追補03 R18: 注文行のボーナス加算設定 */}
+      <Modal
+        open={!!bonusTarget}
+        onClose={() => setBonusTarget(null)}
+        size="sm"
+        title="ボーナス加算"
+        footer={
+          <>
+            <GhostButton onClick={() => setBonusTarget(null)} className="flex-1">キャンセル</GhostButton>
+            {bonusTarget?.bonusCastName && (
+              <DangerButton
+                onClick={() => {
+                  if (!selectedTableId || !bonusTarget) return
+                  setOrderBonus(selectedTableId, bonusTarget.menuItem.id, bonusTarget.castName, {})
+                  setBonusTarget(null)
+                }}
+                className="flex-1"
+              >
+                解除
+              </DangerButton>
+            )}
+            <GoldButton
+              onClick={() => {
+                if (!selectedTableId || !bonusTarget) return
+                if (!bonusCastName || bonusAmount <= 0) return
+                setOrderBonus(selectedTableId, bonusTarget.menuItem.id, bonusTarget.castName, {
+                  bonusCastName,
+                  bonusAmount,
+                })
+                setBonusTarget(null)
+              }}
+              className="flex-1"
+              disabled={!bonusCastName || bonusAmount <= 0}
+            >
+              設定
+            </GoldButton>
+          </>
+        }
+      >
+        {bonusTarget && (
+          <div className="space-y-3">
+            <div className="text-xs text-gray-400">
+              対象: {displayOrderName(bonusTarget)} {bonusTarget.castName && <span className="text-gold">→ {bonusTarget.castName}</span>}
+            </div>
+            <p className="text-xs text-gray-500">
+              この注文に対して、別のキャストにもボーナス的な給与を少し加算します。
+              売上帰属は変わりません (そのキャストへのご褒美金のみ)。
+            </p>
+            <FormField label="ボーナス対象キャスト">
+              <select
+                value={bonusCastName}
+                onChange={(e) => setBonusCastName(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded px-2 py-2 text-sm"
+              >
+                <option value="">(未選択)</option>
+                {casts.filter((c) => c.active).map((c) => (
+                  <option key={c.id} value={c.name}>{c.name}</option>
+                ))}
+              </select>
+            </FormField>
+            <FormField label="ボーナス金額">
+              <Input
+                type="number"
+                value={bonusAmount || ''}
+                onChange={(e) => setBonusAmount(Math.max(0, Number(e.target.value) || 0))}
+                placeholder="例: 500"
+              />
+            </FormField>
+          </div>
+        )}
+      </Modal>
 
       {/* 追補02 R2: 「女の子を追加」 — 他卓対応中 or 待機中キャストを排他的に移動 */}
       <Modal
@@ -532,7 +613,9 @@ function BottleSection({
   onUpdate: (id: number, patch: Partial<{ remaining: number }>) => void
   onRemove: (id: number) => void
 }) {
-  const sorted = [...bottleKeeps].sort((a, b) => a.remaining - b.remaining)
+  // ビデオレビュー B9: 残量で並び替えると操作のたびに上下が入れ替わって混乱する
+  //   id (登録順) で固定ソートに変更
+  const sorted = [...bottleKeeps].sort((a, b) => a.id - b.id)
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
@@ -605,6 +688,11 @@ function AddBottleModal({
   bottleCustomer: string; setBottleCustomer: (v: string) => void
   onClose: () => void; onSave: () => void
 }) {
+  // ビデオレビュー N9: シャンパンはボトルキープ対象外。ウイスキー/焼酎/ブランデーのみ
+  // 簡易バリデーション: ボトル名にシャンパン銘柄が含まれていればアラート
+  const isChampagneLike = /シャンパン|ヴーヴ|モエ|ソウメイ|アルマンド|エンジェル|クリスタル|サロン|ドンペリ|D\.ROCK|ペリエ/i.test(bottleName)
+  const canSave = !!bottleName && !!bottleCustomer && !isChampagneLike
+
   return (
     <Modal
       open
@@ -614,22 +702,28 @@ function AddBottleModal({
       footer={
         <>
           <GhostButton onClick={onClose} className="flex-1">キャンセル</GhostButton>
-          <GoldButton onClick={onSave} disabled={!bottleName || !bottleCustomer} className="flex-1">登録</GoldButton>
+          <GoldButton onClick={onSave} disabled={!canSave} className="flex-1">登録</GoldButton>
         </>
       }
     >
+      {/* ビデオレビュー N8: 入力欄の順序を整理 (登録順固定で上下入れ替わりを防止) */}
       <div className="space-y-3">
         <FormField label="ボトル名">
           <Input type="text" value={bottleName} onChange={(e) => setBottleName(e.target.value)} placeholder="例: 響 17年" />
+          {isChampagneLike && (
+            <div className="text-[11px] text-red-400 mt-1">
+              ※ シャンパンはボトルキープ対象外です (ウイスキー / 焼酎 / ブランデーのみ)
+            </div>
+          )}
+        </FormField>
+        <FormField label="お客様の名前">
+          <Input type="text" value={bottleCustomer} onChange={(e) => setBottleCustomer(e.target.value)} placeholder="例: 田中様" />
+        </FormField>
+        <FormField label="保管場所 (任意)">
+          <Input type="text" value={bottleStorage} onChange={(e) => setBottleStorage(e.target.value)} placeholder="例: A-3" />
         </FormField>
         <FormField label={`残量: ${bottleRemaining}%`}>
           <input type="range" min="0" max="100" value={bottleRemaining} onChange={(e) => setBottleRemaining(Number(e.target.value))} className="w-full" />
-        </FormField>
-        <FormField label="保管場所">
-          <Input type="text" value={bottleStorage} onChange={(e) => setBottleStorage(e.target.value)} placeholder="例: A-3" />
-        </FormField>
-        <FormField label="担当客名">
-          <Input type="text" value={bottleCustomer} onChange={(e) => setBottleCustomer(e.target.value)} placeholder="例: 田中様" />
         </FormField>
       </div>
     </Modal>

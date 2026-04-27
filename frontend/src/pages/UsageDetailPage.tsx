@@ -65,10 +65,10 @@ export default function UsageDetailPage() {
               <span className="text-sm text-gray-400">対応中</span>
               <span className="text-sm">{table.assignedCasts.join(', ') || '担当なし'}</span>
             </div>
-            {table.mainNominationCastName && (
+            {table.mainNominationCastNames.length > 0 && (
               <div className="flex justify-between">
                 <span className="text-sm text-gray-400">本指名担当</span>
-                <span className="text-sm text-gold">{table.mainNominationCastName}</span>
+                <span className="text-sm text-gold">{table.mainNominationCastNames.join(', ')}</span>
               </div>
             )}
             <div className="flex justify-between">
@@ -168,12 +168,22 @@ export default function UsageDetailPage() {
           </DangerButton>
         }
         right={
-          <DarkButton
-            onClick={() => navigate(`/order?table=${table.id}`)}
-            className="text-sm flex items-center gap-1"
-          >
-            <FileText size={15} /> 注文追加
-          </DarkButton>
+          // ビデオレビュー N15: 利用明細から延長交渉ボタンへの導線追加
+          <div className="flex gap-1.5">
+            <DarkButton
+              onClick={() => navigate(`/floor?action=extend&table=${table.id}`)}
+              className="text-sm flex items-center gap-1"
+              title="ご延長交渉印字を表示 (ホール画面で卓を開いて印字)"
+            >
+              <FileText size={15} /> 延長交渉
+            </DarkButton>
+            <DarkButton
+              onClick={() => navigate(`/order?table=${table.id}`)}
+              className="text-sm flex items-center gap-1"
+            >
+              <FileText size={15} /> 注文追加
+            </DarkButton>
+          </div>
         }
       />
     </div>

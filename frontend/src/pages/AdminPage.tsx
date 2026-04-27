@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useStore } from '../store'
-import { sampleDailyWork } from '../data/mock'
+import { sampleDailyWork, isPercentBackType } from '../data/mock'
+import { calcHourlyPay } from '../utils/payroll'
 import type { Cast, BackType, GuestMenuItem, CastMenuItem, SetPrice, Table, StoreSettings, DailyWork, UserAccount } from '../data/mock'
 import type { AttendanceRecord, Expense, ExpenseCategory, AdvancePayment, ArchivedData } from '../data/mock'
 import React from 'react'
@@ -39,6 +40,7 @@ export default function AdminPage() {
     advancePayments, addAdvancePayment,
     archivedData, archiveOldData,
     deductions, addDailyPayRequest,
+    menuCategories, setMenuCategories,
   } = useStore()
 
   const [activeTab, setActiveTab] = useState<AdminTab>('menu')
@@ -68,7 +70,7 @@ export default function AdminPage() {
         <Tabs<AdminTab> value={activeTab} onChange={setActiveTab} items={tabs} scrollable />
       </div>
 
-      {activeTab === 'menu' && <MenuManager guestMenu={guestMenu} castMenu={castMenu} setGuestMenu={setGuestMenu} setCastMenu={setCastMenu} />}
+      {activeTab === 'menu' && <MenuManager guestMenu={guestMenu} castMenu={castMenu} setGuestMenu={setGuestMenu} setCastMenu={setCastMenu} menuCategories={menuCategories} setMenuCategories={setMenuCategories} />}
       {activeTab === 'cast' && <CastManager casts={casts} setCasts={setCasts} />}
       {activeTab === 'price' && <PriceManager setPrices={setPrices} chargeItems={chargeItems} setSetPrices={setSetPrices} setChargeItems={setChargeItems} />}
       {activeTab === 'tables' && <TableManager tables={tables} setTables={setTables} reorderTables={reorderTables} />}
@@ -108,10 +110,12 @@ const castSubcategoryLabels: Record<CastMenuItem['subcategory'], string> = {
   fbeer: 'Lビール(F)', honbeer: 'Lビール(本)',
 }
 
-function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu }: {
+function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCategories, setMenuCategories }: {
   guestMenu: GuestMenuItem[]; castMenu: CastMenuItem[]
   setGuestMenu: React.Dispatch<React.SetStateAction<GuestMenuItem[]>>
   setCastMenu: React.Dispatch<React.SetStateAction<CastMenuItem[]>>
+  menuCategories: import('../data/mock').MenuCategory[]
+  setMenuCategories: React.Dispatch<React.SetStateAction<import('../data/mock').MenuCategory[]>>
 }) {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editPrice, setEditPrice] = useState('')
@@ -185,6 +189,45 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu }: {
     setConfirmTarget(null)
   }
 
+  // ─── 追補02 R5-2/R5-3: カテゴリ管理 ───
+  const [showAddCategory, setShowAddCategory] = useState(false)
+  const [newCatLabel, setNewCatLabel] = useState('')
+  const [newCatKind, setNewCatKind] = useState<'guest' | 'cast'>('guest')
+
+  const handleAddCategory = () => {
+    if (!newCatLabel.trim()) return
+    const id = 'custom-' + Date.now()
+    const maxOrder = Math.max(...menuCategories.map((c) => c.order), 0)
+    setMenuCategories((prev) => [
+      ...prev,
+      { kind: newCatKind, id, label: newCatLabel.trim(), order: maxOrder + 1, custom: true },
+    ])
+    setNewCatLabel('')
+    setShowAddCategory(false)
+  }
+
+  const moveCategory = (id: string, delta: number) => {
+    setMenuCategories((prev) => {
+      const sorted = [...prev].sort((a, b) => a.order - b.order)
+      const i = sorted.findIndex((c) => c.id === id)
+      if (i < 0) return prev
+      const j = i + delta
+      if (j < 0 || j >= sorted.length) return prev
+      const tmp = sorted[i].order
+      sorted[i].order = sorted[j].order
+      sorted[j].order = tmp
+      return [...sorted]
+    })
+  }
+
+  const toggleCategoryHidden = (id: string) => {
+    setMenuCategories((prev) => prev.map((c) => (c.id === id ? { ...c, hidden: !c.hidden } : c)))
+  }
+
+  const deleteCategory = (id: string) => {
+    setMenuCategories((prev) => prev.filter((c) => c.id !== id))
+  }
+
   return (
     <div className="space-y-6">
       <ConfirmDialog
@@ -194,6 +237,55 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu }: {
         onConfirm={handleConfirmDelete}
         onCancel={() => setConfirmTarget(null)}
       />
+
+      {/* ─── 追補02 R5-2/R5-3: カテゴリ管理 ─── */}
+      <div className="panel p-3 border border-gold/30">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-bold text-gold">カテゴリ管理</h3>
+          {showAddCategory ? (
+            <button onClick={() => { setShowAddCategory(false); setNewCatLabel('') }} className="text-xs text-gray-400">キャンセル</button>
+          ) : (
+            <button onClick={() => setShowAddCategory(true)} className="btn-ghost text-xs flex items-center gap-1"><Plus size={12}/>カテゴリ追加</button>
+          )}
+        </div>
+        {showAddCategory && (
+          <div className="grid grid-cols-3 gap-2 mb-2">
+            <select value={newCatKind} onChange={(e) => setNewCatKind(e.target.value as 'guest' | 'cast')} className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm">
+              <option value="guest">ゲスト用</option>
+              <option value="cast">キャスト用</option>
+            </select>
+            <input value={newCatLabel} onChange={(e) => setNewCatLabel(e.target.value)} placeholder="例: ノンアルコール" className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm col-span-2" />
+            <button onClick={handleAddCategory} disabled={!newCatLabel.trim()} className="btn-gold text-xs px-3 py-1 col-span-3 disabled:opacity-40">追加</button>
+          </div>
+        )}
+        <div className="space-y-1 max-h-72 overflow-y-auto">
+          {[...menuCategories].sort((a, b) => a.order - b.order).map((c) => (
+            <div key={c.id} className={`flex items-center gap-2 text-xs bg-white/5 px-2 py-1.5 rounded ${c.hidden ? 'opacity-40' : ''}`}>
+              <span className="text-[10px] text-gray-500 w-12">{c.kind === 'guest' ? 'ゲスト' : 'キャスト'}</span>
+              <span className="flex-1 truncate">{c.label}</span>
+              {c.custom && <span className="text-[9px] text-gold/70 bg-gold/10 px-1.5 py-0.5 rounded">カスタム</span>}
+              <button onClick={() => moveCategory(c.id, -1)} className="text-gray-400 hover:text-white" title="上に移動">
+                <ChevronUp size={12} />
+              </button>
+              <button onClick={() => moveCategory(c.id, +1)} className="text-gray-400 hover:text-white" title="下に移動">
+                <ChevronDown size={12} />
+              </button>
+              <button onClick={() => toggleCategoryHidden(c.id)} className={`text-xs px-2 py-0.5 rounded ${c.hidden ? 'bg-white/10 text-gray-400' : 'bg-emerald-500/20 text-emerald-300'}`}>
+                {c.hidden ? '非表示' : '表示中'}
+              </button>
+              {c.custom && (
+                <button onClick={() => deleteCategory(c.id)} className="text-red-400 hover:bg-red-500/20 p-0.5 rounded">
+                  <Trash2 size={12} />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="text-[10px] text-gray-600 mt-2">
+          ※ カスタムカテゴリは削除可能。既定カテゴリは非表示にして並び替えできます。
+          OrderPage の表示順・表示/非表示はこの設定が反映されます。
+        </div>
+      </div>
 
       {/* ─── 新規メニュー追加 (追補02 R5-1) ─── */}
       <div className="panel p-3 border border-gold/30">
@@ -401,22 +493,30 @@ function CastManager({ casts, setCasts }: { casts: Cast[]; setCasts: React.Dispa
     <div>
       <label className="text-xs text-gray-500 block mb-1.5">バック単価</label>
       <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
-        {backTypes.map((bt) => (
-          <div key={bt} className="flex items-center gap-1.5">
-            <span className="text-[11px] text-gray-400 w-16 shrink-0 truncate">{bt}</span>
-            <div className="relative flex-1">
-              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-600">¥</span>
-              <NumberInput
-                value={rates[bt] ?? 0}
-                onChange={(v) => setRates({ ...rates, [bt]: v })}
-                step={100}
-                min={0}
-                inputClassName="!pl-5 !pr-2 !py-1 !text-xs text-right"
-                className="w-full"
-              />
+        {backTypes.map((bt) => {
+          // 追補03 R19: ボトルバックのみ % 単位 (それ以外は円)
+          const isPercent = isPercentBackType(bt)
+          return (
+            <div key={bt} className="flex items-center gap-1.5">
+              <span className="text-[11px] text-gray-400 w-16 shrink-0 truncate">{bt}</span>
+              <div className="relative flex-1">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-600">
+                  {isPercent ? '' : '¥'}
+                </span>
+                <NumberInput
+                  value={rates[bt] ?? 0}
+                  onChange={(v) => setRates({ ...rates, [bt]: v })}
+                  step={isPercent ? 1 : 100}
+                  min={0}
+                  max={isPercent ? 100 : undefined}
+                  unit={isPercent ? '%' : undefined}
+                  inputClassName={`${isPercent ? '!pl-2' : '!pl-5'} !pr-2 !py-1 !text-xs text-right`}
+                  className="w-full"
+                />
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
@@ -580,6 +680,7 @@ function TableManager({ tables, setTables, reorderTables }: {
       guestCount: 0,
       startTime: null,
       assignedCasts: [],
+      mainNominationCastNames: [],
       setCount: 0,
       orders: [],
     }])
@@ -900,7 +1001,8 @@ function DataExport({ billingRecords, casts, dailyPayRequests, discountLogs, ded
       const work = (sampleDailyWork[cast.id] ?? []).filter((w) => w.date.startsWith(prefix))
       const totalHours = work.reduce((s, w) => s + w.hours, 0)
       const totalSales = work.reduce((s, w) => s + w.sales, 0)
-      const hourlyTotal = Math.floor(cast.hourlyRate * totalHours)
+      // 追補03 R25: 15 分単位 + ルーズタイム 15 分
+      const hourlyTotal = calcHourlyPay(cast.hourlyRate, totalHours)
       const gross = Math.max(hourlyTotal, Math.floor(totalSales * cast.guaranteeRate))
 
       const dailyPay = dailyPayRequests
@@ -924,7 +1026,7 @@ function DataExport({ billingRecords, casts, dailyPayRequests, discountLogs, ded
       const deduction10 = Math.floor(gross * 0.1)
       // 法定源泉: 日給5,000円超過分の10.21%
       const withholdingTax = work.reduce((s, w) => {
-        const daily = Math.floor(cast.hourlyRate * w.hours)
+        const daily = calcHourlyPay(cast.hourlyRate, w.hours)
         const over = Math.max(0, daily - 5000)
         return s + Math.floor(over * 0.1021)
       }, 0)
@@ -1787,7 +1889,8 @@ function DailyPayManager({
 
   const computePay = (cast: Cast, rec?: AttendanceRecord) => {
     const hours = rec?.workHours ?? 0
-    const basePay = Math.floor(cast.hourlyRate * hours)
+    // 追補03 R25: 時給は 15 分単位 + ルーズタイム 15 分
+    const basePay = calcHourlyPay(cast.hourlyRate, hours)
     const deductible = Math.floor(basePay * 0.1) // 一律 10% 控除
     return { basePay, net: basePay - deductible, hours }
   }

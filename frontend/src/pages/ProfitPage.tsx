@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { useStore } from '../store'
 import { sampleDailyWork, type BackType } from '../data/mock'
 import ContextualHeader from '../components/ContextualHeader'
+import { calcHourlyPay } from '../utils/payroll'
 
 type Granularity = 'day' | 'month' | 'year'
 type ViewMode = 'today' | 'trend' | 'calendar' | 'cast'
@@ -134,6 +135,10 @@ function TodayView() {
 function StoreTrendView() {
   const { billingRecords, expenses, storeSettings } = useStore()
   const [granularity, setGranularity] = useState<Granularity>('month')
+  /** 追補03 R22: ドリルダウン用 — 年/月から day へ降りる際の絞り込みキー */
+  const [drilldownScope, setDrilldownScope] = useState<string | null>(null)
+  /** 追補03 R22: 期間内の特定日を選択した際の詳細表示 */
+  const [selectedBucket, setSelectedBucket] = useState<string | null>(null)
 
   const buckets = useMemo(() => {
     const today = new Date()
@@ -145,15 +150,31 @@ function StoreTrendView() {
     // バケットラベルを時系列で生成
     const labels: string[] = []
     if (granularity === 'day') {
-      for (let i = 29; i >= 0; i--) {
-        const d = new Date(today)
-        d.setDate(d.getDate() - i)
-        labels.push(d.toISOString().slice(0, 10))
+      // ドリルダウンスコープ (例: '2026-04') があればその月の日付、なければ過去 30 日
+      if (drilldownScope && drilldownScope.length === 7) {
+        const [y, m] = drilldownScope.split('-').map(Number)
+        const daysInMonth = new Date(y, m, 0).getDate()
+        for (let d = 1; d <= daysInMonth; d++) {
+          labels.push(`${drilldownScope}-${String(d).padStart(2, '0')}`)
+        }
+      } else {
+        for (let i = 29; i >= 0; i--) {
+          const d = new Date(today)
+          d.setDate(d.getDate() - i)
+          labels.push(d.toISOString().slice(0, 10))
+        }
       }
     } else if (granularity === 'month') {
-      for (let i = 11; i >= 0; i--) {
-        const d = new Date(today.getFullYear(), today.getMonth() - i, 1)
-        labels.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+      // ドリルダウンスコープ (例: '2026') があればその年の 12 ヶ月、なければ過去 12 ヶ月
+      if (drilldownScope && drilldownScope.length === 4) {
+        for (let m = 1; m <= 12; m++) {
+          labels.push(`${drilldownScope}-${String(m).padStart(2, '0')}`)
+        }
+      } else {
+        for (let i = 11; i >= 0; i--) {
+          const d = new Date(today.getFullYear(), today.getMonth() - i, 1)
+          labels.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+        }
       }
     } else {
       for (let i = 4; i >= 0; i--) {
@@ -188,7 +209,7 @@ function StoreTrendView() {
       const profit = b.sales - foodEstimate - laborEstimate - cardFee - b.expense
       return { label: l, sales: b.sales, expense: b.expense, cardFee, profit, foodEstimate, laborEstimate }
     })
-  }, [billingRecords, expenses, granularity, storeSettings.cardProcessingFeeRate])
+  }, [billingRecords, expenses, granularity, drilldownScope, storeSettings.cardProcessingFeeRate])
 
   const totals = useMemo(() => {
     return buckets.reduce(
@@ -221,7 +242,7 @@ function StoreTrendView() {
               granularity === g ? 'bg-white text-black' : 'bg-white/5 border border-white/10 text-gray-400'
             }`}
           >
-            {g === 'day' ? '過去30日' : g === 'month' ? '過去12ヶ月' : '過去5年'}
+            {g === 'day' ? '日別' : g === 'month' ? '月別' : '年別'}
           </button>
         ))}
       </div>
@@ -244,14 +265,37 @@ function StoreTrendView() {
         </div>
       </div>
 
-      {/* 棒グラフ */}
+      {/* 追補03 R22: 棒グラフ — クリックで日詳細にドリルダウン */}
       <div className="bg-white/5 rounded-lg p-4">
-        <h3 className="text-sm font-bold text-gray-400 mb-3">売上推移</h3>
+        <h3 className="text-sm font-bold text-gray-400 mb-3">
+          売上推移
+          <span className="text-[10px] text-gray-500 ml-2 font-normal">バーをタップして詳細表示</span>
+        </h3>
         <div className="flex items-end gap-1 h-48 overflow-x-auto">
           {buckets.map((b) => {
             const h = b.sales > 0 ? (b.sales / maxSales) * 100 : 0
+            const isSelected = selectedBucket === b.label
             return (
-              <div key={b.label} className="flex-1 min-w-[24px] flex flex-col items-center justify-end h-full">
+              <button
+                key={b.label}
+                onClick={() => {
+                  if (granularity === 'year') {
+                    // 年バーをクリック → その年の月別ビューへ
+                    setDrilldownScope(b.label)
+                    setGranularity('month')
+                    setSelectedBucket(null)
+                  } else if (granularity === 'month') {
+                    // 月バーをクリック → その月の日別ビューへ
+                    setDrilldownScope(b.label)
+                    setGranularity('day')
+                    setSelectedBucket(null)
+                  } else {
+                    // 日バーをクリック → その日の詳細を選択
+                    setSelectedBucket(isSelected ? null : b.label)
+                  }
+                }}
+                className={`flex-1 min-w-[24px] flex flex-col items-center justify-end h-full hover:opacity-80 transition-opacity ${isSelected ? 'ring-2 ring-gold' : ''}`}
+              >
                 <span className="text-[10px] text-gray-500 tabular-nums mb-1">
                   {b.sales > 0 ? `¥${(b.sales / 1000).toFixed(0)}k` : ''}
                 </span>
@@ -260,11 +304,65 @@ function StoreTrendView() {
                   style={{ height: `${Math.max(h, 2)}%`, opacity: b.sales > 0 ? 1 : 0.2 }}
                 />
                 <span className="text-[10px] text-gray-500 mt-1">{shortLabel(b.label)}</span>
-              </div>
+              </button>
             )
           })}
         </div>
+        {drilldownScope && (
+          <button
+            onClick={() => {
+              setDrilldownScope(null)
+              setGranularity(granularity === 'day' ? 'month' : 'year')
+              setSelectedBucket(null)
+            }}
+            className="mt-2 text-xs text-gold hover:text-gold-light"
+          >
+            ← 上位粒度に戻る ({drilldownScope})
+          </button>
+        )}
       </div>
+
+      {/* 追補03 R22: 選択された日の詳細 */}
+      {selectedBucket && granularity === 'day' && (() => {
+        const b = buckets.find((x) => x.label === selectedBucket)
+        if (!b) return null
+        return (
+          <div className="bg-gold/10 border border-gold/40 rounded-lg p-4">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="text-sm font-bold text-gold">{b.label} の詳細</h3>
+              <button onClick={() => setSelectedBucket(null)} className="text-xs text-gray-400 hover:text-white">閉じる</button>
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <div className="text-xs text-gray-500">売上</div>
+                <div className="font-bold text-gold tabular-nums">¥{b.sales.toLocaleString()}</div>
+              </div>
+              <div>
+                <div className="text-xs text-gray-500">経費</div>
+                <div className="font-bold text-red-400 tabular-nums">¥{b.expense.toLocaleString()}</div>
+              </div>
+              <div>
+                <div className="text-xs text-gray-500">原価 (F)</div>
+                <div className="font-bold tabular-nums">¥{b.foodEstimate.toLocaleString()}</div>
+              </div>
+              <div>
+                <div className="text-xs text-gray-500">人件費 (L)</div>
+                <div className="font-bold tabular-nums">¥{b.laborEstimate.toLocaleString()}</div>
+              </div>
+              <div>
+                <div className="text-xs text-gray-500">カード手数料</div>
+                <div className="font-bold tabular-nums">¥{b.cardFee.toLocaleString()}</div>
+              </div>
+              <div>
+                <div className="text-xs text-gray-500">推定利益</div>
+                <div className={`font-bold tabular-nums ${b.profit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  ¥{b.profit.toLocaleString()}
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* 明細テーブル */}
       <div className="bg-white/5 rounded-lg p-4 overflow-x-auto">
@@ -369,7 +467,8 @@ function CastTrendView() {
         0,
       )
       b.back += backAmount
-      const hourly = Math.floor(cast.hourlyRate * w.hours)
+      // 追補03 R25: 15 分単位 + ルーズタイム 15 分
+      const hourly = calcHourlyPay(cast.hourlyRate, w.hours)
       b.gross += hourly + backAmount
     }
 
@@ -436,7 +535,7 @@ function CastTrendView() {
               granularity === g ? 'bg-white text-black' : 'bg-white/5 border border-white/10 text-gray-400'
             }`}
           >
-            {g === 'day' ? '過去30日' : g === 'month' ? '過去12ヶ月' : '過去5年'}
+            {g === 'day' ? '日別' : g === 'month' ? '月別' : '年別'}
           </button>
         ))}
       </div>
@@ -524,11 +623,12 @@ function CalendarView() {
   const daysInMonth = new Date(year, month, 0).getDate()
   const startWeekday = firstDay.getDay()
 
+  // 追補03 R20/R23: 日別に売上/経費に加えて F (原価) / L (人件費) / FL率を表示
   const dayData = useMemo(() => {
-    const map = new Map<string, { sales: number; expense: number; count: number }>()
+    const map = new Map<string, { sales: number; expense: number; count: number; food: number; labor: number; fl: number }>()
     for (let d = 1; d <= daysInMonth; d++) {
       const ds = `${monthPrefix}-${String(d).padStart(2, '0')}`
-      map.set(ds, { sales: 0, expense: 0, count: 0 })
+      map.set(ds, { sales: 0, expense: 0, count: 0, food: 0, labor: 0, fl: 0 })
     }
     for (const r of billingRecords) {
       const d = r.date ?? today.toISOString().slice(0, 10)
@@ -543,6 +643,13 @@ function CalendarView() {
       if (!e.date.startsWith(monthPrefix)) continue
       const b = map.get(e.date)
       if (b) b.expense += e.amount
+    }
+    // F (原価) と L (人件費) の概算 — 売上の 12% / 30%
+    // (商品別原価が会計時に保存されれば正確値に切替予定)
+    for (const [, v] of map) {
+      v.food = Math.round(v.sales * 0.12)
+      v.labor = Math.round(v.sales * 0.30)
+      v.fl = v.sales > 0 ? ((v.food + v.labor) / v.sales) * 100 : 0
     }
     return map
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -640,11 +747,20 @@ function CalendarView() {
               >
                 <div className="text-xs font-bold">{day}</div>
                 {data && data.sales > 0 && (
-                  <div className="text-[9px] text-gold tabular-nums leading-tight mt-0.5">
-                    ¥{(data.sales / 1000).toFixed(0)}k
-                  </div>
+                  <>
+                    <div className="text-[9px] text-gold tabular-nums leading-tight mt-0.5">
+                      ¥{(data.sales / 1000).toFixed(0)}k
+                    </div>
+                    {/* 追補03 R23: FL率表示 (色分け: ≤60% 緑 / ≤70% 黄 / >70% 赤) */}
+                    <div className={`text-[8px] tabular-nums leading-tight ${flColor(data.fl)}`}>
+                      FL {data.fl.toFixed(0)}%
+                    </div>
+                    <div className="text-[8px] text-gray-500 tabular-nums leading-tight">
+                      利益¥{((data.sales - data.food - data.labor - data.expense) / 1000).toFixed(0)}k
+                    </div>
+                  </>
                 )}
-                {data && data.expense > 0 && (
+                {data && data.expense > 0 && data.sales === 0 && (
                   <div className="text-[9px] text-red-400/80 tabular-nums leading-tight">
                     -¥{(data.expense / 1000).toFixed(0)}k
                   </div>
