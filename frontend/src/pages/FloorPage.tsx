@@ -829,12 +829,12 @@ export default function FloorPage() {
             </div>
             <div>
               <label className="text-sm text-gray-200 block mb-2 font-medium">来店人数</label>
-              <div className="flex gap-2 flex-wrap">
+              <div className="grid grid-cols-4 gap-2">
                 {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
                   <button
                     key={n}
                     onClick={() => setCiGuests(n)}
-                    className={`flex-1 min-w-[48px] py-4 rounded-[10px] text-lg font-bold transition-colors ${
+                    className={`py-4 rounded-[10px] text-lg font-bold transition-colors ${
                       ciGuests === n ? 'bg-gold text-primary' : 'panel text-gray-200 hover:bg-white/10'
                     }`}
                   >
