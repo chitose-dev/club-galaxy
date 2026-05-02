@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../store'
 import {
   type Table,
@@ -110,6 +110,9 @@ function flColor(rate: number) {
 
 export default function FloorPage() {
   const { tables, casts, setCasts, updateTable, flMetrics, storeSettings, moveCast } = useStore()
+  // ISSUE-010: 延長交渉モーダル経由（UsageDetailPage → /floor?action=extend&from=...）の戻り遷移先
+  const [searchParams] = useSearchParams()
+  const fromAfterExtend = searchParams.get('from')
   const navigate = useNavigate()
   // selected は ID のみ保持し、tables からの dynamic reference で最新状態を反映
   // (updateTable 後に selected が stale になるバグを防ぐ)
@@ -354,7 +357,12 @@ export default function FloorPage() {
     })
     setPendingExtend(null)
     setShowExtend(false)
-    setSelected(null)
+    // ISSUE-010: from クエリがあれば（UsageDetailPage の延長交渉ボタン経由）元画面に戻る
+    if (fromAfterExtend) {
+      navigate(fromAfterExtend)
+    } else {
+      setSelected(null)
+    }
   }
 
   // 延長取消 (指示書§6.2.4)
