@@ -282,7 +282,6 @@ export default function BillingPage() {
     const receiptNumberForRecord = getNextReceiptNumber()
 
     const nowIso = new Date().toISOString().slice(0, 10)
-    const nowTime = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
 
     // 追補02 R13-5 完全対応: 合算会計の場合、各構成卓ごとに独立した
     //   BillingRecord を生成し、売上・バック帰属を卓単位で保持する。
