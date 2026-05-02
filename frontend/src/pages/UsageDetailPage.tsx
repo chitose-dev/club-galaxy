@@ -1,5 +1,5 @@
-import { useMemo } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useMemo, useState } from 'react'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useStore } from '../store'
 import ContextualHeader from '../components/ContextualHeader'
 import BottomActionBar from '../components/BottomActionBar'
@@ -12,11 +12,18 @@ import { FileText, CreditCard, Trash2 } from 'lucide-react'
  * TRUST の「利用明細」画面相当。
  * 卓 ID から現在のオーダー・セット料金・指名料などを一覧表示し、
  * 会計へ進む / 注文追加 / 明細行の削除ができる。
+ *
+ * ISSUE-010 反映: 「戻る」を遷移元に戻るよう、`?from=` クエリで上書き可能に。
+ *   無指定時は BackButton 既定の `navigate(-1)`（履歴ベース）。
  */
 export default function UsageDetailPage() {
   const navigate = useNavigate()
   const params = useParams<{ id: string }>()
+  const [searchParams] = useSearchParams()
+  const from = searchParams.get('from') || undefined
   const { tables, removeOrderFromTable, storeSettings } = useStore()
+  // ISSUE-005: 内訳の折りたたみ（デフォルト非表示で合計を強調）
+  const [showBreakdown, setShowBreakdown] = useState(false)
 
   const table = useMemo(() => tables.find((t) => String(t.id) === params.id), [tables, params.id])
 
@@ -45,7 +52,8 @@ export default function UsageDetailPage() {
       <ContextualHeader
         accent="floor"
         title={`卓 ${table.number} の利用明細`}
-        backTo="/floor"
+        // ISSUE-010: from クエリ優先、無ければ BackButton が navigate(-1) 既定動作
+        backTo={from}
         right={
           <DarkButton
             onClick={() => navigate(`/order?table=${table.id}`)}
@@ -139,19 +147,30 @@ export default function UsageDetailPage() {
               ))}
             </div>
           )}
-          <div className="mt-4 pt-3 border-t border-white/10 space-y-1">
-            <div className="flex justify-between text-sm text-gray-400">
-              <span>ドリンク・フード小計</span>
-              <span className="tabular-nums">¥{orderSubtotal.toLocaleString()}</span>
+          {/* ISSUE-005: 合計を最大フォントで強調、内訳は折りたたみ（デフォルト非表示） */}
+          <div className="mt-4 pt-3 border-t border-white/10 space-y-2">
+            <div className="flex justify-between items-baseline">
+              <span className="text-base text-gold font-bold">合計 (税込)</span>
+              <span className="text-4xl tabular-nums font-bold text-gold">¥{total.toLocaleString()}</span>
             </div>
-            <div className="flex justify-between text-sm text-gray-400">
-              <span>TAX {Math.round(storeSettings.taxRate * 100)}%</span>
-              <span className="tabular-nums">¥{tax.toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between pt-2 border-t border-white/10 text-lg">
-              <span className="text-gold font-bold">合計</span>
-              <span className="tabular-nums font-bold text-gold">¥{total.toLocaleString()}</span>
-            </div>
+            {showBreakdown && (
+              <div className="space-y-1 pt-2 border-t border-white/10">
+                <div className="flex justify-between text-sm text-gray-400">
+                  <span>ドリンク・フード小計</span>
+                  <span className="tabular-nums">¥{orderSubtotal.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-sm text-gray-400">
+                  <span>TAX {Math.round(storeSettings.taxRate * 100)}%</span>
+                  <span className="tabular-nums">¥{tax.toLocaleString()}</span>
+                </div>
+              </div>
+            )}
+            <button
+              onClick={() => setShowBreakdown(!showBreakdown)}
+              className="w-full text-xs text-gray-400 hover:text-gold py-1 transition-colors"
+            >
+              {showBreakdown ? '▲ 内訳を隠す' : '▼ 内訳を表示（小計・TAX）'}
+            </button>
           </div>
         </div>
       </div>
@@ -171,7 +190,8 @@ export default function UsageDetailPage() {
           // ビデオレビュー N15: 利用明細から延長交渉ボタンへの導線追加
           <div className="flex gap-1.5">
             <DarkButton
-              onClick={() => navigate(`/floor?action=extend&table=${table.id}`)}
+              // ISSUE-010: 延長交渉モーダル経由でも /table/:id に戻れるよう from を付与
+              onClick={() => navigate(`/floor?action=extend&table=${table.id}&from=${encodeURIComponent(`/table/${table.id}`)}`)}
               className="text-sm flex items-center gap-1"
               title="ご延長交渉印字を表示 (ホール画面で卓を開いて印字)"
             >
