@@ -158,6 +158,8 @@ export type BackType =
   | 'ボトルバック' | 'ヘルプ' | 'その他'
 
 export interface OrderItem {
+  /** APIから受け取る場合のみ存在（バック側でtx内連番採番） */
+  id?: number
   menuItem: MenuItem
   quantity: number
   castName?: string
@@ -210,14 +212,15 @@ export interface DiscountLog {
 }
 
 export interface BillingRecord {
-  id: number
+  id: string
   tableNumber: string
   total: number
   paymentMethod: 'cash' | 'card' | 'mixed'
   cashAmount?: number
   cardAmount?: number
   cardFee?: number
-  timestamp: string           // HH:MM
+  /** ISO 8601 会計完了日時 */
+  completedAt: string
   date?: string               // YYYY-MM-DD (月年別集計用、省略時は今日扱い)
   /** 本指名卓の場合の担当キャストID (指示書§5.2: 売上重畳のため) */
   nominatedCastId?: number
@@ -789,15 +792,17 @@ function generateHistoricalBillings(): BillingRecord[] {
       const castName = ['あいり', 'みく', 'れな', 'ゆい', 'りさ'][(id + t) % 5]
       const nominatedCastId = isShimei ? ((id + t) % 5) + 1 : undefined
       const castsForTable = [castName]  // 本指名/フリー問わず担当を記録
+      const hour = 20 + Math.floor(t / 3)
+      const minute = String((t * 15) % 60).padStart(2, '0')
       result.push({
-        id: id++,
+        id: String(id++),
         tableNumber: String(((id + t) % 10) + 1),
         total,
         paymentMethod: method,
         cashAmount: method !== 'card' ? cashAmount : undefined,
         cardAmount: method !== 'cash' ? cardAmount : undefined,
         cardFee,
-        timestamp: `${20 + Math.floor(t / 3)}:${String((t * 15) % 60).padStart(2, '0')}`,
+        completedAt: `${dateStr}T${String(hour).padStart(2, '0')}:${minute}:00+09:00`,
         date: dateStr,
         nominatedCastId,
         subtotalBeforeTax: Math.floor(total / 1.2),  // TAX 20%相当を除いた推定小計

@@ -290,14 +290,14 @@ export default function BillingPage() {
     //   合算対象卓レコード = 各卓の subtotal/setFee/orders/nominatedCastId
     //     を持つ "shadow" レコード (paymentMethod は 'mixed'、total は卓単位の税込小計)。
     addBillingRecord({
-      id: Date.now(),
+      id: String(Date.now()),
       tableNumber: table.number,
       total: finalTotal,
       paymentMethod,
       cashAmount: paymentMethod === 'cash' ? finalTotal : paymentMethod === 'mixed' ? mixedCashAmount : 0,
       cardAmount: paymentMethod === 'card' ? finalTotal : paymentMethod === 'mixed' ? mixedCardAmount : 0,
       cardFee: cardFee > 0 || mixedCardFee > 0 ? (paymentMethod === 'mixed' ? mixedCardFee : cardFee) : undefined,
-      timestamp: nowTime,
+      completedAt: new Date().toISOString(),
       date: nowIso,
       nominatedCastId,
       subtotalBeforeTax: subtotalAll,
@@ -333,13 +333,13 @@ export default function BillingPage() {
       const mNomName = mt.mainNominationCastNames[0]
       const mNomCastId = mNomName ? casts.find((c) => c.name === mNomName)?.id : undefined
       addBillingRecord({
-        id: Date.now() + mid,
+        id: String(Date.now() + mid),
         tableNumber: mt.number,
         total: mTotal,
         paymentMethod: 'mixed', // 代表卓に合算されたため "mixed" でマーク
         cashAmount: 0,
         cardAmount: 0,
-        timestamp: nowTime,
+        completedAt: new Date().toISOString(),
         date: nowIso,
         nominatedCastId: mNomCastId,
         subtotalBeforeTax: mSubtotal,
@@ -900,7 +900,7 @@ function BillingHistoryView({
     const ad = a.date ?? today
     const bd = b.date ?? today
     if (ad !== bd) return bd.localeCompare(ad)
-    return b.timestamp.localeCompare(a.timestamp)
+    return b.completedAt.localeCompare(a.completedAt)
   })
   const paymentLabel = (m: BillingRecord['paymentMethod']) =>
     m === 'cash' ? '現金' : m === 'card' ? 'カード' : '現金+カード'
@@ -931,7 +931,7 @@ function BillingHistoryView({
                       )}
                     </div>
                     <div className="text-xs text-gray-500">
-                      {r.date ?? '本日'} {r.timestamp} / {paymentLabel(r.paymentMethod)}
+                      {r.date ?? '本日'} {new Date(r.completedAt).toLocaleTimeString('ja-JP', {hour:'2-digit',minute:'2-digit'})} / {paymentLabel(r.paymentMethod)}
                       {r.castNamesSnapshot && r.castNamesSnapshot.length > 0 && (
                         <span className="ml-2">担当: {r.castNamesSnapshot.join(', ')}</span>
                       )}
