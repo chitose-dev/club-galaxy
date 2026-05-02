@@ -1,5 +1,10 @@
-import { createContext, useContext, useState, useCallback, useMemo, useEffect, type ReactNode } from 'react'
-import { api } from './api/client'
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react'
+import { tablesApi } from './api/tables'
+import { castsApi } from './api/casts'
+import { billingApi } from './api/billing'
+import { payrollApi } from './api/payroll'
+import { menuApi } from './api/menu'
+import { settingsApi } from './api/settings'
 import {
   initialTables,
   casts as initialCasts,
@@ -153,17 +158,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [dailyReports, setDailyReports] = useState<DailyReport[]>([])
   const [nextReceiptNumber, setNextReceiptNumber] = useState(1001)
 
-  // 起動時にAPIから最新データを取得してstoreを初期化する
+  // ── 起動時 API fetch ──────────────────────────────────────────────────
+  // authToken があれば backend からデータを並行 fetch、失敗時は initial mock を維持。
+  // 担当ページ（ProfitPage / SalaryPage / AdminPage）が必要とする全データを GET。
+  // 未実装 endpoint（attendance / expenses / advances / archive / dailyReports）は
+  // 当面 mock 維持（Rev.4.1 §16.4 Phase D で別途対応）。
   useEffect(() => {
     const token = localStorage.getItem('authToken')
     if (!token) return
-    Promise.all([
-      api.get<Table[]>('/api/tables').catch(() => null),
-      api.get<Cast[]>('/api/casts').catch(() => null),
-    ]).then(([apiTables, apiCasts]) => {
-      if (apiTables) setTables(apiTables)
-      if (apiCasts) setCasts(apiCasts)
-    })
+    void Promise.all([
+      tablesApi.list().then(setTables).catch(() => undefined),
+      castsApi.list().then(setCasts).catch(() => undefined),
+      billingApi.list().then(setBillingRecords).catch(() => undefined),
+      payrollApi.listDailyPayments().then(setDailyPayRequests).catch(() => undefined),
+      payrollApi.listDeductions().then(setDeductions).catch(() => undefined),
+      menuApi.listGuest().then(setGuestMenu).catch(() => undefined),
+      menuApi.listCast().then(setCastMenu).catch(() => undefined),
+      menuApi.listSetPrices().then(setSetPrices).catch(() => undefined),
+      menuApi.listCharges().then(setChargeItems).catch(() => undefined),
+      menuApi.listCategories().then(setMenuCategories).catch(() => undefined),
+      settingsApi.get().then(setStoreSettings).catch(() => undefined),
+    ])
   }, [])
 
   const updateTable = useCallback((id: number, patch: Partial<Table>) => {
@@ -283,7 +298,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const addBillingRecord = useCallback((record: BillingRecord) => {
     setBillingRecords((prev) => [...prev, record])
-    api.post('/api/billing/records', record).catch(console.error)
+    billingApi.create(record).catch(console.error)
   }, [])
 
   const addDailyPayRequest = useCallback((req: DailyPayRequest) => {
