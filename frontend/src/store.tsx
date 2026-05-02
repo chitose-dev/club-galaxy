@@ -140,18 +140,19 @@ const StoreContext = createContext<Store | null>(null)
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [tables, setTables] = useState<Table[]>(initialTables)
-  const [casts, setCasts] = useState<Cast[]>(initialCasts)
-  const [guestMenu, setGuestMenu] = useState<GuestMenuItem[]>(initialGuestMenu)
-  const [castMenu, setCastMenu] = useState<CastMenuItem[]>(initialCastMenu)
-  const [menuCategories, setMenuCategories] = useState<MenuCategory[]>(initialMenuCategories)
-  const [setPricesState, setSetPrices] = useState<SetPrice[]>(initialSetPrices)
-  const [chargeItemsState, setChargeItems] = useState<SetPrice[]>(initialChargeItems)
+  // Day 2: PUT sync wrap のため raw state setter は ...Raw 名で受ける
+  const [casts, setCastsRaw] = useState<Cast[]>(initialCasts)
+  const [guestMenu, setGuestMenuRaw] = useState<GuestMenuItem[]>(initialGuestMenu)
+  const [castMenu, setCastMenuRaw] = useState<CastMenuItem[]>(initialCastMenu)
+  const [menuCategories, setMenuCategoriesRaw] = useState<MenuCategory[]>(initialMenuCategories)
+  const [setPricesState, setSetPricesRaw] = useState<SetPrice[]>(initialSetPrices)
+  const [chargeItemsState, setChargeItemsRaw] = useState<SetPrice[]>(initialChargeItems)
   const [discountLogs, setDiscountLogs] = useState<DiscountLog[]>([])
   const [billingRecords, setBillingRecords] = useState<BillingRecord[]>(initialBillingRecords)
   const [dailyPayRequests, setDailyPayRequests] = useState<DailyPayRequest[]>(initialDailyPayRequests)
   const [bottleKeeps, setBottleKeeps] = useState<BottleKeep[]>(initialBottleKeeps)
-  const [deductions, setDeductions] = useState<Deduction[]>([])
-  const [storeSettings, setStoreSettings] = useState<StoreSettings>(defaultStoreSettings)
+  const [deductions, setDeductionsRaw] = useState<Deduction[]>([])
+  const [storeSettings, setStoreSettingsRaw] = useState<StoreSettings>(defaultStoreSettings)
   const [userAccounts, setUserAccounts] = useState<UserAccount[]>(dummyAccounts)
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(initialAttendanceRecords)
   const [expenses, setExpenses] = useState<Expense[]>(initialExpenses)
@@ -159,6 +160,67 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [archivedData, setArchivedData] = useState<ArchivedData[]>([])
   const [dailyReports, setDailyReports] = useState<DailyReport[]>([])
   const [nextReceiptNumber, setNextReceiptNumber] = useState(1001)
+
+  // ── Day 2: PUT sync 付き setter ────────────────────────────────────
+  // AdminPage / SalaryPage が `setX(arr)` or `setX((prev) => updated)` で更新した時点で
+  // 自動的にバック側へ PUT replace-all を投げる。失敗時は console.error（state は更新済み）。
+  // moveCast 等の内部呼び出しでも sync が走るが、cast/menu マスター更新頻度は低く許容。
+  const setCasts = useCallback<React.Dispatch<React.SetStateAction<Cast[]>>>((value) => {
+    setCastsRaw((prev) => {
+      const next = typeof value === 'function' ? (value as (p: Cast[]) => Cast[])(prev) : value
+      castsApi.replaceAll(next).catch(console.error)
+      return next
+    })
+  }, [])
+  const setGuestMenu = useCallback<React.Dispatch<React.SetStateAction<GuestMenuItem[]>>>((value) => {
+    setGuestMenuRaw((prev) => {
+      const next = typeof value === 'function' ? (value as (p: GuestMenuItem[]) => GuestMenuItem[])(prev) : value
+      menuApi.replaceGuest(next).catch(console.error)
+      return next
+    })
+  }, [])
+  const setCastMenu = useCallback<React.Dispatch<React.SetStateAction<CastMenuItem[]>>>((value) => {
+    setCastMenuRaw((prev) => {
+      const next = typeof value === 'function' ? (value as (p: CastMenuItem[]) => CastMenuItem[])(prev) : value
+      menuApi.replaceCast(next).catch(console.error)
+      return next
+    })
+  }, [])
+  const setMenuCategories = useCallback<React.Dispatch<React.SetStateAction<MenuCategory[]>>>((value) => {
+    setMenuCategoriesRaw((prev) => {
+      const next = typeof value === 'function' ? (value as (p: MenuCategory[]) => MenuCategory[])(prev) : value
+      menuApi.replaceCategories(next).catch(console.error)
+      return next
+    })
+  }, [])
+  const setSetPrices = useCallback<React.Dispatch<React.SetStateAction<SetPrice[]>>>((value) => {
+    setSetPricesRaw((prev) => {
+      const next = typeof value === 'function' ? (value as (p: SetPrice[]) => SetPrice[])(prev) : value
+      menuApi.replaceSetPrices(next).catch(console.error)
+      return next
+    })
+  }, [])
+  const setChargeItems = useCallback<React.Dispatch<React.SetStateAction<SetPrice[]>>>((value) => {
+    setChargeItemsRaw((prev) => {
+      const next = typeof value === 'function' ? (value as (p: SetPrice[]) => SetPrice[])(prev) : value
+      menuApi.replaceCharges(next).catch(console.error)
+      return next
+    })
+  }, [])
+  const setDeductions = useCallback<React.Dispatch<React.SetStateAction<Deduction[]>>>((value) => {
+    setDeductionsRaw((prev) => {
+      const next = typeof value === 'function' ? (value as (p: Deduction[]) => Deduction[])(prev) : value
+      payrollApi.replaceDeductions(next).catch(console.error)
+      return next
+    })
+  }, [])
+  const setStoreSettings = useCallback<React.Dispatch<React.SetStateAction<StoreSettings>>>((value) => {
+    setStoreSettingsRaw((prev) => {
+      const next = typeof value === 'function' ? (value as (p: StoreSettings) => StoreSettings)(prev) : value
+      settingsApi.update(next).catch(console.error)
+      return next
+    })
+  }, [])
 
   // ── 起動時 API fetch ──────────────────────────────────────────────────
   // authToken があれば backend からデータを並行 fetch、失敗時は initial mock を維持。
