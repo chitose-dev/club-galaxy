@@ -270,7 +270,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }),
     )
     if (toTableId !== null) {
-      setCasts((prev) => prev.map((c) => (c.name === castName ? { ...c, lastAssignedAt: new Date().toISOString() } : c)))
+      // castsApi sync を避けるため setCastsRaw（ラップ前の setter）を直接使用
+      setCastsRaw((prev) => prev.map((c) => (c.name === castName ? { ...c, lastAssignedAt: new Date().toISOString() } : c)))
     }
     tablesApi.moveCast(castName, null, toTableId).catch(console.error)
   }, [])
