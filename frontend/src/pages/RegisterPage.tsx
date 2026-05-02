@@ -174,7 +174,7 @@ function ClosingView() {
               <div className="divide-y divide-white/5">
                 {billingRecords.map((r) => (
                   <div key={r.id} className="flex justify-between text-sm py-1.5">
-                    <span className="text-gray-500">卓{r.tableNumber} ({r.timestamp})</span>
+                    <span className="text-gray-500">卓{r.tableNumber} ({new Date(r.completedAt).toLocaleTimeString('ja-JP', {hour:'2-digit',minute:'2-digit'})})</span>
                     <span className="flex items-center gap-2">
                       <span className={`text-xs px-1.5 py-0.5 rounded ${
                         r.paymentMethod === 'cash' ? 'bg-emerald-500/10 text-emerald-400' :

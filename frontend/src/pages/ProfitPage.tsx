@@ -795,7 +795,7 @@ function CalendarView() {
                     <div className="space-y-1">
                       {records.map((r) => (
                         <div key={r.id} className="flex justify-between text-xs text-gray-400">
-                          <span>卓{r.tableNumber} ({r.timestamp}) {r.paymentMethod === 'cash' ? '現金' : r.paymentMethod === 'card' ? 'カード' : '現金+カード'}</span>
+                          <span>卓{r.tableNumber} ({new Date(r.completedAt).toLocaleTimeString('ja-JP', {hour:'2-digit',minute:'2-digit'})}) {r.paymentMethod === 'cash' ? '現金' : r.paymentMethod === 'card' ? 'カード' : '現金+カード'}</span>
                           <span className="tabular-nums">¥{r.total.toLocaleString()}</span>
                         </div>
                       ))}
