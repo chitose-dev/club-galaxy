@@ -270,6 +270,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           : t,
       ),
     )
+    tablesApi.reset(id).catch(console.error)
   }, [])
 
   // 追補03 R18: 注文行のボーナスを設定 / 解除
