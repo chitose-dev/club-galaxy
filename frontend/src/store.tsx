@@ -230,18 +230,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const token = localStorage.getItem('authToken')
     if (!token) return
+    // クロウレビュー対応: 起動時 GET は wrap 版（PUT sync 付き）ではなく Raw setter を使う
+    // 旧実装だと取得直後に全件 PUT replace-all が走り、不要な API 往復 + 上書きが発生していた
     void Promise.all([
       tablesApi.list().then(setTables).catch(() => undefined),
-      castsApi.list().then(setCasts).catch(() => undefined),
+      castsApi.list().then(setCastsRaw).catch(() => undefined),
       billingApi.list({ limit: 1000 }).then(setBillingRecords).catch(() => undefined),
       payrollApi.listDailyPayments().then(setDailyPayRequests).catch(() => undefined),
-      payrollApi.listDeductions().then(setDeductions).catch(() => undefined),
-      menuApi.listGuest().then(setGuestMenu).catch(() => undefined),
-      menuApi.listCast().then(setCastMenu).catch(() => undefined),
-      menuApi.listSetPrices().then(setSetPrices).catch(() => undefined),
-      menuApi.listCharges().then(setChargeItems).catch(() => undefined),
-      menuApi.listCategories().then(setMenuCategories).catch(() => undefined),
-      settingsApi.get().then(setStoreSettings).catch(() => undefined),
+      payrollApi.listDeductions().then(setDeductionsRaw).catch(() => undefined),
+      menuApi.listGuest().then(setGuestMenuRaw).catch(() => undefined),
+      menuApi.listCast().then(setCastMenuRaw).catch(() => undefined),
+      menuApi.listSetPrices().then(setSetPricesRaw).catch(() => undefined),
+      menuApi.listCharges().then(setChargeItemsRaw).catch(() => undefined),
+      menuApi.listCategories().then(setMenuCategoriesRaw).catch(() => undefined),
+      settingsApi.get().then(setStoreSettingsRaw).catch(() => undefined),
     ])
   }, [])
 
