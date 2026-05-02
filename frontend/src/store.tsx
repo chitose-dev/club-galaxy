@@ -5,6 +5,8 @@ import { billingApi } from './api/billing'
 import { payrollApi } from './api/payroll'
 import { menuApi } from './api/menu'
 import { settingsApi } from './api/settings'
+import { authApi } from './api/auth'
+import { dailyReportsApi } from './api/dailyReports'
 import {
   initialTables,
   casts as initialCasts,
@@ -303,6 +305,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const addDailyPayRequest = useCallback((req: DailyPayRequest) => {
     setDailyPayRequests((prev) => [...prev, req])
+    // Day 2: POST /api/payroll/daily-payments
+    payrollApi.createDailyPayment(req).catch(console.error)
   }, [])
 
   const addBottleKeep = useCallback((keep: BottleKeep) => {
@@ -328,14 +332,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const addUser = useCallback((user: UserAccount) => {
     setUserAccounts((prev) => [...prev, user])
+    // Day 2: POST /api/auth/users — pin は UserAccount に含まれてる前提（type 上は必須）
+    const payload = user as UserAccount & { pin?: string }
+    if (payload.pin) {
+      authApi.createUser({
+        username: user.username,
+        pin: payload.pin,
+        role: user.role,
+        displayName: user.displayName,
+        ...(user.castId !== undefined ? { castId: user.castId } : {}),
+        ...(user.hourlyRate !== undefined ? { hourlyRate: user.hourlyRate } : {}),
+      }).catch(console.error)
+    }
   }, [])
 
   const updateUser = useCallback((username: string, patch: Partial<UserAccount>) => {
     setUserAccounts((prev) => prev.map((u) => (u.username === username ? { ...u, ...patch } : u)))
+    // Day 2: PATCH /api/auth/users/:username
+    authApi.updateUser(username, patch).catch(console.error)
   }, [])
 
   const deleteUser = useCallback((username: string) => {
     setUserAccounts((prev) => prev.filter((u) => u.username !== username))
+    // Day 2: DELETE /api/auth/users/:username (バック側で soft-delete)
+    authApi.deleteUser(username).catch(console.error)
   }, [])
 
   const addAttendance = useCallback((record: AttendanceRecord) => {
@@ -386,10 +406,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const addDailyReport = useCallback((report: DailyReport) => {
     setDailyReports((prev) => [...prev, report])
+    dailyReportsApi.create(report).catch(console.error)
   }, [])
 
   const removeDailyReport = useCallback((id: number) => {
-    setDailyReports((prev) => prev.filter((r) => r.id !== id))
+    setDailyReports((prev) => {
+      const target = prev.find((r) => r.id === id)
+      if (target?.date) dailyReportsApi.delete(target.date).catch(console.error)
+      return prev.filter((r) => r.id !== id)
+    })
   }, [])
 
   const getNextReceiptNumber = useCallback(() => {

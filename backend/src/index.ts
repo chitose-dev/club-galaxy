@@ -9,6 +9,7 @@ import { bottlesRouter } from './routes/bottles'
 import { payrollRouter } from './routes/payroll'
 import { settingsRouter } from './routes/settings'
 import { authRouter } from './routes/auth'
+import { dailyReportsRouter } from './routes/dailyReports'
 
 const app = express()
 const port = parseInt(process.env.PORT || '3001', 10)
@@ -30,6 +31,7 @@ app.use('/api/billing', requireAuth, billingRouter)
 app.use('/api/bottles', requireAuth, bottlesRouter)
 app.use('/api/payroll', requireAuth, payrollRouter)
 app.use('/api/settings', requireAuth, settingsRouter)
+app.use('/api/daily-reports', requireAuth, dailyReportsRouter)
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`)
