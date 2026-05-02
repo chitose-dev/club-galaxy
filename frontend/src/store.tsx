@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useCallback, useMemo, type ReactNode } from 'react'
+import { createContext, useContext, useState, useCallback, useMemo, useEffect, type ReactNode } from 'react'
+import { api } from './api/client'
 import {
   initialTables,
   casts as initialCasts,
@@ -152,6 +153,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [dailyReports, setDailyReports] = useState<DailyReport[]>([])
   const [nextReceiptNumber, setNextReceiptNumber] = useState(1001)
 
+  // 起動時にAPIから最新データを取得してstoreを初期化する
+  useEffect(() => {
+    const token = localStorage.getItem('authToken')
+    if (!token) return
+    Promise.all([
+      api.get<Table[]>('/api/tables').catch(() => null),
+      api.get<Cast[]>('/api/casts').catch(() => null),
+    ]).then(([apiTables, apiCasts]) => {
+      if (apiTables) setTables(apiTables)
+      if (apiCasts) setCasts(apiCasts)
+    })
+  }, [])
+
   const updateTable = useCallback((id: number, patch: Partial<Table>) => {
     setTables((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)))
   }, [])
@@ -269,6 +283,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const addBillingRecord = useCallback((record: BillingRecord) => {
     setBillingRecords((prev) => [...prev, record])
+    api.post('/api/billing/records', record).catch(console.error)
   }, [])
 
   const addDailyPayRequest = useCallback((req: DailyPayRequest) => {
