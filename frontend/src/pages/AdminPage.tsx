@@ -1,4 +1,18 @@
 import { useState } from 'react'
+import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { useStore } from '../store'
 import { sampleDailyWork, isPercentBackType } from '../data/mock'
 import { calcHourlyPay } from '../utils/payroll'
@@ -88,27 +102,9 @@ export default function AdminPage() {
   )
 }
 
-const guestSubcategories: Array<GuestMenuItem['subcategory']> = [
-  'shochu', 'whisky', 'brandy', 'champagne', 'wine', 'shot', 'pitcher', 'beer', 'warimono',
-]
-const guestSubcategoryLabels: Record<GuestMenuItem['subcategory'], string> = {
-  shochu: '焼酎', whisky: 'ウイスキー', brandy: 'ブランデー', champagne: 'シャンパン',
-  wine: 'ワイン', shot: 'ショット', pitcher: 'ピッチャー', beer: 'ビール', warimono: '割り物',
-}
-const castSubcategories: Array<CastMenuItem['subcategory']> = [
-  'fdrink', 'hondrink',
-  'fkaku', 'honkaku', 'honkakuW',
-  'fshot', 'honshot',
-  'fpitcher', 'honpitcher',
-  'fbeer', 'honbeer',
-]
-const castSubcategoryLabels: Record<CastMenuItem['subcategory'], string> = {
-  fdrink: 'Lドリンク(F)', hondrink: 'Lドリンク(本)',
-  fkaku: 'Lカクテル(F)', honkaku: 'Lカクテル(本)', honkakuW: 'Lカクテル(本W)',
-  fshot: 'Lショット(F)', honshot: 'Lショット(本)',
-  fpitcher: 'Lピッチャー(F)', honpitcher: 'Lピッチャー(本)',
-  fbeer: 'Lビール(F)', honbeer: 'Lビール(本)',
-}
+// ISSUE-008: ハードコードの subcategory 配列・ラベルマップは廃止
+// → メニュー登録フォームの select は menuCategories（store 管理）から動的生成。
+//    カテゴリ追加が即時反映される。
 
 function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCategories, setMenuCategories }: {
   guestMenu: GuestMenuItem[]; castMenu: CastMenuItem[]
@@ -132,6 +128,9 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
   const [addGuestSub, setAddGuestSub] = useState<GuestMenuItem['subcategory']>('shot')
   const [addCastSub, setAddCastSub] = useState<CastMenuItem['subcategory']>('fdrink')
   const [addBackType, setAddBackType] = useState<BackType>('FD')
+  // ISSUE-001: 商品名の prefix で指名種別 (F / 本) を自動判定。
+  //   不一致時はユーザーに二択を促すヒントを表示。
+  const [nominationHint, setNominationHint] = useState<'free' | 'honshimei' | 'unknown' | null>(null)
 
   const resetAddForm = () => {
     setAddKind(null)
@@ -142,6 +141,34 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
     setAddGuestSub('shot')
     setAddCastSub('fdrink')
     setAddBackType('FD')
+    setNominationHint(null)
+  }
+
+  /**
+   * ISSUE-001: 商品名 prefix から指名種別 (free/honshimei) を自動判定し、
+   *  cast メニュー登録時の subcategory + backType をデフォルトセット。
+   *
+   *  - 'F' 始まり → free（subcategory='fdrink' / backType='FD'）
+   *  - '本' 始まり → honshimei（subcategory='hondrink' / backType='本D'）
+   *  - それ以外 → unknown（手動選択を促す）
+   */
+  const handleAddNameChange = (name: string) => {
+    setAddName(name)
+    if (addKind !== 'cast' || name.length === 0) {
+      setNominationHint(null)
+      return
+    }
+    if (name.startsWith('F')) {
+      setAddCastSub('fdrink')
+      setAddBackType('FD')
+      setNominationHint('free')
+    } else if (name.startsWith('本')) {
+      setAddCastSub('hondrink')
+      setAddBackType('本D')
+      setNominationHint('honshimei')
+    } else {
+      setNominationHint('unknown')
+    }
   }
 
   const handleConfirmAdd = () => {
@@ -305,17 +332,69 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-xs text-gray-500 block mb-1">商品名</label>
-                <input value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="例: 山崎18年" className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm" />
+                <input value={addName} onChange={(e) => handleAddNameChange(e.target.value)} placeholder="例: 山崎18年" className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm" />
+                {/* ISSUE-001: prefix 自動判定の結果ヒント（cast のみ） */}
+                {addKind === 'cast' && nominationHint === 'free' && (
+                  <div className="text-[11px] text-blue-300 mt-1">
+                    自動判定: F（フリー）系として subcategory / backType を設定しました
+                  </div>
+                )}
+                {addKind === 'cast' && nominationHint === 'honshimei' && (
+                  <div className="text-[11px] text-amber-300 mt-1">
+                    自動判定: 本（本指名）系として subcategory / backType を設定しました
+                  </div>
+                )}
+                {addKind === 'cast' && nominationHint === 'unknown' && (
+                  <div className="text-[11px] text-amber-400 mt-1 space-y-1">
+                    <div>※ 商品名が F または 本 で始まらないため、指名種別を選択してください</div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAddCastSub('fdrink')
+                          setAddBackType('FD')
+                          setNominationHint('free')
+                        }}
+                        className="px-2 py-0.5 rounded border border-blue-400/40 text-blue-300 text-[11px] hover:bg-blue-400/10"
+                      >
+                        F（フリー）として登録
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAddCastSub('hondrink')
+                          setAddBackType('本D')
+                          setNominationHint('honshimei')
+                        }}
+                        className="px-2 py-0.5 rounded border border-amber-400/40 text-amber-300 text-[11px] hover:bg-amber-400/10"
+                      >
+                        本（本指名）として登録
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
               <div>
                 <label className="text-xs text-gray-500 block mb-1">カテゴリ</label>
                 {addKind === 'guest' ? (
+                  // ISSUE-008: ハードコード配列ではなく menuCategories から動的生成
+                  // → カテゴリ追加が即時反映される（リロード不要）
                   <select value={addGuestSub} onChange={(e) => setAddGuestSub(e.target.value as GuestMenuItem['subcategory'])} className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm">
-                    {guestSubcategories.map((s) => <option key={s} value={s}>{guestSubcategoryLabels[s]}</option>)}
+                    {menuCategories
+                      .filter((c) => c.kind === 'guest' && !c.hidden)
+                      .sort((a, b) => a.order - b.order)
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>{c.label}</option>
+                      ))}
                   </select>
                 ) : (
                   <select value={addCastSub} onChange={(e) => setAddCastSub(e.target.value as CastMenuItem['subcategory'])} className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm">
-                    {castSubcategories.map((s) => <option key={s} value={s}>{castSubcategoryLabels[s]}</option>)}
+                    {menuCategories
+                      .filter((c) => c.kind === 'cast' && !c.hidden)
+                      .sort((a, b) => a.order - b.order)
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>{c.label}</option>
+                      ))}
                   </select>
                 )}
               </div>
@@ -666,9 +745,13 @@ function TableManager({ tables, setTables, reorderTables }: {
   const [showAdd, setShowAdd] = useState(false)
   const [newName, setNewName] = useState('')
   const [newIsVip, setNewIsVip] = useState(false)
-  const [dragIndex, setDragIndex] = useState<number | null>(null)
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const [confirmTarget, setConfirmTarget] = useState<{ id: number; name: string } | null>(null)
+
+  // ISSUE-007: PointerSensor で長押し（250ms / 5px tolerance）→ ドラッグ開始。
+  //   Galaxy Tab S10 FE+ (Android) でもタッチで動作するよう @dnd-kit を採用。
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
+  )
 
   const handleAdd = () => {
     if (!newName) return
@@ -701,29 +784,14 @@ function TableManager({ tables, setTables, reorderTables }: {
     setConfirmTarget(null)
   }
 
-  const handleDragStart = (e: React.DragEvent, index: number) => {
-    setDragIndex(index)
-    e.dataTransfer.effectAllowed = 'move'
-  }
-
-  const handleDragOver = (e: React.DragEvent, index: number) => {
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
-    setDragOverIndex(index)
-  }
-
-  const handleDrop = (e: React.DragEvent, toIndex: number) => {
-    e.preventDefault()
-    if (dragIndex !== null && dragIndex !== toIndex) {
-      reorderTables(dragIndex, toIndex)
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = tables.findIndex((t) => t.id === active.id)
+    const newIndex = tables.findIndex((t) => t.id === over.id)
+    if (oldIndex !== -1 && newIndex !== -1) {
+      reorderTables(oldIndex, newIndex)
     }
-    setDragIndex(null)
-    setDragOverIndex(null)
-  }
-
-  const handleDragEnd = () => {
-    setDragIndex(null)
-    setDragOverIndex(null)
   }
 
   return (
@@ -736,53 +804,22 @@ function TableManager({ tables, setTables, reorderTables }: {
         onCancel={() => setConfirmTarget(null)}
       />
       <h3 className="text-sm font-bold text-gray-400 mb-2">卓一覧</h3>
-      {tables.map((table, index) => (
-        <div
-          key={table.id}
-          draggable
-          onDragStart={(e) => handleDragStart(e, index)}
-          onDragOver={(e) => handleDragOver(e, index)}
-          onDrop={(e) => handleDrop(e, index)}
-          onDragEnd={handleDragEnd}
-          className={`flex items-center justify-between py-2.5 border-b border-white/5 transition-colors ${
-            dragIndex === index ? 'opacity-40' : ''
-          } ${dragOverIndex === index && dragIndex !== index ? 'border-t-2 border-t-white' : ''}`}
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-gray-400 cursor-grab active:cursor-grabbing touch-none">
-              <GripVertical size={14} />
-            </span>
-            <span className="font-bold text-sm">{table.number}</span>
-            {table.number.includes('VIP') && <span className="text-xs bg-gold/15 text-gold border border-gold/30 px-1.5 py-0.5 rounded">VIP</span>}
-            <span className={`text-xs ${table.status === 'empty' ? 'text-emerald-400/70' : 'text-amber-400/70'}`}>
-              ({table.status === 'empty' ? '空き' : '使用中'})
-            </span>
-          </div>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => index > 0 && reorderTables(index, index - 1)}
-              disabled={index === 0}
-              className="text-gray-400 hover:text-white transition-colors disabled:opacity-20 disabled:cursor-not-allowed p-1"
-            >
-              <ChevronUp size={14} />
-            </button>
-            <button
-              onClick={() => index < tables.length - 1 && reorderTables(index, index + 1)}
-              disabled={index === tables.length - 1}
-              className="text-gray-400 hover:text-white transition-colors disabled:opacity-20 disabled:cursor-not-allowed p-1"
-            >
-              <ChevronDown size={14} />
-            </button>
-            <button
-              onClick={() => requestDelete(table.id)}
-              disabled={table.status !== 'empty'}
-              className="text-gray-600 hover:text-red-400 transition-colors disabled:opacity-20 disabled:cursor-not-allowed p-1"
-            >
-              <Trash2 size={14} />
-            </button>
-          </div>
-        </div>
-      ))}
+
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={tables.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+          {tables.map((table, index) => (
+            <SortableTableRow
+              key={table.id}
+              table={table}
+              index={index}
+              total={tables.length}
+              onMoveUp={() => index > 0 && reorderTables(index, index - 1)}
+              onMoveDown={() => index < tables.length - 1 && reorderTables(index, index + 1)}
+              onDelete={() => requestDelete(table.id)}
+            />
+          ))}
+        </SortableContext>
+      </DndContext>
 
       {showAdd ? (
         <div className="bg-white/5 rounded-lg p-3 space-y-2">
@@ -801,6 +838,69 @@ function TableManager({ tables, setTables, reorderTables }: {
           <Plus size={14} /> 卓追加
         </button>
       )}
+    </div>
+  )
+}
+
+/** ISSUE-007: useSortable でドラッグ可能化した卓行。GripVertical ハンドルだけが drag listener を受ける。 */
+function SortableTableRow({ table, index, total, onMoveUp, onMoveDown, onDelete }: {
+  table: Table
+  index: number
+  total: number
+  onMoveUp: () => void
+  onMoveDown: () => void
+  onDelete: () => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: table.id })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  }
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center justify-between py-2.5 border-b border-white/5"
+    >
+      <div className="flex items-center gap-2">
+        <span
+          {...attributes}
+          {...listeners}
+          className="text-gray-400 cursor-grab active:cursor-grabbing touch-none select-none"
+          aria-label="長押しで並び替え"
+        >
+          <GripVertical size={14} />
+        </span>
+        <span className="font-bold text-sm">{table.number}</span>
+        {table.number.includes('VIP') && <span className="text-xs bg-gold/15 text-gold border border-gold/30 px-1.5 py-0.5 rounded">VIP</span>}
+        <span className={`text-xs ${table.status === 'empty' ? 'text-emerald-400/70' : 'text-amber-400/70'}`}>
+          ({table.status === 'empty' ? '空き' : '使用中'})
+        </span>
+      </div>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={onMoveUp}
+          disabled={index === 0}
+          className="text-gray-400 hover:text-white transition-colors disabled:opacity-20 disabled:cursor-not-allowed p-1"
+        >
+          <ChevronUp size={14} />
+        </button>
+        <button
+          onClick={onMoveDown}
+          disabled={index === total - 1}
+          className="text-gray-400 hover:text-white transition-colors disabled:opacity-20 disabled:cursor-not-allowed p-1"
+        >
+          <ChevronDown size={14} />
+        </button>
+        <button
+          onClick={onDelete}
+          disabled={table.status !== 'empty'}
+          className="text-gray-600 hover:text-red-400 transition-colors disabled:opacity-20 disabled:cursor-not-allowed p-1"
+        >
+          <Trash2 size={14} />
+        </button>
+      </div>
     </div>
   )
 }

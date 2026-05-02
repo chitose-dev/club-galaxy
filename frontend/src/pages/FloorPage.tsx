@@ -109,7 +109,7 @@ function flColor(rate: number) {
 }
 
 export default function FloorPage() {
-  const { tables, casts, setCasts, updateTable, flMetrics, storeSettings } = useStore()
+  const { tables, casts, setCasts, updateTable, flMetrics, storeSettings, moveCast } = useStore()
   const navigate = useNavigate()
   // selected は ID のみ保持し、tables からの dynamic reference で最新状態を反映
   // (updateTable 後に selected が stale になるバグを防ぐ)
@@ -192,6 +192,9 @@ export default function FloorPage() {
       }
     }
     const autoOrders: Table['orders'] = []
+    // クロウレビュー対応: 旧 `900 + idx` のハードコード ID を Date.now() ベースで一意化
+    //   → 通常メニューや既存 orders と衝突しない
+    let nextChargeId = Date.now()
 
     // 指示書§1.2: シングルチャージは 1 名様のみ自動付与
     if (ciGuests === 1) {
@@ -199,7 +202,7 @@ export default function FloorPage() {
       if (singleChargeItem) {
         autoOrders.push({
           menuItem: {
-            id: 900, name: 'シングルチャージ', price: singleChargeItem.price,
+            id: nextChargeId++, name: 'シングルチャージ', price: singleChargeItem.price,
             cost: singleChargeItem.cost ?? 300, castBack: 0,
             category: 'guest' as const, subcategory: 'warimono' as const,
           },
@@ -217,7 +220,7 @@ export default function FloorPage() {
       if (!chargeItem) return
       autoOrders.push({
         menuItem: {
-          id: 901 + autoOrders.length,
+          id: nextChargeId++,
           name: chargeItem.label, price: chargeItem.price,
           cost: chargeItem.cost ?? 300, castBack: 0,
           category: 'guest' as const, subcategory: 'warimono' as const,
@@ -292,7 +295,7 @@ export default function FloorPage() {
       nominatedCastName: castName,
       orderMenuItemId: orderId,
     } as const
-    // 延長料金を注文に追加 (ビデオレビュー B7: 人数連動)
+    // 延長料金注文（ビデオレビュー B7: 人数連動）
     const extensionOrder = {
       menuItem: {
         id: orderId,
@@ -306,11 +309,48 @@ export default function FloorPage() {
       quantity: 1,
       castName,  // 指名キャスト帰属
     }
+
+    // ISSUE-004 反映:
+    //   - 本指名キャストのみ assignedCasts に継承、それ以外は待機戻し（フリー・場内指名は継承しない）
+    //   - 同伴・場内指名フラグは解除
+    //   - orders はクリア（デフォルト動作）→ 本指名料を再計上 + 延長料金を追加
+    const continuing = selected.mainNominationCastNames
+    const leaving = selected.assignedCasts.filter((n) => !continuing.includes(n))
+    for (const name of leaving) {
+      moveCast(name, null)
+    }
+    const shimei = chargeItems.find((c) => c.id === 'shimei')
+    const newOrders: Table['orders'] = []
+    // クロウレビュー対応: ハードコード `901 + idx` を Date.now() ベース採番に変更
+    //   extensionOrder.menuItem.id (= 2000 + entryId) と衝突しないよう十分大きな値域
+    let nextChargeId = Date.now()
+    if (shimei) {
+      continuing.forEach((name) => {
+        newOrders.push({
+          menuItem: {
+            id: nextChargeId++,
+            name: shimei.label,
+            price: shimei.price,
+            cost: shimei.cost ?? 300,
+            castBack: 0,
+            category: 'guest' as const,
+            subcategory: 'warimono' as const,
+          },
+          quantity: 1,
+          castName: name,
+        })
+      })
+    }
+    newOrders.push(extensionOrder)
+
     updateTable(selected.id, {
-      // setCount は変えない。時間は extensionHistory で管理
+      // setCount は変えない（仕様: extensionHistory.length で getSetLabel が判定）
       status: 'occupied',
       extensionHistory: [...(selected.extensionHistory ?? []), newEntry],
-      orders: [...selected.orders, extensionOrder],
+      orders: newOrders,
+      assignedCasts: continuing,
+      isDouhan: undefined,
+      isBanaiShimei: undefined,
     })
     setPendingExtend(null)
     setShowExtend(false)

@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../store'
 import type { MenuItem, CastMenuItem, OrderItem } from '../data/mock'
 import { displayOrderName, chargeItems } from '../data/mock'
-import { Minus, Plus, Trash2, Wine, CreditCard, Printer, Gift } from 'lucide-react'
+import { Minus, Plus, Trash2, CreditCard, Printer, Gift, UserMinus } from 'lucide-react'
 import ContextualHeader from '../components/ContextualHeader'
 import BottomActionBar from '../components/BottomActionBar'
 import CastChip from '../components/CastChip'
@@ -28,6 +28,7 @@ const HELP_GUEST_ITEM = {
   subcategory: 'warimono' as const,
 }
 
+// ISSUE-009: 'bottle' カテゴリ廃止（ボトルキープ管理ページに集約）
 type CategoryKey =
   | 'all'
   | 'cast-drink'
@@ -38,7 +39,6 @@ type CategoryKey =
   | 'brandy'
   | 'wine'
   | 'charge'
-  | 'bottle'
 
 const categories: Array<{ key: CategoryKey; label: string }> = [
   { key: 'all', label: '全ての商品' },
@@ -50,19 +50,22 @@ const categories: Array<{ key: CategoryKey; label: string }> = [
   { key: 'brandy', label: 'ブランデー' },
   { key: 'wine', label: 'ワイン' },
   { key: 'charge', label: '指名料・同伴' },
-  { key: 'bottle', label: 'ボトルキープ' },
 ]
 
 /**
  * TRUST 準拠の 4 カラム注文画面。
  * [カテゴリー | メニュー | 誰に | 注文明細]
+ *
+ * ISSUE-002 反映: キャスト複数同時選択 → 商品 1 タップで選択中の全キャストに 1 件ずつ追加。
+ * ISSUE-003 反映: 「待機へ」一括ボタン → 選択中の全キャストを一括で待機に戻す。
+ * ISSUE-009 反映: 「ボトルキープ」カテゴリ・タブ・ダイアログを削除（管理は別画面に集約）。
+ *   store の bottleKeeps state/action は既存データ保持のため残置。
  */
 export default function OrderPage() {
   const {
     tables, casts, guestMenu, castMenu, storeSettings,
     addOrderToTable, removeOrderFromTable, setOrderBonus,
     moveCast,
-    bottleKeeps, addBottleKeep, updateBottleKeep, removeBottleKeep,
   } = useStore()
   const [showAddCast, setShowAddCast] = useState(false)
   /** 追補03 R18: ボーナス設定対象の注文行 */
@@ -76,17 +79,16 @@ export default function OrderPage() {
   const initialTableId = Number(searchParams.get('table')) || occupiedTables[0]?.id || 0
   const [selectedTableId, setSelectedTableId] = useState<number>(initialTableId)
   const [activeCategory, setActiveCategory] = useState<CategoryKey>('all')
-  const [selectedCastName, setSelectedCastName] = useState<string | null>(null)
-  // 追補03 R17: 「お客さま/スタッフ」トグルは廃止 (仕様未定の dead UI だったため削除)
-
-  const [showAddBottle, setShowAddBottle] = useState(false)
-  const [bottleName, setBottleName] = useState('')
-  const [bottleRemaining, setBottleRemaining] = useState(100)
-  const [bottleStorage, setBottleStorage] = useState('')
-  const [bottleCustomer, setBottleCustomer] = useState('')
+  // ISSUE-002: 単数 → 複数選択（[] = 「指名なし」状態）
+  const [selectedCastNames, setSelectedCastNames] = useState<string[]>([])
+  // ISSUE-002: 本指名状態でフリー商品を押した時の警告モーダル
+  const [pendingFreeMenuItem, setPendingFreeMenuItem] = useState<MenuItem | null>(null)
+  // ISSUE-005: 内訳の折りたたみ（デフォルト非表示）
+  const [showBreakdown, setShowBreakdown] = useState(false)
 
   const selectedTable = tables.find((t) => t.id === selectedTableId)
   const orders = selectedTable?.orders ?? []
+  const hasMainShimei = (selectedTable?.mainNominationCastNames?.length ?? 0) > 0
 
   const menuItems: MenuItem[] = useMemo(() => {
     const all = [...guestMenu, ...castMenu]
@@ -112,54 +114,85 @@ export default function OrderPage() {
     }
   }, [activeCategory, guestMenu, castMenu])
 
+  // ISSUE-002: キャスト選択トグル
+  const toggleCastSelection = (name: string) => {
+    setSelectedCastNames((prev) =>
+      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
+    )
+  }
+
+  /** 選択中の全キャストに 1 件ずつ注文を追加。誰も選んでなければフリー扱い。 */
+  const addOrderForSelectedCasts = (item: MenuItem) => {
+    if (!selectedTableId) return
+    if (selectedCastNames.length === 0) {
+      addOrderToTable(selectedTableId, { menuItem: item, quantity: 1 })
+      return
+    }
+    selectedCastNames.forEach((name) => {
+      addOrderToTable(selectedTableId, { menuItem: item, quantity: 1, castName: name })
+    })
+  }
+
   const handleAdd = (item: MenuItem) => {
     if (!selectedTableId || !selectedTable) return
     // cast メニューはキャスト紐付け必須
     if (item.category === 'cast') {
-      if (!selectedCastName) {
+      if (selectedCastNames.length === 0) {
         alert('キャストドリンクはキャストを選択してから追加してください')
         return
       }
-      addOrderToTable(selectedTableId, { menuItem: item, quantity: 1, castName: selectedCastName })
+      addOrderForSelectedCasts(item)
       return
     }
-    // ビデオレビュー B6: 「指名なし」を選んだ場合は本当に誰にも紐付かない
-    //   従来 (R18): 指名なし + 本指名卓 → 本指名担当に自動帰属
-    //   修正: ユーザーが明示的に「指名なし」を選んだ場合は店舗売上のみとして扱う
-    //   本指名担当に紐付けたい場合は、本指名キャストのチップを明示的にタップ
-    addOrderToTable(selectedTableId, {
-      menuItem: item,
-      quantity: 1,
-      castName: selectedCastName ?? undefined,
-    })
+    // ISSUE-002: 本指名キャストがいる状態でフリー商品（キャスト非選択）を押したら警告
+    if (item.category === 'guest' && selectedCastNames.length === 0 && hasMainShimei) {
+      setPendingFreeMenuItem(item)
+      return
+    }
+    addOrderForSelectedCasts(item)
+  }
+
+  const confirmFreeOrder = () => {
+    if (!selectedTableId || !pendingFreeMenuItem) return
+    addOrderToTable(selectedTableId, { menuItem: pendingFreeMenuItem, quantity: 1 })
+    setPendingFreeMenuItem(null)
   }
 
   const handleAddCharge = (charge: { id: string; label: string; price: number; cost: number }) => {
     if (!selectedTableId || !selectedTable) return
-    if (!selectedCastName) {
+    if (selectedCastNames.length === 0) {
       alert('指名料はキャストを選択してから追加してください')
       return
     }
-    const order: OrderItem = {
-      menuItem: {
-        id: 3000 + Math.floor(Math.random() * 1_000_000),
-        name: charge.label,
-        price: charge.price,
-        cost: charge.cost,
-        castBack: 0,
-        category: 'guest',
-        subcategory: 'warimono',
-      },
-      quantity: 1,
-      castName: selectedCastName,
-    }
-    addOrderToTable(selectedTableId, order)
+    selectedCastNames.forEach((name) => {
+      const order: OrderItem = {
+        menuItem: {
+          id: 3000 + Math.floor(Math.random() * 1_000_000),
+          name: charge.label,
+          price: charge.price,
+          cost: charge.cost,
+          castBack: 0,
+          category: 'guest',
+          subcategory: 'warimono',
+        },
+        quantity: 1,
+        castName: name,
+      }
+      addOrderToTable(selectedTableId, order)
+    })
   }
 
   const handleAddHelp = () => {
     if (!selectedTableId) return
     // ビデオレビュー N6: ヘルプはキャスト紐付けなし、全額店舗売上
     addOrderToTable(selectedTableId, { menuItem: HELP_GUEST_ITEM, quantity: 1 })
+  }
+
+  // ISSUE-003: 選択中のキャスト全員を一括で待機に戻す
+  const handleSendSelectedToWaiting = () => {
+    if (selectedCastNames.length === 0) return
+    selectedCastNames.forEach((name) => moveCast(name, null))
+    setSelectedCastNames([])
   }
 
   const handleRemove = (itemId: number, castName?: string) => {
@@ -191,24 +224,6 @@ export default function OrderPage() {
   const adjustedSetPrice = Math.max(0, setPrice - (selectedTable?.setDiscountPerSet ?? 0))
   const setSubtotal = selectedTable ? adjustedSetPrice * selectedTable.guestCount * selectedTable.setCount : 0
   const grandTotal = subtotal + setSubtotal + Math.round((subtotal + setSubtotal) * storeSettings.taxRate)
-
-  const handleAddBottleKeep = () => {
-    if (!bottleName || !bottleCustomer) return
-    addBottleKeep({
-      id: Date.now(),
-      bottleName,
-      remaining: bottleRemaining,
-      storageLocation: bottleStorage,
-      customerName: bottleCustomer,
-      tableNumber: selectedTable?.number,
-      createdAt: new Date().toISOString().slice(0, 10),
-    })
-    setBottleName('')
-    setBottleRemaining(100)
-    setBottleStorage('')
-    setBottleCustomer('')
-    setShowAddBottle(false)
-  }
 
   const handlePrintOrder = () => {
     if (!selectedTable || orders.length === 0) return
@@ -251,7 +266,10 @@ export default function OrderPage() {
         right={
           <select
             value={selectedTableId}
-            onChange={(e) => setSelectedTableId(Number(e.target.value))}
+            onChange={(e) => {
+              setSelectedTableId(Number(e.target.value))
+              setSelectedCastNames([])
+            }}
             className="bg-primary-dark/60 border border-gold/30 rounded-lg px-3 py-1.5 text-sm text-white"
           >
             {occupiedTables.map((t) => (
@@ -296,14 +314,6 @@ export default function OrderPage() {
                 <div className="text-xs text-gray-400 mt-1">バック記録のみ</div>
               </button>
             </div>
-          ) : activeCategory === 'bottle' ? (
-            <BottleSection
-              bottleKeeps={bottleKeeps}
-              selectedTable={selectedTable}
-              onOpenAdd={() => setShowAddBottle(true)}
-              onUpdate={updateBottleKeep}
-              onRemove={removeBottleKeep}
-            />
           ) : (
             <div className="grid grid-cols-2 gap-2 content-start">
               {menuItems.map((item) => {
@@ -341,22 +351,58 @@ export default function OrderPage() {
         </div>
 
         {/* ── Column 3: キャスト選択 ── */}
-        <div className="overflow-y-auto p-3 border-r border-white/10 bg-primary-dark">
-          <div className="text-[10px] text-gray-500 mb-2 tracking-wider">キャスト選択</div>
+        <div className="overflow-y-auto p-3 border-r border-white/10 bg-primary-dark flex flex-col">
+          {/* ISSUE-003: 「待機へ」一括ボタン（選択中のみ表示、ピンク強調） */}
+          <button
+            onClick={handleSendSelectedToWaiting}
+            disabled={selectedCastNames.length === 0}
+            className={`mb-3 w-full py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-1.5 transition-colors ${
+              selectedCastNames.length === 0
+                ? 'bg-white/5 text-gray-600 cursor-not-allowed'
+                : 'bg-pink-500 hover:bg-pink-400 text-white shadow-lg shadow-pink-500/30'
+            }`}
+            title="選択中のキャストを一括で待機に戻す"
+          >
+            <UserMinus size={14} /> 待機へ{selectedCastNames.length > 0 && ` (${selectedCastNames.length})`}
+          </button>
+
+          <div className="text-[10px] text-gray-500 mb-2 tracking-wider">
+            キャスト選択（複数選択可）
+          </div>
           <div className="grid grid-cols-1 gap-1.5">
             <CastChip
               name="指名なし"
-              selected={selectedCastName === null}
-              onClick={() => setSelectedCastName(null)}
+              selected={selectedCastNames.length === 0}
+              onClick={() => setSelectedCastNames([])}
             />
-            {selectedTable.assignedCasts.map((name: string) => (
-              <CastChip
-                key={name}
-                name={name}
-                selected={selectedCastName === name}
-                onClick={() => setSelectedCastName(name)}
-              />
-            ))}
+            {/* ISSUE-006: キャスト名の右に 本締め / 場内 / 同伴 バッジ + 卓番号バッジ */}
+            {selectedTable.assignedCasts.map((name: string) => {
+              const isMain = selectedTable.mainNominationCastNames.includes(name)
+              const isBanai = !!selectedTable.isBanaiShimei && !isMain
+              const isDouhanFlag = !!selectedTable.isDouhan
+              return (
+                <div key={name} className="flex items-stretch gap-1">
+                  <CastChip
+                    name={name}
+                    selected={selectedCastNames.includes(name)}
+                    onClick={() => toggleCastSelection(name)}
+                    className="flex-1"
+                  />
+                  <div className="flex flex-col gap-0.5 items-end justify-center shrink-0 w-14">
+                    {isMain && (
+                      <span className="text-[9px] leading-tight px-1.5 py-0.5 rounded bg-amber-500/30 text-amber-200 font-bold tracking-tight">本締め</span>
+                    )}
+                    {isBanai && (
+                      <span className="text-[9px] leading-tight px-1.5 py-0.5 rounded bg-blue-500/30 text-blue-200 font-bold tracking-tight">場内</span>
+                    )}
+                    {isDouhanFlag && (
+                      <span className="text-[9px] leading-tight px-1.5 py-0.5 rounded bg-pink-500/30 text-pink-200 font-bold tracking-tight">同伴</span>
+                    )}
+                    <span className="text-[9px] leading-tight px-1.5 py-0.5 rounded bg-gold/20 text-gold font-bold tracking-tight tabular-nums">卓{selectedTable.number}</span>
+                  </div>
+                </div>
+              )
+            })}
           </div>
 
           {/* 追補02 R2-1: 「女の子を追加」で他卓キャストをこの卓に移動 (排他移動) */}
@@ -368,8 +414,13 @@ export default function OrderPage() {
           </button>
 
           <div className="mt-3 text-[10px] text-gray-500 leading-relaxed">
-            選択したキャストにバック・売上が帰属します。
-            <br />本指名卓では「指名なし」でも本指名担当に自動計上されます。
+            タップで選択 / 解除、複数選択中は商品 1 タップで全員に注文が追加されます。
+            {hasMainShimei && (
+              <>
+                <br />
+                <span className="text-amber-400">本指名: {selectedTable.mainNominationCastNames.join(', ')}</span>
+              </>
+            )}
           </div>
         </div>
 
@@ -432,20 +483,30 @@ export default function OrderPage() {
             </div>
           )}
 
-          {/* subtotal inside column 4 */}
-          <div className="mt-3 panel-gold p-3 space-y-1">
-            <div className="flex justify-between text-xs">
-              <span className="text-gray-300">セット料金</span>
-              <span className="tabular-nums">¥{setSubtotal.toLocaleString()}</span>
+          {/* subtotal inside column 4 — ISSUE-005: 合計を最大フォントで強調、内訳は折りたたみ */}
+          <div className="mt-3 panel-gold p-3 space-y-2">
+            <div className="flex justify-between items-baseline">
+              <span className="text-sm font-bold text-gold">合計 (税込)</span>
+              <span className="text-3xl font-bold text-gold tabular-nums">¥{grandTotal.toLocaleString()}</span>
             </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-gray-300">注文小計</span>
-              <span className="tabular-nums">¥{subtotal.toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between pt-1 border-t border-gold/30">
-              <span className="text-sm font-bold text-gold">総合計 (税込)</span>
-              <span className="tabular-nums font-bold text-gold">¥{grandTotal.toLocaleString()}</span>
-            </div>
+            {showBreakdown && (
+              <div className="space-y-1 pt-2 border-t border-gold/30">
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-300">セット料金</span>
+                  <span className="tabular-nums">¥{setSubtotal.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-300">注文小計</span>
+                  <span className="tabular-nums">¥{subtotal.toLocaleString()}</span>
+                </div>
+              </div>
+            )}
+            <button
+              onClick={() => setShowBreakdown(!showBreakdown)}
+              className="w-full text-[11px] text-gray-400 hover:text-gold py-0.5 transition-colors"
+            >
+              {showBreakdown ? '▲ 内訳を隠す' : '▼ 内訳を表示'}
+            </button>
           </div>
         </div>
       </div>
@@ -455,7 +516,8 @@ export default function OrderPage() {
         leftValue={`¥${subtotal.toLocaleString()}`}
         center={
           <DangerButton
-            onClick={() => navigate(`/table/${selectedTable.id}`)}
+            // ISSUE-010: 利用明細から戻る時に元の注文画面 (/order?table=N) に戻れるよう from を付与
+            onClick={() => navigate(`/table/${selectedTable.id}?from=${encodeURIComponent(`/order?table=${selectedTable.id}`)}`)}
             className="text-base px-6 flex items-center gap-2"
           >
             <CreditCard size={18} /> 利用明細へ
@@ -468,16 +530,33 @@ export default function OrderPage() {
         }
       />
 
-      {showAddBottle && (
-        <AddBottleModal
-          bottleName={bottleName} setBottleName={setBottleName}
-          bottleRemaining={bottleRemaining} setBottleRemaining={setBottleRemaining}
-          bottleStorage={bottleStorage} setBottleStorage={setBottleStorage}
-          bottleCustomer={bottleCustomer} setBottleCustomer={setBottleCustomer}
-          onClose={() => setShowAddBottle(false)}
-          onSave={handleAddBottleKeep}
-        />
-      )}
+      {/* ISSUE-002: 本指名キャストがいる卓でフリー商品（指名なし）を押した時の警告 */}
+      <Modal
+        open={!!pendingFreeMenuItem}
+        onClose={() => setPendingFreeMenuItem(null)}
+        size="sm"
+        title="本指名担当の確認"
+        footer={
+          <>
+            <GhostButton onClick={() => setPendingFreeMenuItem(null)} className="flex-1">キャンセル</GhostButton>
+            <DangerButton onClick={confirmFreeOrder} className="flex-1">
+              続行（フリー扱い）
+            </DangerButton>
+          </>
+        }
+      >
+        <div className="space-y-2 text-sm">
+          <p>
+            この卓には本指名キャスト（
+            <span className="text-amber-300">{selectedTable?.mainNominationCastNames.join(', ')}</span>
+            ）が紐付いています。
+          </p>
+          <p className="text-gray-400 text-xs">
+            「指名なし」のままフリー商品として追加すると、本指名キャストの個人売上には計上されません。
+            <br />本締めを確認してから続行してください。
+          </p>
+        </div>
+      </Modal>
 
       {/* 追補03 R18: 注文行のボーナス加算設定 */}
       <Modal
@@ -601,131 +680,5 @@ export default function OrderPage() {
         })()}
       </Modal>
     </div>
-  )
-}
-
-function BottleSection({
-  bottleKeeps, selectedTable, onOpenAdd, onUpdate, onRemove,
-}: {
-  bottleKeeps: ReturnType<typeof useStore>['bottleKeeps']
-  selectedTable: { number: string } | null
-  onOpenAdd: () => void
-  onUpdate: (id: number, patch: Partial<{ remaining: number }>) => void
-  onRemove: (id: number) => void
-}) {
-  // ビデオレビュー B9: 残量で並び替えると操作のたびに上下が入れ替わって混乱する
-  //   id (登録順) で固定ソートに変更
-  const sorted = [...bottleKeeps].sort((a, b) => a.id - b.id)
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-xs text-gray-400 tracking-wider">ボトルキープ一覧</span>
-        <GoldButton onClick={onOpenAdd} className="text-xs px-3 py-1.5">
-          <Plus size={12} className="inline mr-1" /> キープ登録
-        </GoldButton>
-      </div>
-      <div className="space-y-2">
-        {sorted.map((b) => (
-          <div
-            key={b.id}
-            className={`panel p-3 ${b.remaining <= 20 ? 'border-red-500/40' : ''}`}
-          >
-            <div className="flex justify-between items-start mb-2">
-              <div className="min-w-0">
-                <div className="text-sm font-bold truncate">{b.bottleName}</div>
-                <div className="text-xs text-gray-400">{b.customerName} / {b.storageLocation || '場所未設定'}</div>
-                {b.tableNumber && <div className="text-[10px] text-gray-500">卓: {b.tableNumber}{selectedTable?.number === b.tableNumber ? ' (本卓)' : ''}</div>}
-              </div>
-              <span
-                className={`text-sm font-bold tabular-nums shrink-0 ml-2 ${
-                  b.remaining <= 20 ? 'text-red-400' : b.remaining <= 50 ? 'text-amber-400' : 'text-emerald-400'
-                }`}
-              >
-                {b.remaining}%
-              </span>
-            </div>
-            <div className="w-full bg-white/5 rounded-full h-1.5 mb-2">
-              <div
-                className={`h-1.5 rounded-full transition-all ${
-                  b.remaining <= 20 ? 'bg-red-500' : b.remaining <= 50 ? 'bg-amber-500' : 'bg-emerald-500'
-                }`}
-                style={{ width: `${b.remaining}%` }}
-              />
-            </div>
-            <div className="flex gap-2 items-center">
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={b.remaining}
-                onChange={(e) => onUpdate(b.id, { remaining: Number(e.target.value) })}
-                className="flex-1"
-              />
-              <button onClick={() => onRemove(b.id)} className="text-xs bg-red-500/10 border border-red-500/20 px-2 py-1 rounded text-red-400">
-                <Trash2 size={12} />
-              </button>
-            </div>
-          </div>
-        ))}
-        {sorted.length === 0 && (
-          <div className="text-center text-gray-600 mt-12">
-            <Wine size={32} className="mx-auto mb-2 opacity-30" />
-            <p className="text-sm">ボトルキープはありません</p>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function AddBottleModal({
-  bottleName, setBottleName, bottleRemaining, setBottleRemaining, bottleStorage, setBottleStorage,
-  bottleCustomer, setBottleCustomer, onClose, onSave,
-}: {
-  bottleName: string; setBottleName: (v: string) => void
-  bottleRemaining: number; setBottleRemaining: (v: number) => void
-  bottleStorage: string; setBottleStorage: (v: string) => void
-  bottleCustomer: string; setBottleCustomer: (v: string) => void
-  onClose: () => void; onSave: () => void
-}) {
-  // ビデオレビュー N9: シャンパンはボトルキープ対象外。ウイスキー/焼酎/ブランデーのみ
-  // 簡易バリデーション: ボトル名にシャンパン銘柄が含まれていればアラート
-  const isChampagneLike = /シャンパン|ヴーヴ|モエ|ソウメイ|アルマンド|エンジェル|クリスタル|サロン|ドンペリ|D\.ROCK|ペリエ/i.test(bottleName)
-  const canSave = !!bottleName && !!bottleCustomer && !isChampagneLike
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      size="sm"
-      title="ボトルキープ登録"
-      footer={
-        <>
-          <GhostButton onClick={onClose} className="flex-1">キャンセル</GhostButton>
-          <GoldButton onClick={onSave} disabled={!canSave} className="flex-1">登録</GoldButton>
-        </>
-      }
-    >
-      {/* ビデオレビュー N8: 入力欄の順序を整理 (登録順固定で上下入れ替わりを防止) */}
-      <div className="space-y-3">
-        <FormField label="ボトル名">
-          <Input type="text" value={bottleName} onChange={(e) => setBottleName(e.target.value)} placeholder="例: 響 17年" />
-          {isChampagneLike && (
-            <div className="text-[11px] text-red-400 mt-1">
-              ※ シャンパンはボトルキープ対象外です (ウイスキー / 焼酎 / ブランデーのみ)
-            </div>
-          )}
-        </FormField>
-        <FormField label="お客様の名前">
-          <Input type="text" value={bottleCustomer} onChange={(e) => setBottleCustomer(e.target.value)} placeholder="例: 田中様" />
-        </FormField>
-        <FormField label="保管場所 (任意)">
-          <Input type="text" value={bottleStorage} onChange={(e) => setBottleStorage(e.target.value)} placeholder="例: A-3" />
-        </FormField>
-        <FormField label={`残量: ${bottleRemaining}%`}>
-          <input type="range" min="0" max="100" value={bottleRemaining} onChange={(e) => setBottleRemaining(Number(e.target.value))} className="w-full" />
-        </FormField>
-      </div>
-    </Modal>
   )
 }
