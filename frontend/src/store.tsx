@@ -208,43 +208,42 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (toTableId !== null) {
       setCasts((prev) => prev.map((c) => (c.name === castName ? { ...c, lastAssignedAt: new Date().toISOString() } : c)))
     }
+    tablesApi.moveCast(castName, null, toTableId).catch(console.error)
   }, [])
 
   const addOrderToTable = useCallback((tableId: number, order: OrderItem) => {
+    let syncOrders: OrderItem[] = []
     setTables((prev) =>
       prev.map((t) => {
         if (t.id !== tableId) return t
-        // メニュー同一 + キャスト紐付け同一で集約
         const existing = t.orders.find((o) => o.menuItem.id === order.menuItem.id && o.castName === order.castName)
-        if (existing) {
-          return {
-            ...t,
-            orders: t.orders.map((o) =>
+        syncOrders = existing
+          ? t.orders.map((o) =>
               o.menuItem.id === order.menuItem.id && o.castName === order.castName
                 ? { ...o, quantity: o.quantity + order.quantity }
                 : o,
-            ),
-          }
-        }
-        return { ...t, orders: [...t.orders, order] }
+            )
+          : [...t.orders, order]
+        return { ...t, orders: syncOrders }
       }),
     )
+    tablesApi.update(tableId, { orders: syncOrders }).catch(console.error)
   }, [])
 
   const removeOrderFromTable = useCallback((tableId: number, menuItemId: number, castName?: string) => {
+    let syncOrders: OrderItem[] = []
     setTables((prev) =>
       prev.map((t) => {
         if (t.id !== tableId) return t
-        return {
-          ...t,
-          orders: t.orders
-            .map((o) =>
-              o.menuItem.id === menuItemId && o.castName === castName ? { ...o, quantity: o.quantity - 1 } : o,
-            )
-            .filter((o) => o.quantity > 0),
-        }
+        syncOrders = t.orders
+          .map((o) =>
+            o.menuItem.id === menuItemId && o.castName === castName ? { ...o, quantity: o.quantity - 1 } : o,
+          )
+          .filter((o) => o.quantity > 0)
+        return { ...t, orders: syncOrders }
       }),
     )
+    tablesApi.update(tableId, { orders: syncOrders }).catch(console.error)
   }, [])
 
   const resetTable = useCallback((id: number) => {
