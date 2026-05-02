@@ -83,6 +83,9 @@ export default function OrderPage() {
   const [selectedCastNames, setSelectedCastNames] = useState<string[]>([])
   // ISSUE-002: 本指名状態でフリー商品を押した時の警告モーダル
   const [pendingFreeMenuItem, setPendingFreeMenuItem] = useState<MenuItem | null>(null)
+  // ISSUE-002 補修: 本指名卓でキャスト未選択 + キャストドリンクをタップした時の確認モーダル
+  //   alert ではなく Modal で「本指名キャスト全員に追加するか？」を確認
+  const [pendingCastDrinkItem, setPendingCastDrinkItem] = useState<MenuItem | null>(null)
   // ISSUE-005: 内訳の折りたたみ（デフォルト非表示）
   const [showBreakdown, setShowBreakdown] = useState(false)
 
@@ -138,6 +141,11 @@ export default function OrderPage() {
     // cast メニューはキャスト紐付け必須
     if (item.category === 'cast') {
       if (selectedCastNames.length === 0) {
+        // ISSUE-002 補修: 本指名卓ならモーダルで確認、それ以外は alert で促す
+        if (hasMainShimei) {
+          setPendingCastDrinkItem(item)
+          return
+        }
         alert('キャストドリンクはキャストを選択してから追加してください')
         return
       }
@@ -156,6 +164,15 @@ export default function OrderPage() {
     if (!selectedTableId || !pendingFreeMenuItem) return
     addOrderToTable(selectedTableId, { menuItem: pendingFreeMenuItem, quantity: 1 })
     setPendingFreeMenuItem(null)
+  }
+
+  // ISSUE-002 補修: キャストドリンク確認モーダルの「OK」処理。本指名キャスト全員に 1 件ずつ追加
+  const confirmCastDrinkOrder = () => {
+    if (!selectedTableId || !pendingCastDrinkItem || !selectedTable) return
+    selectedTable.mainNominationCastNames.forEach((name) => {
+      addOrderToTable(selectedTableId, { menuItem: pendingCastDrinkItem, quantity: 1, castName: name })
+    })
+    setPendingCastDrinkItem(null)
   }
 
   const handleAddCharge = (charge: { id: string; label: string; price: number; cost: number }) => {
@@ -529,6 +546,33 @@ export default function OrderPage() {
           </DarkButton>
         }
       />
+
+      {/* ISSUE-002 補修: 本指名卓でキャスト未選択 + キャストドリンク → 本指名キャスト全員に追加するかの確認 */}
+      <Modal
+        open={!!pendingCastDrinkItem}
+        onClose={() => setPendingCastDrinkItem(null)}
+        size="sm"
+        title="本指名キャストのドリンクとして追加"
+        footer={
+          <>
+            <GhostButton onClick={() => setPendingCastDrinkItem(null)} className="flex-1">キャンセル</GhostButton>
+            <GoldButton onClick={confirmCastDrinkOrder} className="flex-1">OK</GoldButton>
+          </>
+        }
+      >
+        <div className="space-y-2 text-sm">
+          <p>
+            本指名キャスト（
+            <span className="text-amber-300">{selectedTable?.mainNominationCastNames.join(', ')}</span>
+            ）のドリンクとして
+            <span className="text-gold"> 「{pendingCastDrinkItem?.name}」 </span>
+            を追加しますか？
+          </p>
+          <p className="text-gray-400 text-xs">
+            指名キャスト {selectedTable?.mainNominationCastNames.length ?? 0} 名全員に 1 件ずつ追加されます。
+          </p>
+        </div>
+      </Modal>
 
       {/* ISSUE-002: 本指名キャストがいる卓でフリー商品（指名なし）を押した時の警告 */}
       <Modal
