@@ -171,7 +171,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     void Promise.all([
       tablesApi.list().then(setTables).catch(() => undefined),
       castsApi.list().then(setCasts).catch(() => undefined),
-      billingApi.list().then(setBillingRecords).catch(() => undefined),
+      billingApi.list({ limit: 1000 }).then(setBillingRecords).catch(() => undefined),
       payrollApi.listDailyPayments().then(setDailyPayRequests).catch(() => undefined),
       payrollApi.listDeductions().then(setDeductions).catch(() => undefined),
       menuApi.listGuest().then(setGuestMenu).catch(() => undefined),
