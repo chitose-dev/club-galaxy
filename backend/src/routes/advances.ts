@@ -7,7 +7,8 @@ import { append, buildEntry } from '../lib/audit'
 import type { AdvancePayment } from '../types'
 
 export const advancesRouter = Router()
-const col = () => storeCollection('advances')
+// 設計書 §4: Firestore コレクション名は `advancePayments/{id}`
+const col = () => storeCollection('advancePayments')
 
 // GET /api/advances — ?castId or ?month=YYYY-MM
 advancesRouter.get('/', async (req, res) => {

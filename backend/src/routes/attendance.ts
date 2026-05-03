@@ -88,7 +88,8 @@ attendanceRouter.post('/', async (req, res) => {
       clockOut: null,
       ...(body.scheduledClockIn !== undefined ? { scheduledClockIn: body.scheduledClockIn } : {}),
       breakMinutes,
-      workMinutes: null as unknown as number,
+      // clockIn 時点では workMinutes 計算不可。PATCH (clockOut) 時に正しい値で上書きされる
+      workMinutes: 0,
       paidMinutes: 0,
       ...(body.autoCreated ? { autoCreated: true } : {}),
       createdBy: user.username,
