@@ -23,4 +23,5 @@ export const tablesApi = {
     api.put<void>('/api/tables/reorder', { fromIndex, toIndex }),
   moveCast: (castName: string, fromTableId: number | null, toTableId: number | null) =>
     api.post<void>('/api/tables/move-cast', { castName, fromTableId, toTableId }),
+  reset: (id: number) => api.post<void>(`/api/tables/${id}/reset`, {}),
 }

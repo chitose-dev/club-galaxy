@@ -61,5 +61,5 @@ jobs:
             --region ${{ env.REGION }} \
             --port 3001 \
             --allow-unauthenticated \
-            --set-env-vars "DATABASE_URL=${{ secrets.DATABASE_URL }}" \
+            --set-env-vars "DATABASE_URL=${{ secrets.DATABASE_URL }},JWT_SECRET=${{ secrets.JWT_SECRET }}" \
             --project ${{ env.GCP_PROJECT }}

@@ -9,9 +9,9 @@ export default function LoginPage() {
   const [pin, setPin] = useState('')
   const [error, setError] = useState(false)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const success = login(username, pin)
+    const success = await login(username, pin)
     if (!success) {
       setError(true)
       setTimeout(() => setError(false), 2000)

@@ -1,4 +1,12 @@
-import { createContext, useContext, useState, useCallback, useMemo, type ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react'
+import { tablesApi } from './api/tables'
+import { castsApi } from './api/casts'
+import { billingApi } from './api/billing'
+import { payrollApi } from './api/payroll'
+import { menuApi } from './api/menu'
+import { settingsApi } from './api/settings'
+import { authApi } from './api/auth'
+import { dailyReportsApi } from './api/dailyReports'
 import {
   initialTables,
   casts as initialCasts,
@@ -132,18 +140,19 @@ const StoreContext = createContext<Store | null>(null)
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [tables, setTables] = useState<Table[]>(initialTables)
-  const [casts, setCasts] = useState<Cast[]>(initialCasts)
-  const [guestMenu, setGuestMenu] = useState<GuestMenuItem[]>(initialGuestMenu)
-  const [castMenu, setCastMenu] = useState<CastMenuItem[]>(initialCastMenu)
-  const [menuCategories, setMenuCategories] = useState<MenuCategory[]>(initialMenuCategories)
-  const [setPricesState, setSetPrices] = useState<SetPrice[]>(initialSetPrices)
-  const [chargeItemsState, setChargeItems] = useState<SetPrice[]>(initialChargeItems)
+  // Day 2: PUT sync wrap のため raw state setter は ...Raw 名で受ける
+  const [casts, setCastsRaw] = useState<Cast[]>(initialCasts)
+  const [guestMenu, setGuestMenuRaw] = useState<GuestMenuItem[]>(initialGuestMenu)
+  const [castMenu, setCastMenuRaw] = useState<CastMenuItem[]>(initialCastMenu)
+  const [menuCategories, setMenuCategoriesRaw] = useState<MenuCategory[]>(initialMenuCategories)
+  const [setPricesState, setSetPricesRaw] = useState<SetPrice[]>(initialSetPrices)
+  const [chargeItemsState, setChargeItemsRaw] = useState<SetPrice[]>(initialChargeItems)
   const [discountLogs, setDiscountLogs] = useState<DiscountLog[]>([])
   const [billingRecords, setBillingRecords] = useState<BillingRecord[]>(initialBillingRecords)
   const [dailyPayRequests, setDailyPayRequests] = useState<DailyPayRequest[]>(initialDailyPayRequests)
   const [bottleKeeps, setBottleKeeps] = useState<BottleKeep[]>(initialBottleKeeps)
-  const [deductions, setDeductions] = useState<Deduction[]>([])
-  const [storeSettings, setStoreSettings] = useState<StoreSettings>(defaultStoreSettings)
+  const [deductions, setDeductionsRaw] = useState<Deduction[]>([])
+  const [storeSettings, setStoreSettingsRaw] = useState<StoreSettings>(defaultStoreSettings)
   const [userAccounts, setUserAccounts] = useState<UserAccount[]>(dummyAccounts)
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(initialAttendanceRecords)
   const [expenses, setExpenses] = useState<Expense[]>(initialExpenses)
@@ -151,6 +160,92 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [archivedData, setArchivedData] = useState<ArchivedData[]>([])
   const [dailyReports, setDailyReports] = useState<DailyReport[]>([])
   const [nextReceiptNumber, setNextReceiptNumber] = useState(1001)
+
+  // ── Day 2: PUT sync 付き setter ────────────────────────────────────
+  // AdminPage / SalaryPage が `setX(arr)` or `setX((prev) => updated)` で更新した時点で
+  // 自動的にバック側へ PUT replace-all を投げる。失敗時は console.error（state は更新済み）。
+  // moveCast 等の内部呼び出しでも sync が走るが、cast/menu マスター更新頻度は低く許容。
+  const setCasts = useCallback<React.Dispatch<React.SetStateAction<Cast[]>>>((value) => {
+    setCastsRaw((prev) => {
+      const next = typeof value === 'function' ? (value as (p: Cast[]) => Cast[])(prev) : value
+      castsApi.replaceAll(next).catch(console.error)
+      return next
+    })
+  }, [])
+  const setGuestMenu = useCallback<React.Dispatch<React.SetStateAction<GuestMenuItem[]>>>((value) => {
+    setGuestMenuRaw((prev) => {
+      const next = typeof value === 'function' ? (value as (p: GuestMenuItem[]) => GuestMenuItem[])(prev) : value
+      menuApi.replaceGuest(next).catch(console.error)
+      return next
+    })
+  }, [])
+  const setCastMenu = useCallback<React.Dispatch<React.SetStateAction<CastMenuItem[]>>>((value) => {
+    setCastMenuRaw((prev) => {
+      const next = typeof value === 'function' ? (value as (p: CastMenuItem[]) => CastMenuItem[])(prev) : value
+      menuApi.replaceCast(next).catch(console.error)
+      return next
+    })
+  }, [])
+  const setMenuCategories = useCallback<React.Dispatch<React.SetStateAction<MenuCategory[]>>>((value) => {
+    setMenuCategoriesRaw((prev) => {
+      const next = typeof value === 'function' ? (value as (p: MenuCategory[]) => MenuCategory[])(prev) : value
+      menuApi.replaceCategories(next).catch(console.error)
+      return next
+    })
+  }, [])
+  const setSetPrices = useCallback<React.Dispatch<React.SetStateAction<SetPrice[]>>>((value) => {
+    setSetPricesRaw((prev) => {
+      const next = typeof value === 'function' ? (value as (p: SetPrice[]) => SetPrice[])(prev) : value
+      menuApi.replaceSetPrices(next).catch(console.error)
+      return next
+    })
+  }, [])
+  const setChargeItems = useCallback<React.Dispatch<React.SetStateAction<SetPrice[]>>>((value) => {
+    setChargeItemsRaw((prev) => {
+      const next = typeof value === 'function' ? (value as (p: SetPrice[]) => SetPrice[])(prev) : value
+      menuApi.replaceCharges(next).catch(console.error)
+      return next
+    })
+  }, [])
+  const setDeductions = useCallback<React.Dispatch<React.SetStateAction<Deduction[]>>>((value) => {
+    setDeductionsRaw((prev) => {
+      const next = typeof value === 'function' ? (value as (p: Deduction[]) => Deduction[])(prev) : value
+      payrollApi.replaceDeductions(next).catch(console.error)
+      return next
+    })
+  }, [])
+  const setStoreSettings = useCallback<React.Dispatch<React.SetStateAction<StoreSettings>>>((value) => {
+    setStoreSettingsRaw((prev) => {
+      const next = typeof value === 'function' ? (value as (p: StoreSettings) => StoreSettings)(prev) : value
+      settingsApi.update(next).catch(console.error)
+      return next
+    })
+  }, [])
+
+  // ── 起動時 API fetch ──────────────────────────────────────────────────
+  // authToken があれば backend からデータを並行 fetch、失敗時は initial mock を維持。
+  // 担当ページ（ProfitPage / SalaryPage / AdminPage）が必要とする全データを GET。
+  // 未実装 endpoint（attendance / expenses / advances / archive / dailyReports）は
+  // 当面 mock 維持（Rev.4.1 §16.4 Phase D で別途対応）。
+  useEffect(() => {
+    const token = localStorage.getItem('authToken')
+    if (!token) return
+    // クロウレビュー対応: 起動時 GET は wrap 版（PUT sync 付き）ではなく Raw setter を使う
+    // 旧実装だと取得直後に全件 PUT replace-all が走り、不要な API 往復 + 上書きが発生していた
+    void Promise.all([
+      tablesApi.list().then(setTables).catch(() => undefined),
+      castsApi.list().then(setCastsRaw).catch(() => undefined),
+      billingApi.list({ limit: 1000 }).then(setBillingRecords).catch(() => undefined),
+      payrollApi.listDailyPayments().then(setDailyPayRequests).catch(() => undefined),
+      payrollApi.listDeductions().then(setDeductionsRaw).catch(() => undefined),
+      menuApi.listGuest().then(setGuestMenuRaw).catch(() => undefined),
+      menuApi.listCast().then(setCastMenuRaw).catch(() => undefined),
+      menuApi.listSetPrices().then(setSetPricesRaw).catch(() => undefined),
+      menuApi.listCharges().then(setChargeItemsRaw).catch(() => undefined),
+      menuApi.listCategories().then(setMenuCategoriesRaw).catch(() => undefined),
+      settingsApi.get().then(setStoreSettingsRaw).catch(() => undefined),
+    ])
+  }, [])
 
   const updateTable = useCallback((id: number, patch: Partial<Table>) => {
     setTables((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)))
@@ -177,45 +272,45 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }),
     )
     if (toTableId !== null) {
-      setCasts((prev) => prev.map((c) => (c.name === castName ? { ...c, lastAssignedAt: new Date().toISOString() } : c)))
+      // castsApi sync を避けるため setCastsRaw（ラップ前の setter）を直接使用
+      setCastsRaw((prev) => prev.map((c) => (c.name === castName ? { ...c, lastAssignedAt: new Date().toISOString() } : c)))
     }
+    tablesApi.moveCast(castName, null, toTableId).catch(console.error)
   }, [])
 
   const addOrderToTable = useCallback((tableId: number, order: OrderItem) => {
+    let syncOrders: OrderItem[] = []
     setTables((prev) =>
       prev.map((t) => {
         if (t.id !== tableId) return t
-        // メニュー同一 + キャスト紐付け同一で集約
         const existing = t.orders.find((o) => o.menuItem.id === order.menuItem.id && o.castName === order.castName)
-        if (existing) {
-          return {
-            ...t,
-            orders: t.orders.map((o) =>
+        syncOrders = existing
+          ? t.orders.map((o) =>
               o.menuItem.id === order.menuItem.id && o.castName === order.castName
                 ? { ...o, quantity: o.quantity + order.quantity }
                 : o,
-            ),
-          }
-        }
-        return { ...t, orders: [...t.orders, order] }
+            )
+          : [...t.orders, order]
+        return { ...t, orders: syncOrders }
       }),
     )
+    tablesApi.update(tableId, { orders: syncOrders }).catch(console.error)
   }, [])
 
   const removeOrderFromTable = useCallback((tableId: number, menuItemId: number, castName?: string) => {
+    let syncOrders: OrderItem[] = []
     setTables((prev) =>
       prev.map((t) => {
         if (t.id !== tableId) return t
-        return {
-          ...t,
-          orders: t.orders
-            .map((o) =>
-              o.menuItem.id === menuItemId && o.castName === castName ? { ...o, quantity: o.quantity - 1 } : o,
-            )
-            .filter((o) => o.quantity > 0),
-        }
+        syncOrders = t.orders
+          .map((o) =>
+            o.menuItem.id === menuItemId && o.castName === castName ? { ...o, quantity: o.quantity - 1 } : o,
+          )
+          .filter((o) => o.quantity > 0)
+        return { ...t, orders: syncOrders }
       }),
     )
+    tablesApi.update(tableId, { orders: syncOrders }).catch(console.error)
   }, [])
 
   const resetTable = useCallback((id: number) => {
@@ -241,6 +336,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           : t,
       ),
     )
+    tablesApi.reset(id).catch(console.error)
   }, [])
 
   // 追補03 R18: 注文行のボーナスを設定 / 解除
@@ -269,10 +365,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const addBillingRecord = useCallback((record: BillingRecord) => {
     setBillingRecords((prev) => [...prev, record])
+    billingApi.create(record).catch(console.error)
   }, [])
 
   const addDailyPayRequest = useCallback((req: DailyPayRequest) => {
     setDailyPayRequests((prev) => [...prev, req])
+    // Day 2: POST /api/payroll/daily-payments
+    payrollApi.createDailyPayment(req).catch(console.error)
   }, [])
 
   const addBottleKeep = useCallback((keep: BottleKeep) => {
@@ -298,14 +397,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const addUser = useCallback((user: UserAccount) => {
     setUserAccounts((prev) => [...prev, user])
+    // Day 2: POST /api/auth/users — pin は UserAccount に含まれてる前提（type 上は必須）
+    const payload = user as UserAccount & { pin?: string }
+    if (payload.pin) {
+      authApi.createUser({
+        username: user.username,
+        pin: payload.pin,
+        role: user.role,
+        displayName: user.displayName,
+        ...(user.castId !== undefined ? { castId: user.castId } : {}),
+        ...(user.hourlyRate !== undefined ? { hourlyRate: user.hourlyRate } : {}),
+      }).catch(console.error)
+    }
   }, [])
 
   const updateUser = useCallback((username: string, patch: Partial<UserAccount>) => {
     setUserAccounts((prev) => prev.map((u) => (u.username === username ? { ...u, ...patch } : u)))
+    // Day 2: PATCH /api/auth/users/:username
+    authApi.updateUser(username, patch).catch(console.error)
   }, [])
 
   const deleteUser = useCallback((username: string) => {
     setUserAccounts((prev) => prev.filter((u) => u.username !== username))
+    // Day 2: DELETE /api/auth/users/:username (バック側で soft-delete)
+    authApi.deleteUser(username).catch(console.error)
   }, [])
 
   const addAttendance = useCallback((record: AttendanceRecord) => {
@@ -356,10 +471,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const addDailyReport = useCallback((report: DailyReport) => {
     setDailyReports((prev) => [...prev, report])
+    dailyReportsApi.create(report).catch(console.error)
   }, [])
 
   const removeDailyReport = useCallback((id: number) => {
-    setDailyReports((prev) => prev.filter((r) => r.id !== id))
+    setDailyReports((prev) => {
+      const target = prev.find((r) => r.id === id)
+      if (target?.date) dailyReportsApi.delete(target.date).catch(console.error)
+      return prev.filter((r) => r.id !== id)
+    })
   }, [])
 
   const getNextReceiptNumber = useCallback(() => {

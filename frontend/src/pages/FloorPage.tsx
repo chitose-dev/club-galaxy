@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../store'
+import { tablesApi } from '../api/tables'
 import {
   type Table,
   type TableStatus,
@@ -249,8 +250,8 @@ export default function FloorPage() {
       }
     }
 
-    updateTable(selected.id, {
-      status: 'occupied',
+    const checkInPatch = {
+      status: 'occupied' as const,
       guestCount: ciGuests,
       startTime: ciTime,
       assignedCasts: assignedNames,
@@ -262,7 +263,9 @@ export default function FloorPage() {
       setDiscountPerSet: 0,
       timeAdjustmentMinutes: 0,
       extensionHistory: [],
-    })
+    }
+    updateTable(selected.id, checkInPatch)
+    tablesApi.update(selected.id, checkInPatch).catch(console.error)
     const now = new Date().toISOString()
     setCasts((prev) => prev.map((c) => assignedNames.includes(c.name) ? { ...c, lastAssignedAt: now } : c))
     setShowCheckIn(false)
@@ -346,15 +349,16 @@ export default function FloorPage() {
     }
     newOrders.push(extensionOrder)
 
-    updateTable(selected.id, {
-      // setCount は変えない（仕様: extensionHistory.length で getSetLabel が判定）
-      status: 'occupied',
+    const extendPatch = {
+      status: 'occupied' as const,
       extensionHistory: [...(selected.extensionHistory ?? []), newEntry],
       orders: newOrders,
       assignedCasts: continuing,
       isDouhan: undefined,
       isBanaiShimei: undefined,
-    })
+    }
+    updateTable(selected.id, extendPatch)
+    tablesApi.update(selected.id, extendPatch).catch(console.error)
     setPendingExtend(null)
     setShowExtend(false)
     // ISSUE-010: from クエリがあれば（UsageDetailPage の延長交渉ボタン経由）元画面に戻る
