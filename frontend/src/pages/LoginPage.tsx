@@ -60,11 +60,6 @@ export default function LoginPage() {
             ログイン
           </GoldButton>
         </form>
-
-        <div className="mt-10 text-center">
-          <p className="text-xs text-gray-600 mb-1">デモアカウント:</p>
-          <p className="text-xs text-gray-600">owner / 1234 ・ staff / 5678 ・ cast1 / 1111 ・ cast2 / 2222</p>
-        </div>
       </div>
     </div>
   )
