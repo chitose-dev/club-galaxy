@@ -1022,7 +1022,7 @@ function DataExport({ billingRecords, casts, dailyPayRequests, discountLogs, ded
   const handleSalesReport = () => {
     const headers = ['日時', '卓番号', '合計金額', '支払方法', '現金', 'カード', 'カード手数料']
     const rows = billingRecords.map((r) => [
-      r.timestamp,
+      r.completedAt,
       r.tableNumber,
       String(r.total),
       r.paymentMethod === 'cash' ? '現金' : r.paymentMethod === 'card' ? 'カード' : '現金+カード',

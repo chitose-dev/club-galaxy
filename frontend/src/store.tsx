@@ -341,7 +341,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const archiveOldData = useCallback((beforeDate: string) => {
-    const toArchive = billingRecords.filter((r) => r.timestamp < beforeDate)
+    const toArchive = billingRecords.filter((r) => r.completedAt < beforeDate)
     if (toArchive.length === 0) return
     const archived: ArchivedData = {
       id: Date.now(),
