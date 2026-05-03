@@ -248,7 +248,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       menuApi.listCharges().then(setChargeItemsRaw).catch(() => undefined),
       menuApi.listCategories().then(setMenuCategoriesRaw).catch(() => undefined),
       settingsApi.get().then(setStoreSettingsRaw).catch(() => undefined),
-      attendanceApi.list().then(setAttendanceRecords).catch(() => undefined),
+      // attendance はページネーションレスポンス { data, nextCursor } 形式
+      attendanceApi.list().then((res) => setAttendanceRecords(res.data)).catch(() => undefined),
       expensesApi.list().then(setExpenses).catch(() => undefined),
       advancesApi.list().then(setAdvancePayments).catch(() => undefined),
     ])
