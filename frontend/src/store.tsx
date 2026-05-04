@@ -101,12 +101,7 @@ interface Store {
   reorderTables: (fromIndex: number, toIndex: number) => void
   setStoreSettings: React.Dispatch<React.SetStateAction<StoreSettings>>
   userAccounts: UserAccount[]
-  /**
-   * cast 新規作成（同時に casts コレクションへ追加）するときは extras に
-   * { castName, hourlyRate, guaranteeRate } を渡す。castId は backend で採番される。
-   * 既存 cast 紐付け / staff / owner は extras 不要、user.castId / user.hourlyRate を直接指定。
-   */
-  addUser: (user: UserAccount, extras?: { castName?: string; hourlyRate?: number; guaranteeRate?: number; realName?: string; address?: string }) => void
+  addUser: (user: UserAccount) => void
   updateUser: (username: string, patch: Partial<UserAccount>) => void
   deleteUser: (username: string) => void
   flMetrics: FLMetrics
@@ -411,11 +406,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  const addUser = useCallback((
-    user: UserAccount,
-    extras?: { castName?: string; hourlyRate?: number; guaranteeRate?: number; realName?: string; address?: string },
-  ) => {
-    // 楽観的に local state へ追加（castId 未確定なら後段で response から反映）
+  const addUser = useCallback((user: UserAccount) => {
     setUserAccounts((prev) => [...prev, user])
     const payload = user as UserAccount & { pin?: string }
     if (!payload.pin) return
@@ -426,26 +417,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       displayName: user.displayName,
       ...(user.castId !== undefined ? { castId: user.castId } : {}),
       ...(user.hourlyRate !== undefined ? { hourlyRate: user.hourlyRate } : {}),
-      ...(extras?.castName !== undefined ? { castName: extras.castName } : {}),
-      ...(extras?.hourlyRate !== undefined ? { hourlyRate: extras.hourlyRate } : {}),
-      ...(extras?.guaranteeRate !== undefined ? { guaranteeRate: extras.guaranteeRate } : {}),
-      ...(extras?.realName !== undefined ? { realName: extras.realName } : {}),
-      ...(extras?.address !== undefined ? { address: extras.address } : {}),
-    })
-      .then((res) => {
-        // 新規 cast 作成された場合、casts と user.castId を local に反映
-        if (res.cast) {
-          setCastsRaw((prev) => [...prev, res.cast as Cast])
-        }
-        if (res.user.castId !== undefined && user.castId === undefined) {
-          setUserAccounts((prev) =>
-            prev.map((u) =>
-              u.username === user.username ? { ...u, castId: res.user.castId } : u,
-            ),
-          )
-        }
-      })
-      .catch(console.error)
+    }).catch(console.error)
   }, [])
 
   const updateUser = useCallback((username: string, patch: Partial<UserAccount>) => {

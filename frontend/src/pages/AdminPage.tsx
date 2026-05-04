@@ -1819,7 +1819,7 @@ const roleLabels: Record<UserAccount['role'], string> = { owner: 'オーナー',
 
 function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
   userAccounts: UserAccount[]
-  addUser: (user: UserAccount, extras?: { castName?: string; hourlyRate?: number; guaranteeRate?: number }) => void
+  addUser: (user: UserAccount) => void
   updateUser: (username: string, patch: Partial<UserAccount>) => void
   deleteUser: (username: string) => void
   casts: Cast[]
@@ -1832,12 +1832,6 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
   const [formRole, setFormRole] = useState<UserAccount['role']>('staff')
   const [formCastId, setFormCastId] = useState<number | undefined>(undefined)
   const [formHourlyRate, setFormHourlyRate] = useState('1500')
-  // role=cast の新規作成は常に新規キャスト同時作成（既存紐付け UI は廃止）
-  const [formCastName, setFormCastName] = useState('')
-  const [formCastHourlyRate, setFormCastHourlyRate] = useState('2000')
-  const [formGuaranteeRatePercent, setFormGuaranteeRatePercent] = useState('50')
-  const [formRealName, setFormRealName] = useState('')
-  const [formAddress, setFormAddress] = useState('')
   const [confirmTarget, setConfirmTarget] = useState<{ username: string; label: string } | null>(null)
 
   const startEdit = (u: UserAccount) => {
@@ -1863,47 +1857,22 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
   const handleAdd = () => {
     if (!formName || !formPin) return
     if (formRole === 'cast') {
-      if (!formCastName) return
-      const guaranteeRate = Number(formGuaranteeRatePercent) / 100
-      if (Number.isNaN(guaranteeRate) || guaranteeRate < 0 || guaranteeRate > 1) return
-      const castHourly = Number(formCastHourlyRate)
-      if (Number.isNaN(castHourly) || castHourly <= 0) return
-      const realName = formRealName.trim()
-      const address = formAddress.trim()
-      addUser(
-        {
-          username: formName,
-          displayName: formDisplay || formName,
-          pin: formPin,
-          role: 'cast',
-        },
-        {
-          castName: formCastName,
-          hourlyRate: castHourly,
-          guaranteeRate,
-          ...(realName ? { realName } : {}),
-          ...(address ? { address } : {}),
-        },
-      )
-    } else {
-      addUser({
-        username: formName,
-        displayName: formDisplay || formName,
-        pin: formPin,
-        role: formRole,
-        hourlyRate: formRole === 'staff' ? Number(formHourlyRate) : undefined,
-      })
+      // 案 B: キャスト新規作成は待機画面に一本化
+      alert('キャストの新規作成は「待機キャスト画面」の「+ キャストの追加」から行ってください。')
+      return
     }
+    addUser({
+      username: formName,
+      displayName: formDisplay || formName,
+      pin: formPin,
+      role: formRole,
+      hourlyRate: formRole === 'staff' ? Number(formHourlyRate) : undefined,
+    })
     setFormName('')
     setFormDisplay('')
     setFormPin('')
     setFormRole('staff')
     setFormHourlyRate('1500')
-    setFormCastName('')
-    setFormCastHourlyRate('2000')
-    setFormGuaranteeRatePercent('50')
-    setFormRealName('')
-    setFormAddress('')
     setShowAdd(false)
   }
 
@@ -1988,25 +1957,9 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
             <option value="cast">キャスト</option>
           </select>
           {formRole === 'cast' && (
-            <>
-              <input value={formCastName} onChange={(e) => setFormCastName(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="源氏名" />
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">時給 (¥)</label>
-                <input type="number" value={formCastHourlyRate} onChange={(e) => setFormCastHourlyRate(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="2000" min="0" />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">保証率 (%)</label>
-                <input type="number" value={formGuaranteeRatePercent} onChange={(e) => setFormGuaranteeRatePercent(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="50" min="0" max="100" step="1" />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">本名（税理士提出用・任意）</label>
-                <input value={formRealName} onChange={(e) => setFormRealName(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="例: 山田 花子" />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">住所（税理士提出用・任意）</label>
-                <input value={formAddress} onChange={(e) => setFormAddress(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="例: 山形県山形市..." />
-              </div>
-            </>
+            <p className="text-xs text-amber-300/80 bg-amber-500/10 rounded px-2 py-1.5">
+              キャストの新規作成は「待機キャスト画面」の「+ キャストの追加」から行ってください。
+            </p>
           )}
           {formRole === 'staff' && (
             <input type="number" value={formHourlyRate} onChange={(e) => setFormHourlyRate(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="時給（給与計算用）" />

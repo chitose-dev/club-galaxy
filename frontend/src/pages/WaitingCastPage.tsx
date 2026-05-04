@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store'
+import { castsApi } from '../api/casts'
 import ContextualHeader from '../components/ContextualHeader'
 import { GoldButton, DarkButton, GhostButton } from '../components/Buttons'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -16,7 +17,7 @@ import type { Cast, Table } from '../data/mock'
  * - 上部: キャスト追加 / 並び替え
  */
 export default function WaitingCastPage() {
-  const { casts, setCasts, tables, moveCast } = useStore()
+  const { casts, setCasts, tables, moveCast, addUser } = useStore()
   const navigate = useNavigate()
   const [sortMode, setSortMode] = useState<'custom' | 'waiting'>('custom')
   const [editing, setEditing] = useState<Cast | null>(null)
@@ -301,14 +302,34 @@ export default function WaitingCastPage() {
             setAdding(false)
             setEditing(null)
           }}
-          onSave={(c) => {
-            if (editing) {
-              setCasts((prev) => prev.map((x) => (x.id === c.id ? c : x)))
-            } else {
-              setCasts((prev) => [...prev, c])
-            }
-            setAdding(false)
+          onUpdate={(c) => {
+            setCasts((prev) => prev.map((x) => (x.id === c.id ? c : x)))
             setEditing(null)
+          }}
+          onCreate={async (input) => {
+            // 案 B: 待機画面のキャスト追加 = casts API + userAccounts API を 2 発叩いて
+            // Cast と userAccount を同時作成。castId は backend で採番された値を使う。
+            try {
+              const newCast = await castsApi.create({
+                name: input.name,
+                hourlyRate: input.hourlyRate,
+                guaranteeRate: input.guaranteeRate,
+                ...(input.realName ? { realName: input.realName } : {}),
+                ...(input.address ? { address: input.address } : {}),
+              })
+              setCasts((prev) => [...prev, newCast])
+              addUser({
+                username: input.username,
+                displayName: newCast.name,
+                pin: input.pin,
+                role: 'cast',
+                castId: newCast.id,
+              })
+              setAdding(false)
+            } catch (e) {
+              const msg = e instanceof Error ? e.message : String(e)
+              alert(`キャスト作成に失敗しました: ${msg}`)
+            }
           }}
         />
       )}
@@ -325,44 +346,66 @@ export default function WaitingCastPage() {
   )
 }
 
+/** 追加モード時のみ要求されるログイン情報 (case B: userAccount を同時作成) */
+interface CastCreateInput {
+  name: string
+  hourlyRate: number
+  guaranteeRate: number
+  realName?: string
+  address?: string
+  username: string
+  pin: string
+}
+
 interface ModalProps {
   initial?: Cast
   onClose: () => void
-  onSave: (c: Cast) => void
+  /** 編集モード: Cast 全体を返す */
+  onUpdate: (c: Cast) => void
+  /** 追加モード: Cast 構成情報 + ログイン情報を返す（id は backend 採番） */
+  onCreate: (input: CastCreateInput) => void
 }
 
-function CastEditModal({ initial, onClose, onSave }: ModalProps) {
+function CastEditModal({ initial, onClose, onUpdate, onCreate }: ModalProps) {
+  const isCreate = !initial
   const [name, setName] = useState(initial?.name ?? '')
   const [hourlyRate, setHourlyRate] = useState(initial?.hourlyRate ?? 2000)
   const [guaranteeRate, setGuaranteeRate] = useState(initial?.guaranteeRate ?? 0)
   const [realName, setRealName] = useState(initial?.realName ?? '')
   const [address, setAddress] = useState(initial?.address ?? '')
+  // 追加モード時のみ使用: ユーザーID と初期 PIN
+  const [username, setUsername] = useState('')
+  const [pin, setPin] = useState('')
 
-  const canSave = name.trim().length > 0
+  const canSave =
+    name.trim().length > 0 &&
+    (!isCreate || (username.trim().length > 0 && pin.trim().length > 0))
 
   const save = () => {
+    const trimmedName = name.trim()
+    const trimmedRealName = realName.trim()
+    const trimmedAddress = address.trim()
+    if (isCreate) {
+      onCreate({
+        name: trimmedName,
+        hourlyRate,
+        guaranteeRate,
+        ...(trimmedRealName ? { realName: trimmedRealName } : {}),
+        ...(trimmedAddress ? { address: trimmedAddress } : {}),
+        username: username.trim(),
+        pin: pin.trim(),
+      })
+      return
+    }
     const cast: Cast = {
-      id: initial?.id ?? Date.now(),
-      name: name.trim(),
-      realName: realName.trim() || undefined,
-      address: address.trim() || undefined,
+      ...initial,
+      name: trimmedName,
+      realName: trimmedRealName || undefined,
+      address: trimmedAddress || undefined,
       hourlyRate,
       guaranteeRate,
-      active: initial?.active ?? true,
-      onBreak: initial?.onBreak ?? false,
-      backRates:
-        initial?.backRates ?? {
-          FD: 200, '本D': 500,
-          'Fカク': 300, '本カク': 400, '本カクW': 800,
-          'Fショ': 300, '本ショ': 500,
-          'FP': 300, '本P': 500,
-          'FB': 300, '本B': 500,
-          '同伴': 4000, '本指名': 1500, '場内指名': 500,
-          'ボトルバック': 10, 'ヘルプ': 4000,
-        },
-      lastAssignedAt: initial?.lastAssignedAt ?? null,
     }
-    onSave(cast)
+    onUpdate(cast)
   }
 
   return (
@@ -405,6 +448,19 @@ function CastEditModal({ initial, onClose, onSave }: ModalProps) {
         <Field label="住所 (税理士提出用・任意)">
           <Input value={address} onChange={(e) => setAddress(e.target.value)} />
         </Field>
+        {isCreate && (
+          <>
+            <div className="border-t border-white/10 pt-3 -mt-1">
+              <p className="text-xs text-gold/80 mb-2">ログイン情報（同時に userAccount を作成します）</p>
+            </div>
+            <Field label="ユーザーID (必須)">
+              <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="例: hanako" />
+            </Field>
+            <Field label="初期 PIN (必須)">
+              <Input value={pin} onChange={(e) => setPin(e.target.value)} placeholder="例: 1234" maxLength={8} />
+            </Field>
+          </>
+        )}
       </div>
     </Modal>
   )
