@@ -567,6 +567,8 @@ function CastManager({ casts, setCasts, addUser }: {
   }
 
   // 案 B 改: castsApi.create + addUser を 2 発叩き、cast と userAccount を同時作成
+  // - cast 作成失敗: そのまま alert (cast も userAccount も未作成)
+  // - cast 作成成功 + userAccount 作成失敗: alert で「孤児 cast」を明示し手動修復を促す
   const handleAdd = async () => {
     if (!newName.trim() || !newUsername.trim() || !newPin.trim()) return
     const hourlyRate = Number(newRate)
@@ -575,8 +577,9 @@ function CastManager({ casts, setCasts, addUser }: {
     if (Number.isNaN(guaranteeRate) || guaranteeRate < 0 || guaranteeRate > 1) return
     const realName = newRealName.trim()
     const address = newAddress.trim()
+    let created: Cast
     try {
-      const created = await castsApi.create({
+      created = await castsApi.create({
         name: newName.trim(),
         hourlyRate,
         guaranteeRate,
@@ -585,16 +588,21 @@ function CastManager({ casts, setCasts, addUser }: {
         ...(address ? { address } : {}),
       })
       setCasts((prev) => [...prev, created])
-      addUser({
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      alert(`キャスト追加に失敗しました: ${msg}`)
+      return
+    }
+    try {
+      await addUser({
         username: newUsername.trim(),
         displayName: created.name,
         pin: newPin.trim(),
         role: 'cast',
         castId: created.id,
       })
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      alert(`キャスト追加に失敗しました: ${msg}`)
+    } catch {
+      alert('ユーザーアカウントの作成に失敗しました。キャストは追加されましたが、ログインアカウントが作成できませんでした。手動で対応してください。')
       return
     }
     setNewName('')
