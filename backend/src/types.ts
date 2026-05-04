@@ -606,6 +606,9 @@ export interface StoreSettings extends AuditFields {
 
   // シャンパンセッパン (M6)
   champagneSplitThreshold: number     // 20000
+
+  // 固定人件費 (FL計算の労務費に加算)
+  staffFixedCost: number              // default 28800
 }
 
 // ─────────────────────────────────────────────────────────────

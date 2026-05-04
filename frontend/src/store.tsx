@@ -18,12 +18,7 @@ import {
   chargeItems as initialChargeItems,
   initialMenuCategories,
   type MenuCategory,
-  initialDailyPayRequests,
-  initialBottleKeeps,
   defaultStoreSettings,
-  initialAttendanceRecords,
-  initialExpenses,
-  initialAdvancePayments,
   type Table,
   type Cast,
   type GuestMenuItem,
@@ -58,6 +53,8 @@ export interface FLMetrics {
 }
 
 interface Store {
+  /** 起動時 API fetch で主要 endpoint がすべて失敗したフラグ（接続断/サーバ停止検知用） */
+  fetchFailed: boolean
   tables: Table[]
   casts: Cast[]
   guestMenu: GuestMenuItem[]
@@ -150,17 +147,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [chargeItemsState, setChargeItemsRaw] = useState<SetPrice[]>(initialChargeItems)
   const [discountLogs, setDiscountLogs] = useState<DiscountLog[]>([])
   const [billingRecords, setBillingRecords] = useState<BillingRecord[]>([])
-  const [dailyPayRequests, setDailyPayRequests] = useState<DailyPayRequest[]>(initialDailyPayRequests)
-  const [bottleKeeps, setBottleKeeps] = useState<BottleKeep[]>(initialBottleKeeps)
+  const [dailyPayRequests, setDailyPayRequests] = useState<DailyPayRequest[]>([])
+  const [bottleKeeps, setBottleKeeps] = useState<BottleKeep[]>([])
   const [deductions, setDeductionsRaw] = useState<Deduction[]>([])
   const [storeSettings, setStoreSettingsRaw] = useState<StoreSettings>(defaultStoreSettings)
   const [userAccounts, setUserAccounts] = useState<UserAccount[]>([])
-  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(initialAttendanceRecords)
-  const [expenses, setExpenses] = useState<Expense[]>(initialExpenses)
-  const [advancePayments, setAdvancePayments] = useState<AdvancePayment[]>(initialAdvancePayments)
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([])
+  const [expenses, setExpenses] = useState<Expense[]>([])
+  const [advancePayments, setAdvancePayments] = useState<AdvancePayment[]>([])
   const [archivedData, setArchivedData] = useState<ArchivedData[]>([])
   const [dailyReports, setDailyReports] = useState<DailyReport[]>([])
   const [nextReceiptNumber, setNextReceiptNumber] = useState(1001)
+  const [fetchFailed, setFetchFailed] = useState(false)
 
   // ── Day 2: PUT sync 付き setter ────────────────────────────────────
   // AdminPage / SalaryPage が `setX(arr)` or `setX((prev) => updated)` で更新した時点で
@@ -224,34 +222,40 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [])
 
   // ── 起動時 API fetch ──────────────────────────────────────────────────
-  // authToken があれば backend からデータを並行 fetch、失敗時は initial mock を維持。
-  // 担当ページ（ProfitPage / SalaryPage / AdminPage）が必要とする全データを GET。
-  // 未実装 endpoint（attendance / expenses / advances / archive / dailyReports）は
-  // 当面 mock 維持（Rev.4.1 §16.4 Phase D で別途対応）。
+  // authToken があれば backend からデータを並行 fetch。
+  // 主要 endpoint (tables/casts/billing/menu系/settings) が「全件失敗」した場合のみ
+  // fetchFailed=true を立て、ルートでフルスクリーンエラー画面に切替える。
+  // 個別 fetch 失敗は state 空のまま（モックフォールバックなし）。
   useEffect(() => {
     const token = localStorage.getItem('authToken')
     if (!token) return
-    // クロウレビュー対応: 起動時 GET は wrap 版（PUT sync 付き）ではなく Raw setter を使う
-    // 旧実装だと取得直後に全件 PUT replace-all が走り、不要な API 往復 + 上書きが発生していた
-    void Promise.all([
-      tablesApi.list().then(setTables).catch(() => undefined),
-      castsApi.list().then(setCastsRaw).catch(() => undefined),
-      billingApi.list({ limit: 1000 }).then(setBillingRecords).catch(() => undefined),
-      payrollApi.listDailyPayments().then(setDailyPayRequests).catch(() => undefined),
-      payrollApi.listDeductions().then(setDeductionsRaw).catch(() => undefined),
-      menuApi.listGuest().then(setGuestMenuRaw).catch(() => undefined),
-      menuApi.listCast().then(setCastMenuRaw).catch(() => undefined),
-      menuApi.listSetPrices().then(setSetPricesRaw).catch(() => undefined),
-      menuApi.listCharges().then(setChargeItemsRaw).catch(() => undefined),
-      menuApi.listCategories().then(setMenuCategoriesRaw).catch(() => undefined),
-      settingsApi.get().then(setStoreSettingsRaw).catch(() => undefined),
-      // attendance はページネーションレスポンス { data, nextCursor } 形式
-      attendanceApi.list().then((res) => setAttendanceRecords(res.data)).catch(() => undefined),
-      expensesApi.list().then(setExpenses).catch(() => undefined),
-      advancesApi.list().then(setAdvancePayments).catch(() => undefined),
-      dailyReportsApi.list().then(setDailyReports).catch(() => undefined),
-      authApi.listUsers().then(setUserAccounts).catch(() => undefined),
-    ])
+    // 起動時 GET は wrap 版（PUT sync 付き）ではなく Raw setter を使う
+    // wrap 版だと取得直後に全件 PUT replace-all が走り、不要な API 往復 + 上書きが発生する
+    const criticalFetches: Promise<unknown>[] = [
+      tablesApi.list().then(setTables),
+      castsApi.list().then(setCastsRaw),
+      billingApi.list({ limit: 1000 }).then(setBillingRecords),
+      menuApi.listGuest().then(setGuestMenuRaw),
+      menuApi.listCast().then(setCastMenuRaw),
+      menuApi.listSetPrices().then(setSetPricesRaw),
+      menuApi.listCharges().then(setChargeItemsRaw),
+      menuApi.listCategories().then(setMenuCategoriesRaw),
+      settingsApi.get().then(setStoreSettingsRaw),
+    ]
+    const otherFetches: Promise<unknown>[] = [
+      payrollApi.listDailyPayments().then(setDailyPayRequests),
+      payrollApi.listDeductions().then(setDeductionsRaw),
+      attendanceApi.list().then((res) => setAttendanceRecords(res.data)),
+      expensesApi.list().then(setExpenses),
+      advancesApi.list().then(setAdvancePayments),
+      dailyReportsApi.list().then(setDailyReports),
+      authApi.listUsers().then(setUserAccounts),
+    ]
+    void Promise.allSettled([...criticalFetches, ...otherFetches]).then((results) => {
+      const criticalResults = results.slice(0, criticalFetches.length)
+      const allCriticalFailed = criticalResults.every((r) => r.status === 'rejected')
+      if (allCriticalFailed) setFetchFailed(true)
+    })
   }, [])
 
   const updateTable = useCallback((id: number, patch: Partial<Table>) => {
@@ -527,8 +531,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         castBackTotal += order.menuItem.castBack * order.quantity
       }
     }
-    const staffFixedCost = 28800
-    const laborCost = castBackTotal + staffFixedCost
+    const laborCost = castBackTotal + storeSettings.staffFixedCost
 
     // 月次の F・L 概算 (本日分 + 月次売上から逆算)
     // 本来は会計時の商品原価を BillingRecord に保存すべきだが、現状は概算で処理
@@ -557,11 +560,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const monthlyFlRate = monthSales > 0 ? (monthlyFoodCost + monthlyLaborCost + monthCardProcessingCost) / monthSales * 100 : 0
 
     return { todaySales, foodCost, laborCost, cardProcessingCost, flRate, todayProfit, monthlyProfit, monthlyFlRate }
-  }, [billingRecords, tables, storeSettings.cardProcessingFeeRate])
+  }, [billingRecords, tables, storeSettings.cardProcessingFeeRate, storeSettings.staffFixedCost])
 
   return (
     <StoreContext.Provider
       value={{
+        fetchFailed,
         tables,
         casts,
         guestMenu,

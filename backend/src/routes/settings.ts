@@ -50,6 +50,8 @@ const DEFAULT_SETTINGS: Partial<StoreSettings> = {
   maxBonusRatePerOrder: 0.3,
   // シャンパンセッパン（M6）
   champagneSplitThreshold: 20_000,
+  // 固定人件費（FL計算の労務費）
+  staffFixedCost: 28_800,
 }
 
 // GET /api/settings
