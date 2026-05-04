@@ -205,6 +205,8 @@ authRouter.post('/users', requireAuth, requireRole('owner'), async (req, res) =>
         backRates: {},
         guaranteeRate: body.guaranteeRate,
         active: true,
+        ...(typeof body.realName === 'string' && body.realName ? { realName: body.realName } : {}),
+        ...(typeof body.address === 'string' && body.address ? { address: body.address } : {}),
         createdBy: performer,
         createdAt: now,
       }
