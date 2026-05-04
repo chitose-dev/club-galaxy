@@ -1908,7 +1908,7 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
     if (!formName || !formPin) return
     if (formRole === 'cast') {
       // 案 B: キャスト新規作成は待機画面に一本化
-      alert('キャストの新規作成は「待機キャスト画面」の「+ キャストの追加」から行ってください。')
+      alert('キャストの新規作成は「管理メニュー > キャスト」タブの「追加」から行ってください。')
       return
     }
     addUser({
@@ -2002,7 +2002,7 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
           </select>
           {formRole === 'cast' && (
             <p className="text-xs text-amber-300/80 bg-amber-500/10 rounded px-2 py-1.5">
-              キャストの新規作成は「待機キャスト画面」の「+ キャストの追加」から行ってください。
+              キャストの新規作成は「管理メニュー {'>'} キャスト」タブの「追加」から行ってください。
             </p>
           )}
           {formRole === 'staff' && (
