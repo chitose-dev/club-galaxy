@@ -21,7 +21,6 @@ import {
   initialDailyPayRequests,
   initialBottleKeeps,
   defaultStoreSettings,
-  dummyAccounts,
   initialAttendanceRecords,
   initialExpenses,
   initialAdvancePayments,
@@ -155,7 +154,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [bottleKeeps, setBottleKeeps] = useState<BottleKeep[]>(initialBottleKeeps)
   const [deductions, setDeductionsRaw] = useState<Deduction[]>([])
   const [storeSettings, setStoreSettingsRaw] = useState<StoreSettings>(defaultStoreSettings)
-  const [userAccounts, setUserAccounts] = useState<UserAccount[]>(dummyAccounts)
+  const [userAccounts, setUserAccounts] = useState<UserAccount[]>([])
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(initialAttendanceRecords)
   const [expenses, setExpenses] = useState<Expense[]>(initialExpenses)
   const [advancePayments, setAdvancePayments] = useState<AdvancePayment[]>(initialAdvancePayments)
@@ -250,8 +249,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       attendanceApi.list().then((res) => setAttendanceRecords(res.data)).catch(() => undefined),
       expensesApi.list().then(setExpenses).catch(() => undefined),
       advancesApi.list().then(setAdvancePayments).catch(() => undefined),
-      // クロウ指示: dailyReports 起動時 fetch 追加（HistoryView が毎回空になる修正）
       dailyReportsApi.list().then(setDailyReports).catch(() => undefined),
+      authApi.listUsers().then(setUserAccounts).catch(() => undefined),
     ])
   }, [])
 
