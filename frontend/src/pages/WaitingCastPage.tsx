@@ -7,20 +7,22 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import Modal from '../components/Modal'
 import { Input, Field } from '../components/Input'
 import NumberInput from '../components/NumberInput'
-import { Plus, ArrowUpDown, Edit2, Trash2, MapPin, ArrowRightCircle } from 'lucide-react'
+import { ArrowUpDown, Edit2, Trash2, MapPin, ArrowRightCircle } from 'lucide-react'
 import type { Cast, Table } from '../data/mock'
 
 /**
  * 待機キャスト画面 (TRUST 準拠)
  * - 縦リスト: 円形アバター / 出勤トグル / 編集・削除 / 源氏名 / 待機時間
- * - 上部: キャスト追加 / 並び替え
+ * - 上部: 並び替え
+ *
+ * キャスト新規追加は AdminPage > ユーザー管理に一本化（userAccount との同時作成のため）。
+ * 本画面は出勤管理・編集・削除のみ。
  */
 export default function WaitingCastPage() {
   const { casts, setCasts, tables, moveCast } = useStore()
   const navigate = useNavigate()
   const [sortMode, setSortMode] = useState<'custom' | 'waiting'>('custom')
   const [editing, setEditing] = useState<Cast | null>(null)
-  const [adding, setAdding] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<Cast | null>(null)
   /** 接客中の行タップ時のポップオーバー表示対象 */
   const [locateCast, setLocateCast] = useState<{ cast: Cast; tableId: number | null } | null>(null)
@@ -93,17 +95,12 @@ export default function WaitingCastPage() {
         accent="waiting"
         title="待機キャスト"
         right={
-          <>
-            <GoldButton onClick={() => setAdding(true)} className="flex items-center gap-1 text-sm">
-              <Plus size={16} /> キャストの追加
-            </GoldButton>
-            <DarkButton
-              onClick={() => setSortMode((s) => (s === 'custom' ? 'waiting' : 'custom'))}
-              className="flex items-center gap-1 text-sm"
-            >
-              <ArrowUpDown size={16} /> {sortMode === 'custom' ? 'カスタム順' : '待機時間順'}
-            </DarkButton>
-          </>
+          <DarkButton
+            onClick={() => setSortMode((s) => (s === 'custom' ? 'waiting' : 'custom'))}
+            className="flex items-center gap-1 text-sm"
+          >
+            <ArrowUpDown size={16} /> {sortMode === 'custom' ? 'カスタム順' : '待機時間順'}
+          </DarkButton>
         }
       />
 
@@ -294,20 +291,12 @@ export default function WaitingCastPage() {
         )}
       </Modal>
 
-      {(adding || editing) && (
+      {editing && (
         <CastEditModal
-          initial={editing ?? undefined}
-          onClose={() => {
-            setAdding(false)
-            setEditing(null)
-          }}
+          initial={editing}
+          onClose={() => setEditing(null)}
           onSave={(c) => {
-            if (editing) {
-              setCasts((prev) => prev.map((x) => (x.id === c.id ? c : x)))
-            } else {
-              setCasts((prev) => [...prev, c])
-            }
-            setAdding(false)
+            setCasts((prev) => prev.map((x) => (x.id === c.id ? c : x)))
             setEditing(null)
           }}
         />
@@ -326,41 +315,28 @@ export default function WaitingCastPage() {
 }
 
 interface ModalProps {
-  initial?: Cast
+  initial: Cast
   onClose: () => void
   onSave: (c: Cast) => void
 }
 
 function CastEditModal({ initial, onClose, onSave }: ModalProps) {
-  const [name, setName] = useState(initial?.name ?? '')
-  const [hourlyRate, setHourlyRate] = useState(initial?.hourlyRate ?? 2000)
-  const [guaranteeRate, setGuaranteeRate] = useState(initial?.guaranteeRate ?? 0)
-  const [realName, setRealName] = useState(initial?.realName ?? '')
-  const [address, setAddress] = useState(initial?.address ?? '')
+  const [name, setName] = useState(initial.name)
+  const [hourlyRate, setHourlyRate] = useState(initial.hourlyRate)
+  const [guaranteeRate, setGuaranteeRate] = useState(initial.guaranteeRate)
+  const [realName, setRealName] = useState(initial.realName ?? '')
+  const [address, setAddress] = useState(initial.address ?? '')
 
   const canSave = name.trim().length > 0
 
   const save = () => {
     const cast: Cast = {
-      id: initial?.id ?? Date.now(),
+      ...initial,
       name: name.trim(),
       realName: realName.trim() || undefined,
       address: address.trim() || undefined,
       hourlyRate,
       guaranteeRate,
-      active: initial?.active ?? true,
-      onBreak: initial?.onBreak ?? false,
-      backRates:
-        initial?.backRates ?? {
-          FD: 200, '本D': 500,
-          'Fカク': 300, '本カク': 400, '本カクW': 800,
-          'Fショ': 300, '本ショ': 500,
-          'FP': 300, '本P': 500,
-          'FB': 300, '本B': 500,
-          '同伴': 4000, '本指名': 1500, '場内指名': 500,
-          'ボトルバック': 10, 'ヘルプ': 4000,
-        },
-      lastAssignedAt: initial?.lastAssignedAt ?? null,
     }
     onSave(cast)
   }
@@ -369,7 +345,7 @@ function CastEditModal({ initial, onClose, onSave }: ModalProps) {
     <Modal
       open
       onClose={onClose}
-      title={initial ? 'キャスト編集' : 'キャスト追加'}
+      title="キャスト編集"
       size="md"
       footer={
         <>

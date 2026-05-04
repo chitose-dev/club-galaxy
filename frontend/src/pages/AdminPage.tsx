@@ -1830,7 +1830,6 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
   const [formDisplay, setFormDisplay] = useState('')
   const [formPin, setFormPin] = useState('')
   const [formRole, setFormRole] = useState<UserAccount['role']>('staff')
-  const [formCastId, setFormCastId] = useState<number | undefined>(undefined)
   const [formHourlyRate, setFormHourlyRate] = useState('1500')
   // role=cast の新規作成は常に新規キャスト同時作成（既存紐付け UI は廃止）
   const [formCastName, setFormCastName] = useState('')
@@ -1845,16 +1844,15 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
     setFormDisplay(u.displayName)
     setFormPin(u.pin)
     setFormRole(u.role)
-    setFormCastId(u.castId)
     setFormHourlyRate(String(u.hourlyRate ?? 1500))
   }
 
+  // castId は作成時に確定、編集では変更不可（PATCH ペイロードに含めない）
   const handleSaveEdit = (username: string) => {
     updateUser(username, {
       displayName: formDisplay,
       pin: formPin,
       role: formRole,
-      castId: formRole === 'cast' ? formCastId : undefined,
       hourlyRate: formRole === 'staff' ? Number(formHourlyRate) : undefined,
     })
     setEditingUsername(null)
@@ -1933,12 +1931,6 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
                 <option value="staff">黒服</option>
                 <option value="cast">キャスト</option>
               </select>
-              {formRole === 'cast' && (
-                <select value={formCastId ?? ''} onChange={(e) => setFormCastId(e.target.value ? Number(e.target.value) : undefined)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm">
-                  <option value="">-- キャスト紐付け --</option>
-                  {casts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-              )}
               {formRole === 'staff' && (
                 <div>
                   <label className="text-xs text-gray-500 block mb-1">時給（給与計算用）</label>
