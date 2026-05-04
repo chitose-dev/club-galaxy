@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { UserAccount } from '../data/mock'
+import type { UserAccount, Cast } from '../data/mock'
 
 interface LoginResponse {
   username: string
@@ -23,8 +23,19 @@ export const authApi = {
     api.get<Array<UserAccount & { failedAttempts?: number; lockedUntil?: string | null }>>(
       '/api/auth/users',
     ),
-  createUser: (user: { username: string; pin: string; role: string; displayName: string; castId?: number; hourlyRate?: number }) =>
-    api.post<UserAccount>('/api/auth/users', user),
+  createUser: (user: {
+    username: string
+    pin: string
+    role: string
+    displayName: string
+    castId?: number
+    hourlyRate?: number
+    /** role=cast かつ castId 未指定時：新規キャスト名（同時に casts に作成される） */
+    castName?: string
+    /** role=cast 新規作成時：保証率 0.0〜1.0 */
+    guaranteeRate?: number
+  }) =>
+    api.post<{ user: UserAccount; cast: Cast | null }>('/api/auth/users', user),
   updateUser: (username: string, patch: Partial<UserAccount> & { pin?: string }) =>
     api.patch<UserAccount>(`/api/auth/users/${username}`, patch),
   deleteUser: (username: string) =>

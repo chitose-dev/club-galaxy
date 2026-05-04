@@ -1819,7 +1819,7 @@ const roleLabels: Record<UserAccount['role'], string> = { owner: 'オーナー',
 
 function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
   userAccounts: UserAccount[]
-  addUser: (user: UserAccount) => void
+  addUser: (user: UserAccount, extras?: { castName?: string; hourlyRate?: number; guaranteeRate?: number }) => void
   updateUser: (username: string, patch: Partial<UserAccount>) => void
   deleteUser: (username: string) => void
   casts: Cast[]
@@ -1832,6 +1832,11 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
   const [formRole, setFormRole] = useState<UserAccount['role']>('staff')
   const [formCastId, setFormCastId] = useState<number | undefined>(undefined)
   const [formHourlyRate, setFormHourlyRate] = useState('1500')
+  // role=cast 時、既存キャスト紐付け or 新規キャスト作成
+  const [castMode, setCastMode] = useState<'existing' | 'new'>('existing')
+  const [formCastName, setFormCastName] = useState('')
+  const [formCastHourlyRate, setFormCastHourlyRate] = useState('2000')
+  const [formGuaranteeRatePercent, setFormGuaranteeRatePercent] = useState('50')
   const [confirmTarget, setConfirmTarget] = useState<{ username: string; label: string } | null>(null)
 
   const startEdit = (u: UserAccount) => {
@@ -1856,20 +1861,49 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
 
   const handleAdd = () => {
     if (!formName || !formPin) return
-    addUser({
-      username: formName,
-      displayName: formDisplay || formName,
-      pin: formPin,
-      role: formRole,
-      castId: formRole === 'cast' ? formCastId : undefined,
-      hourlyRate: formRole === 'staff' ? Number(formHourlyRate) : undefined,
-    })
+    if (formRole === 'cast' && castMode === 'new') {
+      if (!formCastName) return
+      const guaranteeRate = Number(formGuaranteeRatePercent) / 100
+      if (Number.isNaN(guaranteeRate) || guaranteeRate < 0 || guaranteeRate > 1) return
+      const castHourly = Number(formCastHourlyRate)
+      if (Number.isNaN(castHourly) || castHourly <= 0) return
+      addUser(
+        {
+          username: formName,
+          displayName: formDisplay || formName,
+          pin: formPin,
+          role: 'cast',
+        },
+        { castName: formCastName, hourlyRate: castHourly, guaranteeRate },
+      )
+    } else if (formRole === 'cast' && castMode === 'existing') {
+      if (!formCastId) return
+      addUser({
+        username: formName,
+        displayName: formDisplay || formName,
+        pin: formPin,
+        role: 'cast',
+        castId: formCastId,
+      })
+    } else {
+      addUser({
+        username: formName,
+        displayName: formDisplay || formName,
+        pin: formPin,
+        role: formRole,
+        hourlyRate: formRole === 'staff' ? Number(formHourlyRate) : undefined,
+      })
+    }
     setFormName('')
     setFormDisplay('')
     setFormPin('')
     setFormRole('staff')
     setFormCastId(undefined)
     setFormHourlyRate('1500')
+    setCastMode('existing')
+    setFormCastName('')
+    setFormCastHourlyRate('2000')
+    setFormGuaranteeRatePercent('50')
     setShowAdd(false)
   }
 
@@ -1954,10 +1988,42 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
             <option value="cast">キャスト</option>
           </select>
           {formRole === 'cast' && (
-            <select value={formCastId ?? ''} onChange={(e) => setFormCastId(e.target.value ? Number(e.target.value) : undefined)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm">
-              <option value="">-- キャスト紐付け --</option>
-              {casts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            <>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCastMode('existing')}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold ${castMode === 'existing' ? 'bg-white text-black' : 'bg-white/5 text-gray-400 border border-white/10'}`}
+                >
+                  既存キャストに紐付け
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCastMode('new')}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold ${castMode === 'new' ? 'bg-white text-black' : 'bg-white/5 text-gray-400 border border-white/10'}`}
+                >
+                  新規キャスト作成
+                </button>
+              </div>
+              {castMode === 'existing' ? (
+                <select value={formCastId ?? ''} onChange={(e) => setFormCastId(e.target.value ? Number(e.target.value) : undefined)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm">
+                  <option value="">-- キャスト紐付け --</option>
+                  {casts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              ) : (
+                <>
+                  <input value={formCastName} onChange={(e) => setFormCastName(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="源氏名" />
+                  <div>
+                    <label className="text-xs text-gray-500 block mb-1">時給 (¥)</label>
+                    <input type="number" value={formCastHourlyRate} onChange={(e) => setFormCastHourlyRate(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="2000" min="0" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 block mb-1">保証率 (%)</label>
+                    <input type="number" value={formGuaranteeRatePercent} onChange={(e) => setFormGuaranteeRatePercent(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="50" min="0" max="100" step="1" />
+                  </div>
+                </>
+              )}
+            </>
           )}
           {formRole === 'staff' && (
             <input type="number" value={formHourlyRate} onChange={(e) => setFormHourlyRate(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="時給（給与計算用）" />

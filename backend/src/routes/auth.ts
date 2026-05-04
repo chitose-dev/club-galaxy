@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import bcrypt from 'bcrypt'
 import { z } from 'zod'
-import { storeCollection } from '../firebase'
+import { db, storeCollection } from '../firebase'
 import {
   signToken,
   requireAuth,
@@ -21,10 +21,11 @@ import {
 } from '../lib/errors'
 import { append, buildEntry } from '../lib/audit'
 import { nowJstIso } from '../lib/businessDate'
-import { UserAccountSchema, type UserAccount, type Role } from '../types'
+import { UserAccountSchema, type UserAccount, type Role, type Cast } from '../types'
 
 export const authRouter = Router()
 const col = () => storeCollection('userAccounts')
+const castsCol = () => storeCollection('casts')
 
 const BCRYPT_ROUNDS = 10
 const FAIL_LIMIT = 5
@@ -172,6 +173,43 @@ authRouter.post('/users', requireAuth, requireRole('owner'), async (req, res) =>
     const pinHash = await bcrypt.hash(body.pin, BCRYPT_ROUNDS)
     const performer = getAuthedUser(req).username
     const now = nowJstIso()
+
+    // role=cast かつ castId 未指定 → casts に新規キャスト作成して同時 batch コミット
+    let castId: number | undefined = body.castId
+    let newCast: Cast | null = null
+    if (body.role === 'cast' && body.castId === undefined) {
+      if (typeof body.castName !== 'string' || !body.castName) {
+        throwBadRequest('castName が必要です')
+      }
+      if (typeof body.hourlyRate !== 'number') {
+        throwBadRequest('hourlyRate (cast) が必要です')
+      }
+      if (
+        typeof body.guaranteeRate !== 'number' ||
+        body.guaranteeRate < 0 ||
+        body.guaranteeRate > 1
+      ) {
+        throwBadRequest('guaranteeRate は 0.0〜1.0 で指定してください')
+      }
+      // 採番: 既存 cast の最大 id + 1（オーナー1名運用前提でレースは許容）
+      const castsSnap = await castsCol().get()
+      const maxId = castsSnap.docs.reduce(
+        (m, d) => Math.max(m, (d.data() as Cast).id ?? 0),
+        0,
+      )
+      castId = maxId + 1
+      newCast = {
+        id: castId,
+        name: body.castName,
+        hourlyRate: body.hourlyRate,
+        backRates: {},
+        guaranteeRate: body.guaranteeRate,
+        active: true,
+        createdBy: performer,
+        createdAt: now,
+      }
+    }
+
     let user: UserAccount
     try {
       user = UserAccountSchema.parse({
@@ -179,8 +217,10 @@ authRouter.post('/users', requireAuth, requireRole('owner'), async (req, res) =>
         pinHash,
         displayName: body.displayName,
         role: body.role,
-        ...(body.castId !== undefined ? { castId: body.castId } : {}),
-        ...(body.hourlyRate !== undefined ? { hourlyRate: body.hourlyRate } : {}),
+        ...(castId !== undefined ? { castId } : {}),
+        ...(body.role === 'staff' && typeof body.hourlyRate === 'number'
+          ? { hourlyRate: body.hourlyRate }
+          : {}),
         failedAttempts: 0,
         createdBy: performer,
         createdAt: now,
@@ -191,8 +231,15 @@ authRouter.post('/users', requireAuth, requireRole('owner'), async (req, res) =>
       }
       throw e
     }
-    await col().doc(user.username).set(user)
-    res.status(201).json(publicUser(user))
+
+    const batch = db.batch()
+    if (newCast) {
+      batch.set(castsCol().doc(String(newCast.id)), newCast)
+    }
+    batch.set(col().doc(user.username), user)
+    await batch.commit()
+
+    res.status(201).json({ user: publicUser(user), cast: newCast })
   } catch (e) {
     sendError(res, e)
   }
