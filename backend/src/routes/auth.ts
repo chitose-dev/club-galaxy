@@ -17,6 +17,7 @@ import {
   throwLocked,
   throwBadRequest,
   throwNotFound,
+  throwForbidden,
 } from '../lib/errors'
 import { append, buildEntry } from '../lib/audit'
 import { nowJstIso } from '../lib/businessDate'
@@ -230,6 +231,11 @@ authRouter.delete('/users/:username', requireAuth, requireRole('owner'), async (
     const ref = col().doc(String(req.params.username))
     const doc = await ref.get()
     if (!doc.exists) throwNotFound('ユーザーが見つかりません')
+    const target = doc.data() as UserAccount
+    // owner は削除不可（PIN 変更等の運用に必要なため AdminPage には表示しつつ削除のみガード）
+    if (target.role === 'owner') {
+      throwForbidden('オーナーアカウントは削除できません')
+    }
     const performer = getAuthedUser(req).username
     await ref.update({
       deletedAt: nowJstIso(),

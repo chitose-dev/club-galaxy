@@ -134,11 +134,9 @@ interface SeedUser {
   hourlyRate?: number
 }
 
+// owner のみ seed する。staff/cast は AdminPage > ユーザー管理 から作成。
 const userAccounts: SeedUser[] = [
   { username: 'owner', pin: '1234', role: 'owner', displayName: 'オーナー' },
-  { username: 'staff', pin: '5678', role: 'staff', displayName: '黒服', hourlyRate: 1500 },
-  { username: 'cast1', pin: '1111', role: 'cast', castId: 1, displayName: 'あいり' },
-  { username: 'cast2', pin: '2222', role: 'cast', castId: 2, displayName: 'みく' },
 ]
 
 // ── Store settings ──
