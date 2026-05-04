@@ -878,7 +878,7 @@ export const initialExpenses: Expense[] = generateHistoricalExpenses()
 
 export const initialAdvancePayments: AdvancePayment[] = []
 
-// ─── ダミーアカウント ───
+// ─── アカウント型 ───
 
 export interface UserAccount {
   username: string
@@ -889,10 +889,3 @@ export interface UserAccount {
   /** ボーイ(staff)の時給。給与計算に使用 */
   hourlyRate?: number
 }
-
-export const dummyAccounts: UserAccount[] = [
-  { username: 'owner', pin: '1234', role: 'owner', displayName: 'オーナー' },
-  { username: 'staff', pin: '5678', role: 'staff', displayName: '黒服', hourlyRate: 1500 },
-  { username: 'cast1', pin: '1111', role: 'cast', castId: 1, displayName: 'あいり' },
-  { username: 'cast2', pin: '2222', role: 'cast', castId: 2, displayName: 'みく' },
-]
