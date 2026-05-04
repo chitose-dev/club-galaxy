@@ -101,7 +101,12 @@ interface Store {
   reorderTables: (fromIndex: number, toIndex: number) => void
   setStoreSettings: React.Dispatch<React.SetStateAction<StoreSettings>>
   userAccounts: UserAccount[]
-  addUser: (user: UserAccount) => void
+  /**
+   * userAccount を作成する。楽観的に local state に追加した後、
+   * authApi.createUser を await。失敗時は楽観追加を rollback して throw。
+   * 呼び出し元は await して try/catch でエラーをハンドリングできる。
+   */
+  addUser: (user: UserAccount) => Promise<void>
   updateUser: (username: string, patch: Partial<UserAccount>) => void
   deleteUser: (username: string) => void
   flMetrics: FLMetrics
@@ -406,18 +411,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  const addUser = useCallback((user: UserAccount) => {
+  const addUser = useCallback(async (user: UserAccount): Promise<void> => {
+    // 楽観的に local state に追加
     setUserAccounts((prev) => [...prev, user])
     const payload = user as UserAccount & { pin?: string }
     if (!payload.pin) return
-    authApi.createUser({
-      username: user.username,
-      pin: payload.pin,
-      role: user.role,
-      displayName: user.displayName,
-      ...(user.castId !== undefined ? { castId: user.castId } : {}),
-      ...(user.hourlyRate !== undefined ? { hourlyRate: user.hourlyRate } : {}),
-    }).catch(console.error)
+    try {
+      await authApi.createUser({
+        username: user.username,
+        pin: payload.pin,
+        role: user.role,
+        displayName: user.displayName,
+        ...(user.castId !== undefined ? { castId: user.castId } : {}),
+        ...(user.hourlyRate !== undefined ? { hourlyRate: user.hourlyRate } : {}),
+      })
+    } catch (e) {
+      // 失敗時は楽観追加を rollback してから throw
+      setUserAccounts((prev) => prev.filter((u) => u.username !== user.username))
+      throw e
+    }
   }, [])
 
   const updateUser = useCallback((username: string, patch: Partial<UserAccount>) => {
