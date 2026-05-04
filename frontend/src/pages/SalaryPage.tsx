@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react'
 import { useStore } from '../store'
 import { useAuth } from '../auth'
-import { sampleDailyWork, type BackType, type DailyWork, type UserAccount, type AttendanceRecord } from '../data/mock'
+import { type BackType, type DailyWork, type UserAccount, type AttendanceRecord } from '../data/mock'
+import { computeDailyWork } from '../utils/dailyWork'
 import { calcHourlyPay } from '../utils/payroll'
 import { Plus, Trash2 } from 'lucide-react'
 import { openPrintWindow } from '../utils/print'
@@ -19,7 +20,7 @@ type StaffType = 'cast' | 'boy'
 const backTypeOrder: BackType[] = ['FD', '本D', 'Fカク', '本カク', '本カクW', '同伴', '本指名', '場内指名', 'ボトルバック', 'ヘルプ', 'その他']
 
 export default function SalaryPage() {
-  const { casts, dailyPayRequests, addDailyPayRequest, deductions, setDeductions, userAccounts, attendanceRecords, storeSettings } = useStore()
+  const { casts, dailyPayRequests, addDailyPayRequest, deductions, setDeductions, userAccounts, attendanceRecords, billingRecords, storeSettings } = useStore()
   const { user } = useAuth()
   const activeCasts = casts.filter((c) => c.active)
 
@@ -46,10 +47,9 @@ export default function SalaryPage() {
   const isBoyMode = staffType === 'boy' && user?.role !== 'cast'
 
   const cast = casts.find((c) => c.id === selectedCastId)
-  // TODO(backend): バックエンド実装後、billingRecords + attendanceRecords から日次集計を生成する関数に差し替える
-  // 現状はデモ用 sampleDailyWork(静的データ)を参照。実運用では以下で置換:
-  //   const dailyWork = aggregateCastDailyWork(selectedCastId, billingRecords, attendanceRecords, period)
-  const dailyWork: DailyWork[] = sampleDailyWork[selectedCastId] ?? []
+  // 実データ集計: computeDailyWork で attendanceRecords + billingRecords から日次 DailyWork を生成
+  const selectedCastName = casts.find((c) => c.id === selectedCastId)?.name ?? ''
+  const dailyWork: DailyWork[] = computeDailyWork(selectedCastId, selectedCastName, attendanceRecords, billingRecords)
 
   const filteredWork = useMemo(() => {
     return dailyWork.filter((w) => {
@@ -447,7 +447,7 @@ export default function SalaryPage() {
           <button
             onClick={() => {
               const now = new Date()
-              const work = sampleDailyWork[cast.id] ?? []
+              const work = computeDailyWork(cast.id, cast.name, attendanceRecords, billingRecords)
               // 先月売上の計算
               const prevMonth = now.getMonth() === 0 ? 12 : now.getMonth()
               const prevMonthSales = work

@@ -12,15 +12,12 @@ import { expensesApi } from './api/expenses'
 import { advancesApi } from './api/advances'
 import { archiveApi } from './api/archive'
 import {
-  initialTables,
-  casts as initialCasts,
   guestMenuItems as initialGuestMenu,
   castMenuItems as initialCastMenu,
   setPrices as initialSetPrices,
   chargeItems as initialChargeItems,
   initialMenuCategories,
   type MenuCategory,
-  initialBillingRecords,
   initialDailyPayRequests,
   initialBottleKeeps,
   defaultStoreSettings,
@@ -143,16 +140,17 @@ interface Store {
 const StoreContext = createContext<Store | null>(null)
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [tables, setTables] = useState<Table[]>(initialTables)
+  // クロウ指示: モック初期値を空配列に変更（起動時 API fetch 完了前のダミー表示を回避）
+  const [tables, setTables] = useState<Table[]>([])
   // Day 2: PUT sync wrap のため raw state setter は ...Raw 名で受ける
-  const [casts, setCastsRaw] = useState<Cast[]>(initialCasts)
+  const [casts, setCastsRaw] = useState<Cast[]>([])
   const [guestMenu, setGuestMenuRaw] = useState<GuestMenuItem[]>(initialGuestMenu)
   const [castMenu, setCastMenuRaw] = useState<CastMenuItem[]>(initialCastMenu)
   const [menuCategories, setMenuCategoriesRaw] = useState<MenuCategory[]>(initialMenuCategories)
   const [setPricesState, setSetPricesRaw] = useState<SetPrice[]>(initialSetPrices)
   const [chargeItemsState, setChargeItemsRaw] = useState<SetPrice[]>(initialChargeItems)
   const [discountLogs, setDiscountLogs] = useState<DiscountLog[]>([])
-  const [billingRecords, setBillingRecords] = useState<BillingRecord[]>(initialBillingRecords)
+  const [billingRecords, setBillingRecords] = useState<BillingRecord[]>([])
   const [dailyPayRequests, setDailyPayRequests] = useState<DailyPayRequest[]>(initialDailyPayRequests)
   const [bottleKeeps, setBottleKeeps] = useState<BottleKeep[]>(initialBottleKeeps)
   const [deductions, setDeductionsRaw] = useState<Deduction[]>([])
@@ -252,6 +250,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       attendanceApi.list().then((res) => setAttendanceRecords(res.data)).catch(() => undefined),
       expensesApi.list().then(setExpenses).catch(() => undefined),
       advancesApi.list().then(setAdvancePayments).catch(() => undefined),
+      // クロウ指示: dailyReports 起動時 fetch 追加（HistoryView が毎回空になる修正）
+      dailyReportsApi.list().then(setDailyReports).catch(() => undefined),
     ])
   }, [])
 

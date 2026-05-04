@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useStore } from '../store'
-import { sampleDailyWork, type BackType } from '../data/mock'
+import { type BackType } from '../data/mock'
+import { computeDailyWork } from '../utils/dailyWork'
 import ContextualHeader from '../components/ContextualHeader'
 import { calcHourlyPay } from '../utils/payroll'
 
@@ -400,7 +401,7 @@ function StoreTrendView() {
 // ─── キャスト推移ビュー ───
 
 function CastTrendView() {
-  const { casts, billingRecords } = useStore()
+  const { casts, billingRecords, attendanceRecords } = useStore()
   const activeCasts = casts.filter((c) => c.active)
   const [castId, setCastId] = useState(activeCasts[0]?.id ?? 0)
   const [granularity, setGranularity] = useState<Granularity>('month')
@@ -409,7 +410,7 @@ function CastTrendView() {
 
   const buckets = useMemo(() => {
     if (!cast) return []
-    const work = sampleDailyWork[cast.id] ?? []
+    const work = computeDailyWork(cast.id, cast.name, attendanceRecords, billingRecords)
     // dailyWork の date は 'M/D' 形式 → 今年扱い
     const today = new Date()
     const currentYear = today.getFullYear()
