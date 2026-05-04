@@ -181,8 +181,8 @@ authRouter.post('/users', requireAuth, requireRole('owner'), async (req, res) =>
       if (typeof body.castName !== 'string' || !body.castName) {
         throwBadRequest('castName が必要です')
       }
-      if (typeof body.hourlyRate !== 'number') {
-        throwBadRequest('hourlyRate (cast) が必要です')
+      if (typeof body.hourlyRate !== 'number' || body.hourlyRate <= 0) {
+        throwBadRequest('hourlyRate (cast) は正の数値で指定してください')
       }
       if (
         typeof body.guaranteeRate !== 'number' ||
