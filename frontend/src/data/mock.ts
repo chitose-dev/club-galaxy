@@ -367,6 +367,8 @@ export interface StoreSettings {
   storeAddress: string
   storePhone: string
   invoiceNumber: string  // インボイス登録番号
+  /** 1日あたり固定人件費 (ボーイ等) default 28800。FL計算の労務費に加算 */
+  staffFixedCost: number
 }
 
 // ─── 日報 ───
@@ -752,13 +754,6 @@ export const sampleDailyWork: Record<number, DailyWork[]> = {
   ],
 }
 
-// ─── 日払い申請ダミーデータ ───
-
-export const initialDailyPayRequests: DailyPayRequest[] = [
-  { id: 1, castId: 1, castName: 'あいり', amount: 10000, date: '3/5' },
-  { id: 2, castId: 5, castName: 'りさ', amount: 15000, date: '3/9' },
-]
-
 // ─── 会計済みデータ（レジ締め用ダミー） ───
 
 // 推移グラフ用に過去365日分のダミー会計データを生成
@@ -815,16 +810,6 @@ function generateHistoricalBillings(): BillingRecord[] {
 
 export const initialBillingRecords: BillingRecord[] = generateHistoricalBillings()
 
-// ─── ボトルキープダミーデータ ───
-
-export const initialBottleKeeps: BottleKeep[] = [
-  { id: 1, bottleName: '響 17年', remaining: 65, storageLocation: 'A-3', customerName: '田中様', tableNumber: '1', createdAt: '2025-03-01' },
-  { id: 2, bottleName: 'ヘネシー XO', remaining: 30, storageLocation: 'B-1', customerName: '佐藤様', tableNumber: 'VIP1', createdAt: '2025-02-20' },
-  { id: 3, bottleName: 'ドンペリ', remaining: 15, storageLocation: 'C-2', customerName: '山田様', createdAt: '2025-03-10' },
-  { id: 4, bottleName: 'マッカラン 18年', remaining: 80, storageLocation: 'A-5', customerName: '鈴木様', createdAt: '2025-03-15' },
-  { id: 5, bottleName: 'モエ ロゼ', remaining: 5, storageLocation: 'B-4', customerName: '高橋様', createdAt: '2025-02-28' },
-]
-
 // ─── 店舗デフォルト設定 ───
 
 export const defaultStoreSettings: StoreSettings = {
@@ -837,46 +822,8 @@ export const defaultStoreSettings: StoreSettings = {
   storeAddress: '山形県山形市香澄町1-2-3',
   storePhone: '023-654-XXXX',
   invoiceNumber: 'T5390001005970',
+  staffFixedCost: 28800,
 }
-
-// ─── 勤怠ダミーデータ ───
-
-export const initialAttendanceRecords: AttendanceRecord[] = [
-  { id: 1, staffId: 1, staffName: 'あいり', staffType: 'cast', date: '2026-04-14', clockIn: '20:00', clockOut: null, breakMinutes: 0, workHours: 0 },
-  { id: 2, staffId: 3, staffName: 'れな', staffType: 'cast', date: '2026-04-14', clockIn: '20:30', clockOut: null, breakMinutes: 0, workHours: 0 },
-]
-
-// ─── 経費ダミーデータ ───
-
-function generateHistoricalExpenses(): Expense[] {
-  const result: Expense[] = []
-  let id = 1
-  const today = new Date()
-  const categories: ExpenseCategory[] = ['仕入れ（酒等）', '税金', '雑費']
-  for (let daysAgo = 365; daysAgo >= 1; daysAgo -= 3) {
-    const d = new Date(today)
-    d.setDate(d.getDate() - daysAgo)
-    const dateStr = d.toISOString().slice(0, 10)
-    const cat = categories[id % 3]
-    const amount = cat === '仕入れ（酒等）' ? 15000 + (id % 5) * 3000 : cat === '税金' ? 80000 : 3000 + (id % 4) * 1000
-    result.push({
-      id: id++,
-      amount,
-      category: cat,
-      note: cat === '仕入れ（酒等）' ? '酒類仕入れ' : cat === '税金' ? '消費税等' : '雑費',
-      source: id % 2 === 0 ? 'register' : 'transfer',
-      date: dateStr,
-      timestamp: '18:30',
-    })
-  }
-  return result
-}
-
-export const initialExpenses: Expense[] = generateHistoricalExpenses()
-
-// ─── 前借りダミーデータ ───
-
-export const initialAdvancePayments: AdvancePayment[] = []
 
 // ─── アカウント型 ───
 

@@ -174,6 +174,7 @@ const storeSettings: Partial<StoreSettings> = {
   pinLockStage3Hours: 24,
   maxBonusRatePerOrder: 0.3,
   champagneSplitThreshold: 20_000,
+  staffFixedCost: 28_800,
   createdBy: SEED_USER,
   createdAt: now,
 }

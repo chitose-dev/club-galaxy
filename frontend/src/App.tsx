@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './auth'
+import { useStore } from './store'
 import Layout from './components/Layout'
 import LoginPage from './pages/LoginPage'
 import TopPage from './pages/TopPage'
@@ -26,6 +27,27 @@ function AuthGuard({ children, allowedRoles }: { children: React.ReactNode; allo
 
 function App() {
   const { user } = useAuth()
+  const { fetchFailed } = useStore()
+
+  if (fetchFailed) {
+    return (
+      <div className="fixed inset-0 bg-gray-900 flex items-center justify-center p-8">
+        <div className="text-center max-w-md">
+          <h1 className="text-xl font-bold text-red-400 mb-3">サーバーとの接続に失敗しました</h1>
+          <p className="text-gray-400 text-sm mb-6">
+            ページを再読み込みしてください。<br />
+            復旧しない場合は管理者へ連絡してください。
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-6 py-3 bg-white text-black rounded-lg font-bold"
+          >
+            再読み込み
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   if (!user) {
     return (

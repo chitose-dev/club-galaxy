@@ -919,6 +919,7 @@ function SettingsManager({ storeSettings, setStoreSettings }: {
   const [storeAddress, setStoreAddress] = useState(storeSettings.storeAddress)
   const [storePhone, setStorePhone] = useState(storeSettings.storePhone)
   const [invoiceNumber, setInvoiceNumber] = useState(storeSettings.invoiceNumber)
+  const [staffFixedCost, setStaffFixedCost] = useState(String(storeSettings.staffFixedCost))
   const [saved, setSaved] = useState(false)
 
   const handleSave = () => {
@@ -932,6 +933,7 @@ function SettingsManager({ storeSettings, setStoreSettings }: {
       storeAddress,
       storePhone,
       invoiceNumber,
+      staffFixedCost: Number(staffFixedCost),
     })
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
@@ -986,6 +988,12 @@ function SettingsManager({ storeSettings, setStoreSettings }: {
       <div className="bg-white/5 rounded-lg p-3">
         <label className="text-xs text-gray-500 block mb-1.5">給与締め日</label>
         <input type="number" value={closingDay} onChange={(e) => setClosingDay(e.target.value)} min="1" max="31" className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" />
+      </div>
+
+      <div className="bg-white/5 rounded-lg p-3">
+        <label className="text-xs text-gray-500 block mb-1.5">1日あたり固定人件費 (¥)</label>
+        <p className="text-[10px] text-gray-600 mb-1">ボーイ等の固定人件費。FL計算の労務費に加算されます。</p>
+        <input type="number" value={staffFixedCost} onChange={(e) => setStaffFixedCost(e.target.value)} min="0" className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" />
       </div>
 
       <button onClick={handleSave} className={`w-full py-3 rounded-lg font-bold transition-colors ${saved ? 'bg-emerald-500/20 border border-emerald-500/30 text-emerald-400' : 'bg-white text-black'}`}>
