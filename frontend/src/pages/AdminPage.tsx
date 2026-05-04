@@ -1832,8 +1832,7 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
   const [formRole, setFormRole] = useState<UserAccount['role']>('staff')
   const [formCastId, setFormCastId] = useState<number | undefined>(undefined)
   const [formHourlyRate, setFormHourlyRate] = useState('1500')
-  // role=cast 時、既存キャスト紐付け or 新規キャスト作成
-  const [castMode, setCastMode] = useState<'existing' | 'new'>('existing')
+  // role=cast の新規作成は常に新規キャスト同時作成（既存紐付け UI は廃止）
   const [formCastName, setFormCastName] = useState('')
   const [formCastHourlyRate, setFormCastHourlyRate] = useState('2000')
   const [formGuaranteeRatePercent, setFormGuaranteeRatePercent] = useState('50')
@@ -1861,7 +1860,7 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
 
   const handleAdd = () => {
     if (!formName || !formPin) return
-    if (formRole === 'cast' && castMode === 'new') {
+    if (formRole === 'cast') {
       if (!formCastName) return
       const guaranteeRate = Number(formGuaranteeRatePercent) / 100
       if (Number.isNaN(guaranteeRate) || guaranteeRate < 0 || guaranteeRate > 1) return
@@ -1876,15 +1875,6 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
         },
         { castName: formCastName, hourlyRate: castHourly, guaranteeRate },
       )
-    } else if (formRole === 'cast' && castMode === 'existing') {
-      if (!formCastId) return
-      addUser({
-        username: formName,
-        displayName: formDisplay || formName,
-        pin: formPin,
-        role: 'cast',
-        castId: formCastId,
-      })
     } else {
       addUser({
         username: formName,
@@ -1898,9 +1888,7 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
     setFormDisplay('')
     setFormPin('')
     setFormRole('staff')
-    setFormCastId(undefined)
     setFormHourlyRate('1500')
-    setCastMode('existing')
     setFormCastName('')
     setFormCastHourlyRate('2000')
     setFormGuaranteeRatePercent('50')
@@ -1989,40 +1977,15 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
           </select>
           {formRole === 'cast' && (
             <>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setCastMode('existing')}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold ${castMode === 'existing' ? 'bg-white text-black' : 'bg-white/5 text-gray-400 border border-white/10'}`}
-                >
-                  既存キャストに紐付け
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCastMode('new')}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold ${castMode === 'new' ? 'bg-white text-black' : 'bg-white/5 text-gray-400 border border-white/10'}`}
-                >
-                  新規キャスト作成
-                </button>
+              <input value={formCastName} onChange={(e) => setFormCastName(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="源氏名" />
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">時給 (¥)</label>
+                <input type="number" value={formCastHourlyRate} onChange={(e) => setFormCastHourlyRate(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="2000" min="0" />
               </div>
-              {castMode === 'existing' ? (
-                <select value={formCastId ?? ''} onChange={(e) => setFormCastId(e.target.value ? Number(e.target.value) : undefined)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm">
-                  <option value="">-- キャスト紐付け --</option>
-                  {casts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-              ) : (
-                <>
-                  <input value={formCastName} onChange={(e) => setFormCastName(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="源氏名" />
-                  <div>
-                    <label className="text-xs text-gray-500 block mb-1">時給 (¥)</label>
-                    <input type="number" value={formCastHourlyRate} onChange={(e) => setFormCastHourlyRate(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="2000" min="0" />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500 block mb-1">保証率 (%)</label>
-                    <input type="number" value={formGuaranteeRatePercent} onChange={(e) => setFormGuaranteeRatePercent(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="50" min="0" max="100" step="1" />
-                  </div>
-                </>
-              )}
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">保証率 (%)</label>
+                <input type="number" value={formGuaranteeRatePercent} onChange={(e) => setFormGuaranteeRatePercent(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="50" min="0" max="100" step="1" />
+              </div>
             </>
           )}
           {formRole === 'staff' && (
@@ -2034,7 +1997,7 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
           </div>
         </div>
       ) : (
-        <button onClick={() => { setShowAdd(true); setFormName(''); setFormDisplay(''); setFormPin(''); setFormRole('staff'); setFormCastId(undefined) }} className="w-full bg-white/[0.02] border border-dashed border-white/10 rounded-lg py-3 text-sm text-gray-500 flex items-center justify-center gap-1.5 transition-colors">
+        <button onClick={() => { setShowAdd(true); setFormName(''); setFormDisplay(''); setFormPin(''); setFormRole('staff') }} className="w-full bg-white/[0.02] border border-dashed border-white/10 rounded-lg py-3 text-sm text-gray-500 flex items-center justify-center gap-1.5 transition-colors">
           <Plus size={14} /> ユーザー追加
         </button>
       )}
