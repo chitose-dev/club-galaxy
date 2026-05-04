@@ -265,7 +265,7 @@ export interface ReceiptSnapshot {
   startTime: string | null
   /** 'フリー' | '本指名 あいり, みく + 同伴' 等 */
   nominationLabel: string
-  /** ★ Heaven's Garden を冒頭表記 */
+  /** ★ CLUB GALAXY を冒頭表記 */
   storeNameSnapshot: string
   storeAddressSnapshot: string
   storePhoneSnapshot: string
