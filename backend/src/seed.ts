@@ -156,7 +156,7 @@ const storeSettings: Partial<StoreSettings> = {
   payUnitMinutes: 15,
   legalWithholdingConfirmed: false,
   businessDayCutoffHour: 5,
-  storeName: "Heaven's Garden",
+  storeName: 'CLUB GALAXY',
   storeAddress: '',
   storePhone: '',
   invoiceNumber: 'T5390001005970',

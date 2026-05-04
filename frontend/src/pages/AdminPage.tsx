@@ -14,7 +14,8 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useStore } from '../store'
-import { sampleDailyWork, isPercentBackType } from '../data/mock'
+import { isPercentBackType } from '../data/mock'
+import { computeDailyWork } from '../utils/dailyWork'
 import { calcHourlyPay } from '../utils/payroll'
 import type { Cast, BackType, GuestMenuItem, CastMenuItem, SetPrice, Table, StoreSettings, DailyWork, UserAccount } from '../data/mock'
 import type { AttendanceRecord, Expense, ExpenseCategory, AdvancePayment, ArchivedData } from '../data/mock'
@@ -1036,7 +1037,7 @@ function DataExport({ billingRecords, casts, dailyPayRequests, discountLogs, ded
   const handleSalaryReport = () => {
     const headers = ['キャスト名', '時給', '保証率', '勤務時間合計', 'バック合計', '売上合計', '日払い合計']
     const rows = casts.filter((c) => c.active).map((c) => {
-      const work: DailyWork[] = sampleDailyWork[c.id] ?? []
+      const work: DailyWork[] = computeDailyWork(c.id, c.name, attendanceRecords, billingRecords)
       const totalHours = work.reduce((s, w) => s + w.hours, 0)
       const totalSales = work.reduce((s, w) => s + w.sales, 0)
       const dailyPayTotal = dailyPayRequests.filter((r) => r.castId === c.id).reduce((s, r) => s + r.amount, 0)
@@ -1098,7 +1099,7 @@ function DataExport({ billingRecords, casts, dailyPayRequests, discountLogs, ded
 
     // キャスト: 月次の勤務ベースでは難しいので、日別の日払い・前借・天引を集計し、キャスト単位で1行
     for (const cast of casts.filter((c) => c.active)) {
-      const work = (sampleDailyWork[cast.id] ?? []).filter((w) => w.date.startsWith(prefix))
+      const work = computeDailyWork(cast.id, cast.name, attendanceRecords, billingRecords).filter((w) => w.date.startsWith(prefix))
       const totalHours = work.reduce((s, w) => s + w.hours, 0)
       const totalSales = work.reduce((s, w) => s + w.sales, 0)
       // 追補03 R25: 15 分単位 + ルーズタイム 15 分

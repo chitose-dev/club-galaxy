@@ -26,7 +26,7 @@ const DEFAULT_SETTINGS: Partial<StoreSettings> = {
   // 営業日
   businessDayCutoffHour: 5,
   // 店舗情報
-  storeName: "Heaven's Garden",
+  storeName: 'CLUB GALAXY',
   storeAddress: '',
   storePhone: '',
   invoiceNumber: 'T5390001005970',

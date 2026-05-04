@@ -8,13 +8,20 @@ export default function LoginPage() {
   const [username, setUsername] = useState('')
   const [pin, setPin] = useState('')
   const [error, setError] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const success = await login(username, pin)
-    if (!success) {
-      setError(true)
-      setTimeout(() => setError(false), 2000)
+    if (isLoading) return
+    setIsLoading(true)
+    try {
+      const success = await login(username, pin)
+      if (!success) {
+        setError(true)
+        setTimeout(() => setError(false), 2000)
+      }
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -39,6 +46,7 @@ export default function LoginPage() {
               placeholder="ユーザー名を入力"
               size="lg"
               autoFocus
+              disabled={isLoading}
             />
           </Field>
           <Field label="PINコード">
@@ -49,6 +57,7 @@ export default function LoginPage() {
               onChange={(e) => setPin(e.target.value)}
               placeholder="PINコードを入力"
               size="lg"
+              disabled={isLoading}
             />
           </Field>
 
@@ -56,15 +65,10 @@ export default function LoginPage() {
             <p className="text-accent text-sm text-center">ユーザー名またはPINコードが正しくありません</p>
           )}
 
-          <GoldButton type="submit" className="w-full py-3.5 text-base">
-            ログイン
+          <GoldButton type="submit" className="w-full py-3.5 text-base" disabled={isLoading}>
+            {isLoading ? '読み込み中...' : 'ログイン'}
           </GoldButton>
         </form>
-
-        <div className="mt-10 text-center">
-          <p className="text-xs text-gray-600 mb-1">デモアカウント:</p>
-          <p className="text-xs text-gray-600">owner / 1234 ・ staff / 5678 ・ cast1 / 1111 ・ cast2 / 2222</p>
-        </div>
       </div>
     </div>
   )

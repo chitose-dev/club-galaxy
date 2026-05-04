@@ -13,6 +13,8 @@ export type AuditAction =
   | 'SETTINGS_UPDATE' | 'PIN_CHANGE'
   | 'CHAMPAGNE_REDISTRIBUTE' | 'EXTENSION_CANCEL'
   | 'CASH_DRAWER_OPEN' | 'CASH_DRAWER_CLOSE'
+  // Rev.3.1 lowercase actions (design doc §AuditLog)
+  | 'create' | 'update' | 'delete' | 'void' | 'archive'
   | 'OTHER'
 
 export interface AuditLogEntry {

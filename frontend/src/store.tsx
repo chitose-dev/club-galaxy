@@ -7,16 +7,17 @@ import { menuApi } from './api/menu'
 import { settingsApi } from './api/settings'
 import { authApi } from './api/auth'
 import { dailyReportsApi } from './api/dailyReports'
+import { attendanceApi } from './api/attendance'
+import { expensesApi } from './api/expenses'
+import { advancesApi } from './api/advances'
+import { archiveApi } from './api/archive'
 import {
-  initialTables,
-  casts as initialCasts,
   guestMenuItems as initialGuestMenu,
   castMenuItems as initialCastMenu,
   setPrices as initialSetPrices,
   chargeItems as initialChargeItems,
   initialMenuCategories,
   type MenuCategory,
-  initialBillingRecords,
   initialDailyPayRequests,
   initialBottleKeeps,
   defaultStoreSettings,
@@ -139,16 +140,17 @@ interface Store {
 const StoreContext = createContext<Store | null>(null)
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [tables, setTables] = useState<Table[]>(initialTables)
+  // クロウ指示: モック初期値を空配列に変更（起動時 API fetch 完了前のダミー表示を回避）
+  const [tables, setTables] = useState<Table[]>([])
   // Day 2: PUT sync wrap のため raw state setter は ...Raw 名で受ける
-  const [casts, setCastsRaw] = useState<Cast[]>(initialCasts)
+  const [casts, setCastsRaw] = useState<Cast[]>([])
   const [guestMenu, setGuestMenuRaw] = useState<GuestMenuItem[]>(initialGuestMenu)
   const [castMenu, setCastMenuRaw] = useState<CastMenuItem[]>(initialCastMenu)
   const [menuCategories, setMenuCategoriesRaw] = useState<MenuCategory[]>(initialMenuCategories)
   const [setPricesState, setSetPricesRaw] = useState<SetPrice[]>(initialSetPrices)
   const [chargeItemsState, setChargeItemsRaw] = useState<SetPrice[]>(initialChargeItems)
   const [discountLogs, setDiscountLogs] = useState<DiscountLog[]>([])
-  const [billingRecords, setBillingRecords] = useState<BillingRecord[]>(initialBillingRecords)
+  const [billingRecords, setBillingRecords] = useState<BillingRecord[]>([])
   const [dailyPayRequests, setDailyPayRequests] = useState<DailyPayRequest[]>(initialDailyPayRequests)
   const [bottleKeeps, setBottleKeeps] = useState<BottleKeep[]>(initialBottleKeeps)
   const [deductions, setDeductionsRaw] = useState<Deduction[]>([])
@@ -244,6 +246,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       menuApi.listCharges().then(setChargeItemsRaw).catch(() => undefined),
       menuApi.listCategories().then(setMenuCategoriesRaw).catch(() => undefined),
       settingsApi.get().then(setStoreSettingsRaw).catch(() => undefined),
+      // attendance はページネーションレスポンス { data, nextCursor } 形式
+      attendanceApi.list().then((res) => setAttendanceRecords(res.data)).catch(() => undefined),
+      expensesApi.list().then(setExpenses).catch(() => undefined),
+      advancesApi.list().then(setAdvancePayments).catch(() => undefined),
+      // クロウ指示: dailyReports 起動時 fetch 追加（HistoryView が毎回空になる修正）
+      dailyReportsApi.list().then(setDailyReports).catch(() => undefined),
     ])
   }, [])
 
@@ -425,10 +433,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const addAttendance = useCallback((record: AttendanceRecord) => {
     setAttendanceRecords((prev) => [...prev, record])
+    attendanceApi.create(record).catch(console.error)
   }, [])
 
   const updateAttendance = useCallback((id: number, patch: Partial<AttendanceRecord>) => {
     setAttendanceRecords((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)))
+    attendanceApi.update(id, patch).catch(console.error)
   }, [])
 
   // 追補02 R4: 事前出勤予定
@@ -445,14 +455,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const addExpense = useCallback((expense: Expense) => {
     setExpenses((prev) => [...prev, expense])
+    expensesApi.create(expense).catch(console.error)
   }, [])
 
   const removeExpense = useCallback((id: number) => {
     setExpenses((prev) => prev.filter((e) => e.id !== id))
+    expensesApi.softDelete(id).catch(console.error)
   }, [])
 
   const addAdvancePayment = useCallback((payment: AdvancePayment) => {
     setAdvancePayments((prev) => [...prev, payment])
+    advancesApi.create(payment).catch(console.error)
   }, [])
 
   const archiveOldData = useCallback((beforeDate: string) => {
@@ -467,6 +480,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
     setArchivedData((prev) => [...prev, archived])
     setBillingRecords((prev) => prev.filter((r) => (r.date ?? new Date().toISOString().slice(0, 10)) >= beforeDate))
+    archiveApi.archive(beforeDate).catch(console.error)
   }, [billingRecords])
 
   const addDailyReport = useCallback((report: DailyReport) => {
