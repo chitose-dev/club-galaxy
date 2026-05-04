@@ -106,7 +106,7 @@ interface Store {
    * { castName, hourlyRate, guaranteeRate } を渡す。castId は backend で採番される。
    * 既存 cast 紐付け / staff / owner は extras 不要、user.castId / user.hourlyRate を直接指定。
    */
-  addUser: (user: UserAccount, extras?: { castName?: string; hourlyRate?: number; guaranteeRate?: number }) => void
+  addUser: (user: UserAccount, extras?: { castName?: string; hourlyRate?: number; guaranteeRate?: number; realName?: string; address?: string }) => void
   updateUser: (username: string, patch: Partial<UserAccount>) => void
   deleteUser: (username: string) => void
   flMetrics: FLMetrics
@@ -413,7 +413,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const addUser = useCallback((
     user: UserAccount,
-    extras?: { castName?: string; hourlyRate?: number; guaranteeRate?: number },
+    extras?: { castName?: string; hourlyRate?: number; guaranteeRate?: number; realName?: string; address?: string },
   ) => {
     // 楽観的に local state へ追加（castId 未確定なら後段で response から反映）
     setUserAccounts((prev) => [...prev, user])
@@ -429,6 +429,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       ...(extras?.castName !== undefined ? { castName: extras.castName } : {}),
       ...(extras?.hourlyRate !== undefined ? { hourlyRate: extras.hourlyRate } : {}),
       ...(extras?.guaranteeRate !== undefined ? { guaranteeRate: extras.guaranteeRate } : {}),
+      ...(extras?.realName !== undefined ? { realName: extras.realName } : {}),
+      ...(extras?.address !== undefined ? { address: extras.address } : {}),
     })
       .then((res) => {
         // 新規 cast 作成された場合、casts と user.castId を local に反映

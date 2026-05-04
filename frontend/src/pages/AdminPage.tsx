@@ -1836,6 +1836,8 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
   const [formCastName, setFormCastName] = useState('')
   const [formCastHourlyRate, setFormCastHourlyRate] = useState('2000')
   const [formGuaranteeRatePercent, setFormGuaranteeRatePercent] = useState('50')
+  const [formRealName, setFormRealName] = useState('')
+  const [formAddress, setFormAddress] = useState('')
   const [confirmTarget, setConfirmTarget] = useState<{ username: string; label: string } | null>(null)
 
   const startEdit = (u: UserAccount) => {
@@ -1866,6 +1868,8 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
       if (Number.isNaN(guaranteeRate) || guaranteeRate < 0 || guaranteeRate > 1) return
       const castHourly = Number(formCastHourlyRate)
       if (Number.isNaN(castHourly) || castHourly <= 0) return
+      const realName = formRealName.trim()
+      const address = formAddress.trim()
       addUser(
         {
           username: formName,
@@ -1873,7 +1877,13 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
           pin: formPin,
           role: 'cast',
         },
-        { castName: formCastName, hourlyRate: castHourly, guaranteeRate },
+        {
+          castName: formCastName,
+          hourlyRate: castHourly,
+          guaranteeRate,
+          ...(realName ? { realName } : {}),
+          ...(address ? { address } : {}),
+        },
       )
     } else {
       addUser({
@@ -1892,6 +1902,8 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
     setFormCastName('')
     setFormCastHourlyRate('2000')
     setFormGuaranteeRatePercent('50')
+    setFormRealName('')
+    setFormAddress('')
     setShowAdd(false)
   }
 
@@ -1985,6 +1997,14 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
               <div>
                 <label className="text-xs text-gray-500 block mb-1">保証率 (%)</label>
                 <input type="number" value={formGuaranteeRatePercent} onChange={(e) => setFormGuaranteeRatePercent(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="50" min="0" max="100" step="1" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">本名（税理士提出用・任意）</label>
+                <input value={formRealName} onChange={(e) => setFormRealName(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="例: 山田 花子" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">住所（税理士提出用・任意）</label>
+                <input value={formAddress} onChange={(e) => setFormAddress(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="例: 山形県山形市..." />
               </div>
             </>
           )}

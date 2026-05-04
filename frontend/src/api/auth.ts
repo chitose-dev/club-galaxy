@@ -34,6 +34,10 @@ export const authApi = {
     castName?: string
     /** role=cast 新規作成時：保証率 0.0〜1.0 */
     guaranteeRate?: number
+    /** role=cast 新規作成時：本名（税理士提出用、任意） */
+    realName?: string
+    /** role=cast 新規作成時：住所（税理士提出用、任意） */
+    address?: string
   }) =>
     api.post<{ user: UserAccount; cast: Cast | null }>('/api/auth/users', user),
   updateUser: (username: string, patch: Partial<UserAccount> & { pin?: string }) =>
