@@ -14,6 +14,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useStore } from '../store'
+import { castsApi } from '../api/casts'
 import { isPercentBackType } from '../data/mock'
 import { computeDailyWork } from '../utils/dailyWork'
 import { calcHourlyPay } from '../utils/payroll'
@@ -86,7 +87,7 @@ export default function AdminPage() {
       </div>
 
       {activeTab === 'menu' && <MenuManager guestMenu={guestMenu} castMenu={castMenu} setGuestMenu={setGuestMenu} setCastMenu={setCastMenu} menuCategories={menuCategories} setMenuCategories={setMenuCategories} />}
-      {activeTab === 'cast' && <CastManager casts={casts} setCasts={setCasts} />}
+      {activeTab === 'cast' && <CastManager casts={casts} setCasts={setCasts} addUser={addUser} />}
       {activeTab === 'price' && <PriceManager setPrices={setPrices} chargeItems={chargeItems} setSetPrices={setSetPrices} setChargeItems={setChargeItems} />}
       {activeTab === 'tables' && <TableManager tables={tables} setTables={setTables} reorderTables={reorderTables} />}
       {activeTab === 'attendance' && <AttendanceManager attendanceRecords={attendanceRecords} addAttendance={addAttendance} updateAttendance={updateAttendance} casts={casts} attendanceSchedules={attendanceSchedules} addAttendanceSchedule={addAttendanceSchedule} removeAttendanceSchedule={removeAttendanceSchedule} markScheduleProcessed={markScheduleProcessed} />}
@@ -522,7 +523,11 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
   )
 }
 
-function CastManager({ casts, setCasts }: { casts: Cast[]; setCasts: React.Dispatch<React.SetStateAction<Cast[]>> }) {
+function CastManager({ casts, setCasts, addUser }: {
+  casts: Cast[]
+  setCasts: React.Dispatch<React.SetStateAction<Cast[]>>
+  addUser: (user: UserAccount) => void
+}) {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editName, setEditName] = useState('')
   const [editRealName, setEditRealName] = useState('')
@@ -533,8 +538,13 @@ function CastManager({ casts, setCasts }: { casts: Cast[]; setCasts: React.Dispa
   const [confirmTarget, setConfirmTarget] = useState<{ id: number; name: string } | null>(null)
   const [showAdd, setShowAdd] = useState(false)
   const [newName, setNewName] = useState('')
+  const [newRealName, setNewRealName] = useState('')
+  const [newAddress, setNewAddress] = useState('')
   const [newRate, setNewRate] = useState('2000')
   const [newGuarantee, setNewGuarantee] = useState('45')
+  // ログイン情報（cast + userAccount を同時作成）
+  const [newUsername, setNewUsername] = useState('')
+  const [newPin, setNewPin] = useState('')
   const [newBackRates, setNewBackRates] = useState<Partial<Record<BackType, number>>>(() => {
     const rates: Partial<Record<BackType, number>> = {}
     backTypes.forEach((bt) => { rates[bt] = 0 })
@@ -556,13 +566,44 @@ function CastManager({ casts, setCasts }: { casts: Cast[]; setCasts: React.Dispa
     setEditBackRates({ ...cast.backRates })
   }
 
-  const handleAdd = () => {
-    if (!newName) return
-    const maxId = Math.max(...casts.map((c) => c.id), 0)
-    setCasts((prev) => [...prev, { id: maxId + 1, name: newName, hourlyRate: Number(newRate), backRates: { ...newBackRates }, guaranteeRate: Number(newGuarantee) / 100, active: true }])
+  // 案 B 改: castsApi.create + addUser を 2 発叩き、cast と userAccount を同時作成
+  const handleAdd = async () => {
+    if (!newName.trim() || !newUsername.trim() || !newPin.trim()) return
+    const hourlyRate = Number(newRate)
+    if (Number.isNaN(hourlyRate) || hourlyRate <= 0) return
+    const guaranteeRate = Number(newGuarantee) / 100
+    if (Number.isNaN(guaranteeRate) || guaranteeRate < 0 || guaranteeRate > 1) return
+    const realName = newRealName.trim()
+    const address = newAddress.trim()
+    try {
+      const created = await castsApi.create({
+        name: newName.trim(),
+        hourlyRate,
+        guaranteeRate,
+        backRates: { ...newBackRates },
+        ...(realName ? { realName } : {}),
+        ...(address ? { address } : {}),
+      })
+      setCasts((prev) => [...prev, created])
+      addUser({
+        username: newUsername.trim(),
+        displayName: created.name,
+        pin: newPin.trim(),
+        role: 'cast',
+        castId: created.id,
+      })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      alert(`キャスト追加に失敗しました: ${msg}`)
+      return
+    }
     setNewName('')
+    setNewRealName('')
+    setNewAddress('')
     setNewRate('2000')
     setNewGuarantee('45')
+    setNewUsername('')
+    setNewPin('')
     const resetRates: Partial<Record<BackType, number>> = {}
     backTypes.forEach((bt) => { resetRates[bt] = 0 })
     setNewBackRates(resetRates)
@@ -662,7 +703,11 @@ function CastManager({ casts, setCasts }: { casts: Cast[]; setCasts: React.Dispa
 
       {showAdd ? (
         <div className="bg-white/5 rounded-lg p-3 space-y-2">
-          <input value={newName} onChange={(e) => setNewName(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="キャスト名" />
+          <input value={newName} onChange={(e) => setNewName(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="源氏名（必須）" />
+          <div className="grid grid-cols-2 gap-2">
+            <input value={newRealName} onChange={(e) => setNewRealName(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-xs" placeholder="本名（税理士提出用・任意）" />
+            <input value={newAddress} onChange={(e) => setNewAddress(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-xs" placeholder="住所（税理士提出用・任意）" />
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-xs text-gray-500 block mb-1">時給</label>
@@ -674,6 +719,13 @@ function CastManager({ casts, setCasts }: { casts: Cast[]; setCasts: React.Dispa
             </div>
           </div>
           {backRateInputs(newBackRates, setNewBackRates)}
+          <div className="border-t border-white/10 pt-2 mt-1">
+            <p className="text-xs text-gold/80 mb-1.5">ログイン情報（同時に userAccount を作成します）</p>
+            <div className="grid grid-cols-2 gap-2">
+              <input value={newUsername} onChange={(e) => setNewUsername(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="ユーザーID（必須）" />
+              <input value={newPin} onChange={(e) => setNewPin(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" placeholder="初期PIN（必須）" maxLength={8} />
+            </div>
+          </div>
           <div className="flex gap-2 pt-1">
             <button onClick={handleAdd} className="flex-1 bg-white text-black py-2 rounded-lg text-sm font-bold">追加</button>
             <button onClick={() => setShowAdd(false)} className="flex-1 bg-white/5 border border-white/10 py-2 rounded-lg text-sm text-gray-500">キャンセル</button>
