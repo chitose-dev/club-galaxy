@@ -425,6 +425,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const addDiscountLog = useCallback((log: DiscountLog) => {
     setDiscountLogs((prev) => [...prev, log])
+    billingApi.createDiscount(log).catch(console.error)
   }, [])
 
   const addBillingRecord = useCallback((record: BillingRecord) => {

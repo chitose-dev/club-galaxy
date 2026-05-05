@@ -52,8 +52,11 @@ export default function SalaryPage() {
   const dailyWork: DailyWork[] = computeDailyWork(selectedCastId, selectedCastName, attendanceRecords, billingRecords)
 
   const filteredWork = useMemo(() => {
+    // API データの date は ISO 形式 (YYYY-MM-DD)、mock は M/D 形式が混在し得るため両対応。
     return dailyWork.filter((w) => {
-      const day = parseInt(w.date.split('/')[1], 10)
+      const day = w.date.includes('-')
+        ? parseInt(w.date.split('-')[2], 10)
+        : parseInt(w.date.split('/')[1], 10)
       return period === 'first' ? day <= 15 : day >= 16
     })
   }, [dailyWork, period])
