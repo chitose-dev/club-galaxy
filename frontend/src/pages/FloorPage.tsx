@@ -906,8 +906,11 @@ export default function FloorPage() {
         )}
       </Modal>
 
-      {/* Check-in Modal — ビデオレビュー C1: 入店時は「人数だけ」のシンプル UI に
-          キャスト・本指名・同伴・場内指名の設定は卓詳細から後でできるようにした */}
+      {/* Check-in Modal — Fix A (ふうや指摘):
+          入店時にキャスト・本指名・同伴・場内指名を選択できる UI を復活。
+          state は元から残っていた (ciCastNames / ciMainNominations / ciIsDouhan
+          / ciIsBanaiShimei) ため UI のみ再実装。confirmCheckIn 内ロジックは既に
+          chargeItems を auto order に追加する形になっている。 */}
       <Modal
         open={showCheckIn && !!selected}
         onClose={() => { setShowCheckIn(false); setSelected(null) }}
@@ -954,9 +957,92 @@ export default function FloorPage() {
                 />
               </div>
             </div>
+
+            {/* 担当キャスト */}
+            <div>
+              <label className="text-sm text-gray-200 block mb-2 font-medium">
+                担当キャスト <span className="text-xs text-gray-500">(複数選択可、任意)</span>
+              </label>
+              {activeCasts.length === 0 ? (
+                <p className="text-xs text-gray-500">出勤中のキャストがいません。入店後に「対応中キャスト編集」から追加できます。</p>
+              ) : (
+                <div className="flex gap-2 flex-wrap">
+                  {activeCasts.map((c) => {
+                    const selected = ciCastNames.includes(c.name)
+                    return (
+                      <CastChip
+                        key={c.id}
+                        name={c.name}
+                        selected={selected}
+                        onClick={() => {
+                          if (selected) {
+                            // 解除時は本指名・場内指名から外す
+                            setCiCastNames((prev) => prev.filter((n) => n !== c.name))
+                            setCiMainNominations((prev) => prev.filter((n) => n !== c.name))
+                          } else {
+                            setCiCastNames((prev) => [...prev, c.name])
+                          }
+                        }}
+                      />
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* 本指名 (担当キャストの中から複数選択可) */}
+            {ciCastNames.length > 0 && (
+              <div>
+                <label className="text-sm text-gray-200 block mb-2 font-medium">
+                  本指名 <span className="text-xs text-gray-500">(担当キャストから選択、複数可)</span>
+                </label>
+                <div className="flex gap-2 flex-wrap">
+                  {ciCastNames.map((name) => {
+                    const selected = ciMainNominations.includes(name)
+                    return (
+                      <CastChip
+                        key={name}
+                        name={name}
+                        selected={selected}
+                        onClick={() => {
+                          if (selected) {
+                            setCiMainNominations((prev) => prev.filter((n) => n !== name))
+                          } else {
+                            setCiMainNominations((prev) => [...prev, name])
+                          }
+                        }}
+                      />
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* 同伴 / 場内指名 トグル */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setCiIsDouhan((v) => !v)}
+                className={`py-3 rounded-[10px] text-sm font-bold transition-colors ${
+                  ciIsDouhan ? 'bg-gold text-primary' : 'panel text-gray-300 hover:bg-white/10'
+                }`}
+              >
+                {ciIsDouhan ? '✓ 同伴あり' : '同伴'}
+              </button>
+              <button
+                onClick={() => setCiIsBanaiShimei((v) => !v)}
+                disabled={ciCastNames.length === 0}
+                className={`py-3 rounded-[10px] text-sm font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                  ciIsBanaiShimei ? 'bg-gold text-primary' : 'panel text-gray-300 hover:bg-white/10'
+                }`}
+                title={ciCastNames.length === 0 ? '担当キャスト選択後に有効' : ''}
+              >
+                {ciIsBanaiShimei ? '✓ 場内指名あり' : '場内指名'}
+              </button>
+            </div>
+
             <div className="text-xs text-gray-500 leading-relaxed border-t border-white/10 pt-3">
-              ※ 入店後、卓をタップすると担当キャスト・本指名・同伴・場内指名を編集できます。
-              全ての変更は会計確定時に確定されます。
+              ※ 担当キャスト・本指名・同伴・場内指名は入店後の卓編集からも変更できます。
+              指名料・同伴料は入店時に自動計算され注文として記録されます。
             </div>
             <GoldButton onClick={confirmCheckIn} className="w-full py-5 text-lg flex items-center justify-center gap-2">
               入店開始 <ChevronRight size={22} />
