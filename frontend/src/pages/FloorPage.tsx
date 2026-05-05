@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../store'
+import { useAuth } from '../auth'
 import { tablesApi } from '../api/tables'
 import {
   type Table,
@@ -14,7 +15,7 @@ import {
 } from '../data/mock'
 import { getNominationBadge, getNominationLabel } from '../utils/nomination'
 import { getSetLabel } from '../utils/setCountLabel'
-import { Clock, Users, Plus, Printer, RotateCcw, ChevronRight, FileText, CreditCard, Undo2 } from 'lucide-react'
+import { Clock, Users, Plus, Printer, RotateCcw, ChevronRight, FileText, CreditCard, Undo2, X } from 'lucide-react'
 import { openPrintWindow } from '../utils/print'
 import BottomActionBar from '../components/BottomActionBar'
 import { GoldButton, DangerButton, GhostButton, DarkButton } from '../components/Buttons'
@@ -110,7 +111,8 @@ function flColor(rate: number) {
 }
 
 export default function FloorPage() {
-  const { tables, casts, setCasts, updateTable, flMetrics, storeSettings, moveCast } = useStore()
+  const { tables, casts, setCasts, updateTable, flMetrics, storeSettings, moveCast, resetTable, addBillingRecord } = useStore()
+  const { user } = useAuth()
   // ISSUE-010: 延長交渉モーダル経由（UsageDetailPage → /floor?action=extend&from=...）の戻り遷移先
   const [searchParams] = useSearchParams()
   const fromAfterExtend = searchParams.get('from')
@@ -134,6 +136,7 @@ export default function FloorPage() {
 
   const [showExtend, setShowExtend] = useState(false)
   const [showRotation, setShowRotation] = useState(false)
+  const [forceCheckoutPending, setForceCheckoutPending] = useState<{ total: number } | null>(null)
   const [, setTick] = useState(0)
 
   // 休憩中は付け回し候補から除外、ただし入店時の assignedCasts リストなどで表示したい場合は別途 c.active を直接参照
@@ -510,6 +513,41 @@ export default function FloorPage() {
     return `待機 ${hours}時間${rem}分`
   }
 
+  // 「空き卓にする」(誤開卓 / トラブル時の手動空席戻し)
+  // - 計算金額 0 円: 注文なし旨のメッセージで確認モーダル → そのまま空席に戻す
+  // - 計算金額あり: 「未収（代金未収受）」として BillingRecord を残してから空席に戻す
+  const handleForceCheckout = () => {
+    if (!selected) return
+    const setUnit = selected.startTime ? getSetPriceForTime(selected.startTime) : 0
+    const disc = selected.setDiscountPerSet ?? 0
+    const setSubtotal = Math.max(0, setUnit - disc) * selected.guestCount * selected.setCount
+    const drinksSubtotal = selected.orders.reduce((s, o) => s + o.menuItem.price * o.quantity, 0)
+    const subtotal = setSubtotal + drinksSubtotal
+    const total = subtotal + Math.floor(subtotal * storeSettings.taxRate)
+    setForceCheckoutPending({ total })
+  }
+
+  const confirmForceCheckout = () => {
+    if (!selected || forceCheckoutPending === null) return
+    if (forceCheckoutPending.total > 0) {
+      addBillingRecord({
+        id: String(Date.now()),
+        tableNumber: selected.number,
+        total: forceCheckoutPending.total,
+        paymentMethod: 'cash',
+        cashAmount: 0,
+        cardAmount: 0,
+        completedAt: new Date().toISOString(),
+        date: new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        isUncollected: true,
+        castNamesSnapshot: [...selected.assignedCasts],
+      })
+    }
+    resetTable(selected.id)
+    setSelected(null)
+    setForceCheckoutPending(null)
+  }
+
   const handleAssignCast = (castName: string) => {
     if (!selected) return
     if (selected.assignedCasts.includes(castName)) return
@@ -856,6 +894,14 @@ export default function FloorPage() {
                 <RotateCcw size={15} /> 付け回し
               </button>
             </div>
+            {user?.role !== 'cast' && (
+              <button
+                onClick={handleForceCheckout}
+                className="w-full mt-2 panel py-2.5 rounded-[10px] font-bold text-sm flex items-center justify-center gap-1.5 text-red-400 hover:bg-red-400/10 transition-colors"
+              >
+                <X size={15} /> 空き卓にする
+              </button>
+            )}
           </>
         )}
       </Modal>
@@ -1108,6 +1154,26 @@ export default function FloorPage() {
             </div>
           )
         })()}
+      </Modal>
+
+      {/* 「空き卓にする」確認モーダル (誤開卓 / トラブル時の未収管理) */}
+      <Modal
+        open={!!forceCheckoutPending}
+        onClose={() => setForceCheckoutPending(null)}
+        title="空き卓にする"
+        size="sm"
+      >
+        <p className="text-sm text-gray-300 mb-4">
+          {forceCheckoutPending?.total === 0
+            ? '注文がありません。この卓を空き卓に戻しますか？'
+            : `¥${forceCheckoutPending?.total.toLocaleString()} を未収として記録して空き卓にします。`}
+        </p>
+        <div className="flex gap-2">
+          <DarkButton onClick={() => setForceCheckoutPending(null)} className="flex-1">キャンセル</DarkButton>
+          <button onClick={confirmForceCheckout} className="flex-1 py-3 rounded-lg font-bold text-sm bg-red-500/20 text-red-400 border border-red-500/30">
+            空き卓にする
+          </button>
+        </div>
       </Modal>
     </div>
   )
