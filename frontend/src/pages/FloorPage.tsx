@@ -136,6 +136,7 @@ export default function FloorPage() {
 
   const [showExtend, setShowExtend] = useState(false)
   const [showRotation, setShowRotation] = useState(false)
+  const [forceCheckoutPending, setForceCheckoutPending] = useState<{ total: number } | null>(null)
   const [, setTick] = useState(0)
 
   // 休憩中は付け回し候補から除外、ただし入店時の assignedCasts リストなどで表示したい場合は別途 c.active を直接参照
@@ -512,8 +513,8 @@ export default function FloorPage() {
     return `待機 ${hours}時間${rem}分`
   }
 
-  // 強制退卓 (誤開卓 / トラブル時の手動空席戻し)
-  // - 計算金額 0 円: 確認のうえそのまま空席に戻す
+  // 「空き卓にする」(誤開卓 / トラブル時の手動空席戻し)
+  // - 計算金額 0 円: 注文なし旨のメッセージで確認モーダル → そのまま空席に戻す
   // - 計算金額あり: 「未収（代金未収受）」として BillingRecord を残してから空席に戻す
   const handleForceCheckout = () => {
     if (!selected) return
@@ -523,14 +524,16 @@ export default function FloorPage() {
     const drinksSubtotal = selected.orders.reduce((s, o) => s + o.menuItem.price * o.quantity, 0)
     const subtotal = setSubtotal + drinksSubtotal
     const total = subtotal + Math.floor(subtotal * storeSettings.taxRate)
-    if (total === 0) {
-      if (!confirm('注文がないため空席に戻します。')) return
-    } else {
-      if (!confirm(`¥${total.toLocaleString()} を未収として記録して退卓しますか？`)) return
+    setForceCheckoutPending({ total })
+  }
+
+  const confirmForceCheckout = () => {
+    if (!selected || forceCheckoutPending === null) return
+    if (forceCheckoutPending.total > 0) {
       addBillingRecord({
         id: String(Date.now()),
         tableNumber: selected.number,
-        total,
+        total: forceCheckoutPending.total,
         paymentMethod: 'cash',
         cashAmount: 0,
         cardAmount: 0,
@@ -542,6 +545,7 @@ export default function FloorPage() {
     }
     resetTable(selected.id)
     setSelected(null)
+    setForceCheckoutPending(null)
   }
 
   const handleAssignCast = (castName: string) => {
@@ -895,7 +899,7 @@ export default function FloorPage() {
                 onClick={handleForceCheckout}
                 className="w-full mt-2 panel py-2.5 rounded-[10px] font-bold text-sm flex items-center justify-center gap-1.5 text-red-400 hover:bg-red-400/10 transition-colors"
               >
-                <X size={15} /> 強制退卓
+                <X size={15} /> 空き卓にする
               </button>
             )}
           </>
@@ -1150,6 +1154,26 @@ export default function FloorPage() {
             </div>
           )
         })()}
+      </Modal>
+
+      {/* 「空き卓にする」確認モーダル (誤開卓 / トラブル時の未収管理) */}
+      <Modal
+        open={!!forceCheckoutPending}
+        onClose={() => setForceCheckoutPending(null)}
+        title="空き卓にする"
+        size="sm"
+      >
+        <p className="text-sm text-gray-300 mb-4">
+          {forceCheckoutPending?.total === 0
+            ? '注文がありません。この卓を空き卓に戻しますか？'
+            : `¥${forceCheckoutPending?.total.toLocaleString()} を未収として記録して空き卓にします。`}
+        </p>
+        <div className="flex gap-2">
+          <DarkButton onClick={() => setForceCheckoutPending(null)} className="flex-1">キャンセル</DarkButton>
+          <button onClick={confirmForceCheckout} className="flex-1 py-3 rounded-lg font-bold text-sm bg-red-500/20 text-red-400 border border-red-500/30">
+            空き卓にする
+          </button>
+        </div>
       </Modal>
     </div>
   )
