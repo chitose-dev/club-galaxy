@@ -27,8 +27,21 @@ function AuthGuard({ children, allowedRoles }: { children: React.ReactNode; allo
 
 function App() {
   const { user } = useAuth()
-  const { fetchFailed } = useStore()
+  const { fetchFailed, loading } = useStore()
 
+  // 起動時 fetch 中はフルスクリーン「読み込み中...」（キャッシュがあれば下のルートでも
+  // 即時表示は可能だが、画面ちらつき・データ未確定の操作を避けるためここで待つ）
+  if (loading) {
+    return (
+      <div className="fixed inset-0 bg-gray-900 flex items-center justify-center p-8">
+        <div className="text-center">
+          <div className="text-gray-400 text-sm">読み込み中...</div>
+        </div>
+      </div>
+    )
+  }
+
+  // 起動時 fetch が完了していて主要 endpoint が全件失敗した場合のみエラー画面
   if (fetchFailed) {
     return (
       <div className="fixed inset-0 bg-gray-900 flex items-center justify-center p-8">

@@ -55,6 +55,8 @@ export interface FLMetrics {
 interface Store {
   /** 起動時 API fetch で主要 endpoint がすべて失敗したフラグ（接続断/サーバ停止検知用） */
   fetchFailed: boolean
+  /** 起動時 fetch が完了するまで true。loading 中はキャッシュ値があれば使う */
+  loading: boolean
   tables: Table[]
   casts: Cast[]
   guestMenu: GuestMenuItem[]
@@ -140,22 +142,60 @@ interface Store {
 
 const StoreContext = createContext<Store | null>(null)
 
+/**
+ * localStorage キャッシュ
+ * Firestore は読み込みが遅いため、起動時にキャッシュから即時表示 → fetch 完了後に上書き。
+ * 対象は変動が緩やかなマスター系 (tables/casts/menu/settings)。
+ */
+const CACHE_KEY = 'galaxy_cache_v1'
+
+interface CacheShape {
+  tables?: Table[]
+  casts?: Cast[]
+  guestMenu?: GuestMenuItem[]
+  castMenu?: CastMenuItem[]
+  menuCategories?: MenuCategory[]
+  setPrices?: SetPrice[]
+  chargeItems?: SetPrice[]
+  storeSettings?: StoreSettings
+}
+
+function loadCache(): CacheShape {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY)
+    if (!raw) return {}
+    return JSON.parse(raw) as CacheShape
+  } catch {
+    return {}
+  }
+}
+
+function saveCache(patch: CacheShape) {
+  try {
+    const current = loadCache()
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ ...current, ...patch }))
+  } catch {
+    // localStorage 書き込み失敗は無視（容量超過等）
+  }
+}
+
 export function StoreProvider({ children }: { children: ReactNode }) {
-  // クロウ指示: モック初期値を空配列に変更（起動時 API fetch 完了前のダミー表示を回避）
-  const [tables, setTables] = useState<Table[]>([])
+  const cache = loadCache()
+  // 初期値: キャッシュがあれば使う、なければ空 / mock 初期値（モック初期値は menu 系のみ残置）
+  const [tables, setTables] = useState<Table[]>(cache.tables ?? [])
   // Day 2: PUT sync wrap のため raw state setter は ...Raw 名で受ける
-  const [casts, setCastsRaw] = useState<Cast[]>([])
-  const [guestMenu, setGuestMenuRaw] = useState<GuestMenuItem[]>(initialGuestMenu)
-  const [castMenu, setCastMenuRaw] = useState<CastMenuItem[]>(initialCastMenu)
-  const [menuCategories, setMenuCategoriesRaw] = useState<MenuCategory[]>(initialMenuCategories)
-  const [setPricesState, setSetPricesRaw] = useState<SetPrice[]>(initialSetPrices)
-  const [chargeItemsState, setChargeItemsRaw] = useState<SetPrice[]>(initialChargeItems)
+  const [casts, setCastsRaw] = useState<Cast[]>(cache.casts ?? [])
+  const [guestMenu, setGuestMenuRaw] = useState<GuestMenuItem[]>(cache.guestMenu ?? initialGuestMenu)
+  const [castMenu, setCastMenuRaw] = useState<CastMenuItem[]>(cache.castMenu ?? initialCastMenu)
+  const [menuCategories, setMenuCategoriesRaw] = useState<MenuCategory[]>(cache.menuCategories ?? initialMenuCategories)
+  const [setPricesState, setSetPricesRaw] = useState<SetPrice[]>(cache.setPrices ?? initialSetPrices)
+  const [chargeItemsState, setChargeItemsRaw] = useState<SetPrice[]>(cache.chargeItems ?? initialChargeItems)
   const [discountLogs, setDiscountLogs] = useState<DiscountLog[]>([])
   const [billingRecords, setBillingRecords] = useState<BillingRecord[]>([])
   const [dailyPayRequests, setDailyPayRequests] = useState<DailyPayRequest[]>([])
   const [bottleKeeps, setBottleKeeps] = useState<BottleKeep[]>([])
   const [deductions, setDeductionsRaw] = useState<Deduction[]>([])
-  const [storeSettings, setStoreSettingsRaw] = useState<StoreSettings>(defaultStoreSettings)
+  const [storeSettings, setStoreSettingsRaw] = useState<StoreSettings>(cache.storeSettings ?? defaultStoreSettings)
   const [userAccounts, setUserAccounts] = useState<UserAccount[]>([])
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([])
   const [expenses, setExpenses] = useState<Expense[]>([])
@@ -164,6 +204,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [dailyReports, setDailyReports] = useState<DailyReport[]>([])
   const [nextReceiptNumber, setNextReceiptNumber] = useState(1001)
   const [fetchFailed, setFetchFailed] = useState(false)
+  const [loading, setLoading] = useState(true)
 
   // ── Day 2: PUT sync 付き setter ────────────────────────────────────
   // AdminPage / SalaryPage が `setX(arr)` or `setX((prev) => updated)` で更新した時点で
@@ -231,21 +272,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // 主要 endpoint (tables/casts/billing/menu系/settings) が「全件失敗」した場合のみ
   // fetchFailed=true を立て、ルートでフルスクリーンエラー画面に切替える。
   // 個別 fetch 失敗は state 空のまま（モックフォールバックなし）。
+  // fetch 完了後は setLoading(false) を呼び、キャッシュを更新。
   useEffect(() => {
     const token = localStorage.getItem('authToken')
-    if (!token) return
+    if (!token) {
+      // 未ログインの場合は fetch 不要、loading も解除
+      setLoading(false)
+      return
+    }
     // 起動時 GET は wrap 版（PUT sync 付き）ではなく Raw setter を使う
     // wrap 版だと取得直後に全件 PUT replace-all が走り、不要な API 往復 + 上書きが発生する
+    // 同時に fetch 成功分はキャッシュへ保存。次回起動時はキャッシュを初期値として使用。
     const criticalFetches: Promise<unknown>[] = [
-      tablesApi.list().then(setTables),
-      castsApi.list().then(setCastsRaw),
+      tablesApi.list().then((v) => { setTables(v); saveCache({ tables: v }) }),
+      castsApi.list().then((v) => { setCastsRaw(v); saveCache({ casts: v }) }),
       billingApi.list({ limit: 1000 }).then(setBillingRecords),
-      menuApi.listGuest().then(setGuestMenuRaw),
-      menuApi.listCast().then(setCastMenuRaw),
-      menuApi.listSetPrices().then(setSetPricesRaw),
-      menuApi.listCharges().then(setChargeItemsRaw),
-      menuApi.listCategories().then(setMenuCategoriesRaw),
-      settingsApi.get().then(setStoreSettingsRaw),
+      menuApi.listGuest().then((v) => { setGuestMenuRaw(v); saveCache({ guestMenu: v }) }),
+      menuApi.listCast().then((v) => { setCastMenuRaw(v); saveCache({ castMenu: v }) }),
+      menuApi.listSetPrices().then((v) => { setSetPricesRaw(v); saveCache({ setPrices: v }) }),
+      menuApi.listCharges().then((v) => { setChargeItemsRaw(v); saveCache({ chargeItems: v }) }),
+      menuApi.listCategories().then((v) => { setMenuCategoriesRaw(v); saveCache({ menuCategories: v }) }),
+      settingsApi.get().then((v) => { setStoreSettingsRaw(v); saveCache({ storeSettings: v }) }),
     ]
     const otherFetches: Promise<unknown>[] = [
       payrollApi.listDailyPayments().then(setDailyPayRequests),
@@ -260,6 +307,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const criticalResults = results.slice(0, criticalFetches.length)
       const allCriticalFailed = criticalResults.every((r) => r.status === 'rejected')
       if (allCriticalFailed) setFetchFailed(true)
+      setLoading(false)
     })
   }, [])
 
@@ -576,6 +624,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     <StoreContext.Provider
       value={{
         fetchFailed,
+        loading,
         tables,
         casts,
         guestMenu,
