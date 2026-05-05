@@ -48,12 +48,22 @@ function ClosingView() {
   const [note, setNote] = useState('')
   const [savedMessage, setSavedMessage] = useState('')
 
-  // レジ締めは本日分の会計のみ対象
-  const todayStr = new Date().toISOString().slice(0, 10)
-  const billingRecords = useMemo(
-    () => allBillingRecords.filter((r) => (r.date ?? todayStr) === todayStr),
+  // レジ締めは本日分の会計のみ対象。businessDate (JST 営業日) を優先参照。
+  // 未回収の未収分 (isUncollected && status !== 'recovered') は売上から除外。
+  const todayStr = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const todaysAllRecords = useMemo(
+    () => allBillingRecords.filter((r) => (r.businessDate ?? r.date ?? todayStr) === todayStr),
     [allBillingRecords, todayStr],
   )
+  const billingRecords = useMemo(
+    () => todaysAllRecords.filter((r) => !(r.isUncollected && r.uncollectedStatus !== 'recovered')),
+    [todaysAllRecords],
+  )
+  // 締め相殺フラグが立っている本日分の合計（締め画面表示用、売上には含めない）
+  const settledOffSummary = useMemo(() => {
+    const list = todaysAllRecords.filter((r) => r.settledOff)
+    return { count: list.length, total: list.reduce((s, r) => s + r.total, 0) }
+  }, [todaysAllRecords])
 
   const salesSummary = useMemo(() => {
     const cashSales = billingRecords
@@ -243,6 +253,12 @@ function ClosingView() {
               <span className="font-bold">理論有高</span>
               <span className="font-bold text-xl text-gold tabular-nums">¥{theoreticalCash.toLocaleString()}</span>
             </div>
+            {settledOffSummary.count > 0 && (
+              <div className="flex justify-between text-xs text-gray-500">
+                <span>本日 未収相殺済</span>
+                <span className="tabular-nums">¥{settledOffSummary.total.toLocaleString()}（{settledOffSummary.count}件）</span>
+              </div>
+            )}
           </div>
 
           <div className="panel p-4 mb-4">
