@@ -215,6 +215,28 @@ tablesRouter.post('/:id/orders', async (req, res) => {
       if (!snap.exists) throwNotFound('卓が見つかりません')
       const table = snap.data() as Table
 
+      // Fix C (ふうや指摘): 同一 menuItem.id + castName の order が既に存在する場合は
+      //   新規 order を追加せず quantity を加算してマージ。複数端末で同卓に同じ
+      //   メニューを並列で投入しても orders の行数が増えず、tx 内 merge により
+      //   counter race も防げる。
+      const existingIdx = table.orders.findIndex(
+        (o) => o.menuItem.id === (mi.id as number) && o.castName === body.castName,
+      )
+      if (existingIdx >= 0) {
+        const merged: OrderEmbedded = {
+          ...table.orders[existingIdx],
+          quantity: table.orders[existingIdx].quantity + (body.quantity as number),
+        }
+        const newOrders = [...table.orders]
+        newOrders[existingIdx] = merged
+        tx.update(ref, {
+          orders: newOrders,
+          updatedBy: user.username,
+          updatedAt: nowJstIso(),
+        })
+        return merged
+      }
+
       // ★ 致命① 連番採番: 既存 orders の最大 id + 1（空配列なら 1 から開始）
       const maxId = table.orders.reduce((m, o) => (o.id > m ? o.id : m), 0)
       const order: OrderEmbedded = {
@@ -250,6 +272,51 @@ tablesRouter.post('/:id/orders', async (req, res) => {
     })
 
     res.status(201).json(newOrder)
+  } catch (e) {
+    sendError(res, e)
+  }
+})
+
+// ---------------------------------------------------------------------------
+// POST /api/tables/:id/orders/decrement — menuItem.id + castName で 1 減算
+//   Fix C: frontend が orderId を知らずに削除できる atomic エンドポイント。
+//   quantity が 1 以下なら order ごと削除、>1 なら quantity-1 で更新。
+//   複数端末から同時に呼んでも tx 内で読み込み + 書き込みが atomic。
+// ---------------------------------------------------------------------------
+tablesRouter.post('/:id/orders/decrement', async (req, res) => {
+  try {
+    const user = getAuthedUser(req)
+    const tableId = String(req.params.id)
+    const body = req.body ?? {}
+    if (typeof body.menuItemId !== 'number') {
+      throwBadRequest('menuItemId は数値')
+    }
+    const castName = typeof body.castName === 'string' ? body.castName : undefined
+
+    const result = await col().firestore.runTransaction(async (tx) => {
+      const ref = col().doc(tableId)
+      const snap = await tx.get(ref)
+      if (!snap.exists) throwNotFound('卓が見つかりません')
+      const table = snap.data() as Table
+      const idx = table.orders.findIndex(
+        (o) => o.menuItem.id === body.menuItemId && o.castName === castName,
+      )
+      if (idx < 0) throwNotFound('注文が見つかりません')
+      const newOrders = [...table.orders]
+      if (newOrders[idx].quantity > 1) {
+        newOrders[idx] = { ...newOrders[idx], quantity: newOrders[idx].quantity - 1 }
+      } else {
+        newOrders.splice(idx, 1)
+      }
+      tx.update(ref, {
+        orders: newOrders,
+        updatedBy: user.username,
+        updatedAt: nowJstIso(),
+      })
+      return { ok: true, removedOrderId: table.orders[idx].id }
+    })
+
+    res.json(result)
   } catch (e) {
     sendError(res, e)
   }

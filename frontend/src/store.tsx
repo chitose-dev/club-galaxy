@@ -371,39 +371,46 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     tablesApi.moveCast(castName, null, toTableId).catch(console.error)
   }, [])
 
+  // Fix C (ふうや指摘): 旧実装は `tablesApi.update(tableId, { orders: syncOrders })`
+  //   で orders 配列全体を PATCH していたため、複数端末で同卓を同時編集すると
+  //   後勝ちで先の更新が消える問題があった。atomic な append/decrement API
+  //   (`POST /api/tables/:id/orders` (merge 機能付き) と
+  //    `POST /api/tables/:id/orders/decrement`) に切替。
+  //   楽観的 local 更新は維持し、UI の即時反応を保つ。
   const addOrderToTable = useCallback((tableId: number, order: OrderItem) => {
-    let syncOrders: OrderItem[] = []
     setTables((prev) =>
       prev.map((t) => {
         if (t.id !== tableId) return t
         const existing = t.orders.find((o) => o.menuItem.id === order.menuItem.id && o.castName === order.castName)
-        syncOrders = existing
+        const nextOrders = existing
           ? t.orders.map((o) =>
               o.menuItem.id === order.menuItem.id && o.castName === order.castName
                 ? { ...o, quantity: o.quantity + order.quantity }
                 : o,
             )
           : [...t.orders, order]
-        return { ...t, orders: syncOrders }
+        return { ...t, orders: nextOrders }
       }),
     )
-    tablesApi.update(tableId, { orders: syncOrders }).catch(console.error)
+    // atomic append (backend 側で同 menuItem.id + castName をマージ)
+    const { id: _omitId, ...rest } = order as OrderItem & { id?: number }
+    tablesApi.addOrder(tableId, rest).catch(console.error)
   }, [])
 
   const removeOrderFromTable = useCallback((tableId: number, menuItemId: number, castName?: string) => {
-    let syncOrders: OrderItem[] = []
     setTables((prev) =>
       prev.map((t) => {
         if (t.id !== tableId) return t
-        syncOrders = t.orders
+        const nextOrders = t.orders
           .map((o) =>
             o.menuItem.id === menuItemId && o.castName === castName ? { ...o, quantity: o.quantity - 1 } : o,
           )
           .filter((o) => o.quantity > 0)
-        return { ...t, orders: syncOrders }
+        return { ...t, orders: nextOrders }
       }),
     )
-    tablesApi.update(tableId, { orders: syncOrders }).catch(console.error)
+    // atomic decrement (backend 側で quantity-1、1以下なら order 削除)
+    tablesApi.decrementOrder(tableId, menuItemId, castName).catch(console.error)
   }, [])
 
   const resetTable = useCallback((id: number) => {
