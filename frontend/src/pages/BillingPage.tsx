@@ -529,6 +529,32 @@ export default function BillingPage() {
                   ))}
                 </>
               )}
+              {/* Fix B: 指名料・同伴料・場内指名料 (table 属性から計算、orders に依存しない) */}
+              {((table.mainNominationCastNames?.length ?? 0) > 0 && honShimeiUnit > 0)
+               || (table.isDouhan && douhanUnit > 0 && table.assignedCasts.length > 0)
+               || (table.isBanaiShimei && banaiShimeiUnit > 0 && table.assignedCasts.length > 0) ? (
+                <div className="border-t border-white/5 pt-2 mt-2">
+                  <div className="text-xs text-gray-500 mb-1">指名・同伴料</div>
+                </div>
+              ) : null}
+              {(table.mainNominationCastNames?.length ?? 0) > 0 && honShimeiUnit > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-300">本指名料 <span className="text-gray-500 text-xs">x{table.mainNominationCastNames.length}名 ({table.mainNominationCastNames.join(', ')})</span></span>
+                  <span className="tabular-nums">¥{(table.mainNominationCastNames.length * honShimeiUnit).toLocaleString()}</span>
+                </div>
+              )}
+              {table.isDouhan && douhanUnit > 0 && table.assignedCasts.length > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-300">同伴料 <span className="text-gray-500 text-xs">x{table.assignedCasts.length}名</span></span>
+                  <span className="tabular-nums">¥{(table.assignedCasts.length * douhanUnit).toLocaleString()}</span>
+                </div>
+              )}
+              {table.isBanaiShimei && banaiShimeiUnit > 0 && table.assignedCasts.length > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-300">場内指名料 <span className="text-gray-500 text-xs">x{table.assignedCasts.length}名</span></span>
+                  <span className="tabular-nums">¥{(table.assignedCasts.length * banaiShimeiUnit).toLocaleString()}</span>
+                </div>
+              )}
               <div className="border-t border-white/5 pt-2 mt-2 space-y-1.5">
                 <div className="flex justify-between text-sm"><span className="text-gray-500">注文小計(内税)</span><span className="tabular-nums">¥{subtotal.toLocaleString()}</span></div>
                 <div className="flex justify-between text-sm"><span className="text-gray-500">セット料金(内税)</span><span className="tabular-nums">¥{setFee.toLocaleString()}</span></div>
@@ -598,6 +624,25 @@ export default function BillingPage() {
                         <span className="tabular-nums">{o.menuItem.price === 0 ? 'セット内' : `¥${(o.menuItem.price * o.quantity).toLocaleString()}`}</span>
                       </div>
                     ))}
+                    {/* Fix B: 指名料・同伴料・場内指名料 (table 属性から計算、orders に依存しない) */}
+                    {(table.mainNominationCastNames?.length ?? 0) > 0 && honShimeiUnit > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-300">本指名料 <span className="text-gray-500 text-xs">x{table.mainNominationCastNames.length}名 ({table.mainNominationCastNames.join(', ')})</span></span>
+                        <span className="tabular-nums">¥{(table.mainNominationCastNames.length * honShimeiUnit).toLocaleString()}</span>
+                      </div>
+                    )}
+                    {table.isDouhan && douhanUnit > 0 && table.assignedCasts.length > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-300">同伴料 <span className="text-gray-500 text-xs">x{table.assignedCasts.length}名</span></span>
+                        <span className="tabular-nums">¥{(table.assignedCasts.length * douhanUnit).toLocaleString()}</span>
+                      </div>
+                    )}
+                    {table.isBanaiShimei && banaiShimeiUnit > 0 && table.assignedCasts.length > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-300">場内指名料 <span className="text-gray-500 text-xs">x{table.assignedCasts.length}名</span></span>
+                        <span className="tabular-nums">¥{(table.assignedCasts.length * banaiShimeiUnit).toLocaleString()}</span>
+                      </div>
+                    )}
                     <div className="border-t border-white/5 pt-2 mt-2 space-y-1">
                       <div className="flex justify-between text-gray-500"><span>注文小計</span><span className="tabular-nums">¥{subtotal.toLocaleString()}</span></div>
                       <div className="flex justify-between text-gray-500"><span>セット料金</span><span className="tabular-nums">¥{setFee.toLocaleString()}</span></div>
