@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   DndContext,
   PointerSensor,
@@ -61,7 +61,16 @@ export default function AdminPage() {
     updateBillingRecord,
   } = useStore()
 
-  const [activeTab, setActiveTab] = useState<AdminTab>('menu')
+  // ?tab=<key> クエリで初期タブを指定可能（未収回収後に navigate('/admin?tab=uncollected') 等）
+  const [searchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab') as AdminTab | null
+  const validTabs: AdminTab[] = [
+    'menu', 'cast', 'price', 'tables', 'attendance', 'dailypay', 'advance',
+    'prepay', 'expense', 'uncollected', 'settings', 'export', 'archive', 'users',
+  ]
+  const [activeTab, setActiveTab] = useState<AdminTab>(
+    tabParam && validTabs.includes(tabParam) ? tabParam : 'menu',
+  )
 
   const tabs: TabItem<AdminTab>[] = [
     { key: 'menu', label: 'メニュー' },

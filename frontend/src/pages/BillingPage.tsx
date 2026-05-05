@@ -20,7 +20,7 @@ type PaymentMethod = 'cash' | 'card' | 'mixed'
 type BillingTab = 'total' | 'individual' | 'audit' | 'history'
 
 export default function BillingPage() {
-  const { tables, resetTable, discountLogs, addDiscountLog, addBillingRecord, billingRecords, storeSettings, getNextReceiptNumber, casts } = useStore()
+  const { tables, resetTable, discountLogs, addDiscountLog, addBillingRecord, billingRecords, storeSettings, getNextReceiptNumber, casts, updateBillingRecord } = useStore()
   const { user } = useAuth()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -159,6 +159,40 @@ export default function BillingPage() {
     </div>
     )
   })() : null
+
+  // 未収回収モード: ?uncollectedId=<id> が付いている場合、対象未収レコードの
+  // 通常会計（recovered 化）専用 UI を表示する（通常の卓選択 UI を bypass）
+  const uncollectedId = searchParams.get('uncollectedId')
+  const uncollectedRecord = uncollectedId
+    ? billingRecords.find((r) => r.id === uncollectedId && r.isUncollected) ?? null
+    : null
+  if (uncollectedRecord) {
+    return (
+      <UncollectedRecoveryView
+        record={uncollectedRecord}
+        onCancel={() => navigate('/admin?tab=uncollected')}
+        onConfirm={(method) => {
+          // 1. 通常 BillingRecord を新規作成（isUncollected: false で売上計上）
+          addBillingRecord({
+            id: String(Date.now()),
+            tableNumber: uncollectedRecord.tableNumber,
+            total: uncollectedRecord.total,
+            paymentMethod: method,
+            cashAmount: method === 'cash' ? uncollectedRecord.total : 0,
+            cardAmount: method === 'card' ? uncollectedRecord.total : 0,
+            completedAt: new Date().toISOString(),
+            date: new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10),
+            isUncollected: false,
+            ...(uncollectedRecord.castNamesSnapshot ? { castNamesSnapshot: [...uncollectedRecord.castNamesSnapshot] } : {}),
+          })
+          // 2. 元の未収レコードを recovered に更新
+          updateBillingRecord(uncollectedRecord.id, { uncollectedStatus: 'recovered' })
+          // 3. 未収管理タブへ戻す
+          navigate('/admin?tab=uncollected')
+        }}
+      />
+    )
+  }
 
   if (!table || table.status === 'empty') {
     return (
@@ -1011,6 +1045,77 @@ function AuditLogView({ logs, onClose }: { logs: DiscountLog[]; onClose?: () => 
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────
+// 未収回収モード: AdminPage > 未収管理「回収」ボタン経由で呼ばれる
+// ────────────────────────────────────────────────────────────
+function UncollectedRecoveryView({ record, onConfirm, onCancel }: {
+  record: BillingRecord
+  onConfirm: (method: 'cash' | 'card') => void
+  onCancel: () => void
+}) {
+  const [method, setMethod] = useState<'cash' | 'card'>('cash')
+
+  const formatDateTime = (iso: string) => {
+    try {
+      const d = new Date(iso)
+      return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+    } catch {
+      return iso
+    }
+  }
+
+  return (
+    <div className="flex flex-col min-h-full">
+      <ContextualHeader accent="billing" title="未収回収" backTo="/admin?tab=uncollected" />
+      <div className="flex-1 p-4 max-w-md mx-auto w-full space-y-4">
+        <div className="panel p-4 space-y-2">
+          <h3 className="text-sm font-bold text-white mb-2">未収情報</h3>
+          <div className="text-xs text-gray-400 space-y-1">
+            <div className="flex justify-between"><span>卓番号</span><span className="text-white">{record.tableNumber}</span></div>
+            <div className="flex justify-between"><span>発生日時</span><span className="text-white">{formatDateTime(record.completedAt)}</span></div>
+            <div className="flex justify-between"><span>担当キャスト</span><span className="text-white">{(record.castNamesSnapshot ?? []).join(', ') || '-'}</span></div>
+            {record.uncollectedReason && (
+              <div className="flex justify-between"><span>事由</span><span className="text-amber-300/80">{record.uncollectedReason}</span></div>
+            )}
+          </div>
+          <div className="flex justify-between items-center pt-2 border-t border-white/10">
+            <span className="text-sm text-gray-400">回収金額</span>
+            <span className="text-2xl font-bold text-gold tabular-nums">¥{record.total.toLocaleString()}</span>
+          </div>
+        </div>
+
+        <div className="panel p-4 space-y-3">
+          <h3 className="text-sm font-bold text-white">支払い方法</h3>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setMethod('cash')}
+              className={`flex-1 py-3 rounded-lg text-sm font-bold ${method === 'cash' ? 'bg-white text-black' : 'bg-white/5 text-gray-400 border border-white/10'}`}
+            >
+              現金
+            </button>
+            <button
+              onClick={() => setMethod('card')}
+              className={`flex-1 py-3 rounded-lg text-sm font-bold ${method === 'card' ? 'bg-white text-black' : 'bg-white/5 text-gray-400 border border-white/10'}`}
+            >
+              カード
+            </button>
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <DarkButton onClick={onCancel} className="flex-1">キャンセル</DarkButton>
+          <button
+            onClick={() => onConfirm(method)}
+            className="flex-1 py-3 rounded-lg text-sm font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+          >
+            回収確定
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
