@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../store'
 import { useAuth } from '../auth'
-import { tablesApi } from '../api/tables'
 import {
   type Table,
   type TableStatus,
@@ -267,8 +266,8 @@ export default function FloorPage() {
       timeAdjustmentMinutes: 0,
       extensionHistory: [],
     }
+    // Fix D: updateTable が backend 同期するので明示的な tablesApi.update は不要
     updateTable(selected.id, checkInPatch)
-    tablesApi.update(selected.id, checkInPatch).catch(console.error)
     const now = new Date().toISOString()
     setCasts((prev) => prev.map((c) => assignedNames.includes(c.name) ? { ...c, lastAssignedAt: now } : c))
     setShowCheckIn(false)
@@ -360,8 +359,8 @@ export default function FloorPage() {
       isDouhan: undefined,
       isBanaiShimei: undefined,
     }
+    // Fix D: updateTable が backend 同期するので明示的な tablesApi.update は不要
     updateTable(selected.id, extendPatch)
-    tablesApi.update(selected.id, extendPatch).catch(console.error)
     setPendingExtend(null)
     setShowExtend(false)
     // ISSUE-010: from クエリがあれば（UsageDetailPage の延長交渉ボタン経由）元画面に戻る
