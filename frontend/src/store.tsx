@@ -302,6 +302,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       advancesApi.list().then(setAdvancePayments),
       dailyReportsApi.list().then(setDailyReports),
       authApi.listUsers().then(setUserAccounts),
+      billingApi.listDiscounts().then(setDiscountLogs),
     ]
     void Promise.allSettled([...criticalFetches, ...otherFetches]).then((results) => {
       const criticalResults = results.slice(0, criticalFetches.length)
