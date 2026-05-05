@@ -565,9 +565,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [nextReceiptNumber])
 
   const flMetrics = useMemo<FLMetrics>(() => {
-    const todayStr = new Date().toISOString().slice(0, 10)
+    // JST 基準で today を算出。businessDate (backend 付与) を優先し、
+    // 旧 date (UTC ベース) や未設定時のフォールバック順で参照する。
+    const todayStr = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
     const monthPrefix = todayStr.slice(0, 7)
-    const dateOf = (r: typeof billingRecords[number]) => r.date ?? todayStr
+    const dateOf = (r: typeof billingRecords[number]) => r.businessDate ?? r.date ?? todayStr
 
     const todayBillings = billingRecords.filter((r) => dateOf(r) === todayStr)
     const monthBillings = billingRecords.filter((r) => dateOf(r).startsWith(monthPrefix))

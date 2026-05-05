@@ -222,6 +222,10 @@ export interface BillingRecord {
   /** ISO 8601 会計完了日時 */
   completedAt: string
   date?: string               // YYYY-MM-DD (月年別集計用、省略時は今日扱い)
+  /** YYYY-MM-DD 形式の JST 営業日。バックエンドが nowJstIso ベースで付与。
+   *  集計時は businessDate を優先参照することで、UTC 起点の date が前日付に
+   *  なる JST 深夜 0〜9 時の問題を回避する。 */
+  businessDate?: string
   /** 本指名卓の場合の担当キャストID (指示書§5.2: 売上重畳のため) */
   nominatedCastId?: number
   /** TAX前の小計(保証計算・売上重畳に使用) */
