@@ -512,6 +512,7 @@ export default function FloorPage() {
 
   const handleAssignCast = (castName: string) => {
     if (!selected) return
+    if (selected.assignedCasts.includes(castName)) return
     // 追補02 R2-2/R10-3: 別卓で対応中だった場合はそちらから外す (排他的移動)
     for (const t of tables) {
       if (t.id === selected.id) continue

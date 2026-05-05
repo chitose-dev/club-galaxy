@@ -575,6 +575,10 @@ function CastManager({ casts, setCasts, addUser }: {
     if (Number.isNaN(hourlyRate) || hourlyRate <= 0) return
     const guaranteeRate = Number(newGuarantee) / 100
     if (Number.isNaN(guaranteeRate) || guaranteeRate < 0 || guaranteeRate > 1) return
+    if (casts.some((c) => c.name === newName.trim())) {
+      alert('同名のキャストが既に存在します')
+      return
+    }
     const realName = newRealName.trim()
     const address = newAddress.trim()
     let created: Cast
