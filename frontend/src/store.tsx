@@ -11,6 +11,7 @@ import { attendanceApi } from './api/attendance'
 import { expensesApi } from './api/expenses'
 import { advancesApi } from './api/advances'
 import { archiveApi } from './api/archive'
+import { ApiError } from './api/client'
 import {
   guestMenuItems as initialGuestMenu,
   castMenuItems as initialCastMenu,
@@ -315,7 +316,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     void Promise.allSettled([...criticalFetches, ...otherFetches]).then((results) => {
       const criticalResults = results.slice(0, criticalFetches.length)
       const allCriticalFailed = criticalResults.every((r) => r.status === 'rejected')
-      if (allCriticalFailed) setFetchFailed(true)
+      if (allCriticalFailed) {
+        // 全件失敗が「token 期限切れ (401)」なら fetchFailed エラー画面ではなく
+        // /login へリダイレクト。ネットワーク障害等の他失敗は従来どおり fetchFailed=true。
+        const all401 = criticalResults.every(
+          (r) => r.status === 'rejected' && r.reason instanceof ApiError && r.reason.status === 401,
+        )
+        if (all401) {
+          localStorage.removeItem('authToken')
+          localStorage.removeItem('club-galaxy-auth')
+          window.location.href = '/login'
+          return
+        }
+        setFetchFailed(true)
+      }
       setLoading(false)
     })
   }, [])
