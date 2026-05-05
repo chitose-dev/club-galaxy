@@ -334,8 +334,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
+  // Fix D (ふうや指摘): 旧実装は local state のみ更新で backend に保存して
+  //   いなかった。卓詳細から本指名・同伴・場内指名・assignedCasts 等を変更
+  //   しても backend に反映されず、リロードや別端末で消える + 会計時に
+  //   Fix B の独立計算が古い状態で行われる問題があった。
+  //   updateTable 経由の変更は全て tablesApi.update(PATCH) で backend へ同期。
   const updateTable = useCallback((id: number, patch: Partial<Table>) => {
     setTables((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)))
+    tablesApi.update(id, patch).catch(console.error)
   }, [])
 
   /**
