@@ -204,7 +204,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [dailyReports, setDailyReports] = useState<DailyReport[]>([])
   const [nextReceiptNumber, setNextReceiptNumber] = useState(1001)
   const [fetchFailed, setFetchFailed] = useState(false)
-  const [loading, setLoading] = useState(true)
+  // キャッシュがある場合は loading=false で即座にキャッシュ値を表示し、
+  // バックグラウンドで fetch して完了次第データ更新する。
+  // キャッシュなしの初回起動のみ「読み込み中...」を表示。
+  const hasCache = Object.keys(cache).length > 0
+  const [loading, setLoading] = useState(!hasCache)
 
   // ── Day 2: PUT sync 付き setter ────────────────────────────────────
   // AdminPage / SalaryPage が `setX(arr)` or `setX((prev) => updated)` で更新した時点で
