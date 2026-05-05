@@ -234,6 +234,8 @@ export interface BillingRecord {
   castNamesSnapshot?: string[]
   /** 会計履歴からの再印刷用スナップショット */
   receiptSnapshot?: ReceiptSnapshot
+  /** 未収（代金未収受）フラグ。誤開卓・トラブル等で代金回収できず退卓した場合に true */
+  isUncollected?: boolean
 }
 
 /** 領収書再印刷用に必要な会計スナップショット */
