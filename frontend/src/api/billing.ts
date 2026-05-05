@@ -11,6 +11,11 @@ export const billingApi = {
     return api.get<BillingRecord[]>(`/api/billing/records${qs ? `?${qs}` : ''}`)
   },
   create: (record: BillingRecord) => api.post<BillingRecord>('/api/billing/records', record),
+  /** 未収管理用の部分更新（owner only）。
+   *  受理されるフィールドは uncollectedStatus / uncollectedReason / writtenOffAt / settledOff のみ。 */
+  updateRecord: (id: string, patch: Partial<Pick<BillingRecord,
+    'uncollectedStatus' | 'uncollectedReason' | 'writtenOffAt' | 'settledOff'
+  >>) => api.patch<BillingRecord>(`/api/billing/records/${id}`, patch),
   listDiscounts: (businessDate?: string) => {
     const qs = businessDate ? `?businessDate=${businessDate}` : ''
     return api.get<DiscountLog[]>(`/api/billing/discounts${qs}`)
