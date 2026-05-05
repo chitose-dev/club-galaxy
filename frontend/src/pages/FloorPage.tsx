@@ -217,40 +217,12 @@ export default function FloorPage() {
       }
     }
 
-    // 追補02 R1/R9: 本指名・場内指名・同伴は排他ではなく組み合わせ可能。
-    //   本指名 → 本指名料 (本指名担当に紐付け)
-    //   場内指名 → 場内指名料 (担当キャスト全員分)
-    //   同伴 → 同伴料 (担当キャスト全員分、本指名と共存可)
-    const pushChargeOrder = (chargeId: 'shimei' | 'banai' | 'douhan', castName?: string) => {
-      const chargeItem = chargeItems.find((c) => c.id === chargeId)
-      if (!chargeItem) return
-      autoOrders.push({
-        menuItem: {
-          id: nextChargeId++,
-          name: chargeItem.label, price: chargeItem.price,
-          cost: chargeItem.cost ?? 300, castBack: 0,
-          category: 'guest' as const, subcategory: 'warimono' as const,
-        },
-        quantity: 1,
-        castName,
-      })
-    }
-    // R24: 本指名担当が複数いる場合、各人分の本指名料を orders に計上
-    for (const name of ciMainNominations) {
-      pushChargeOrder('shimei', name)
-    }
-    if (ciIsBanaiShimei) {
-      for (const name of assignedNames) {
-        if (!name) continue
-        pushChargeOrder('banai', name)
-      }
-    }
-    if (ciIsDouhan) {
-      for (const name of assignedNames) {
-        if (!name) continue
-        pushChargeOrder('douhan', name)
-      }
-    }
+    // Fix B (ふうや指摘): 本指名料・同伴料・場内指名料は orders に追加しない。
+    //   会計時に BillingPage 側で table.mainNominationCastNames / isDouhan /
+    //   isBanaiShimei / assignedCasts から直接計算する。
+    //   → 入店後に卓詳細で本指名・同伴等を変更しても会計に正しく反映される
+    //   （旧設計は orders に auto 追加し、入店後変更時に orders を delta 同期
+    //   する仕組みがなかったため料金が抜ける問題があった）。
 
     const checkInPatch = {
       status: 'occupied' as const,

@@ -20,7 +20,7 @@ type PaymentMethod = 'cash' | 'card' | 'mixed'
 type BillingTab = 'total' | 'individual' | 'audit' | 'history'
 
 export default function BillingPage() {
-  const { tables, resetTable, discountLogs, addDiscountLog, addBillingRecord, billingRecords, storeSettings, getNextReceiptNumber, casts } = useStore()
+  const { tables, resetTable, discountLogs, addDiscountLog, addBillingRecord, billingRecords, storeSettings, getNextReceiptNumber, casts, chargeItems } = useStore()
   const { user } = useAuth()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -225,8 +225,22 @@ export default function BillingPage() {
   const setPriceAfterDiscount = Math.max(0, setPrice - discountPerSet)
   const setPriceTotal = setPriceAfterDiscount * table.guestCount * table.setCount
 
-  // 指名料・同伴料は自動で orders に含まれているため、ここでは個別に加算しない(指示書§2.3)
+  // Fix B (ふうや指摘): 本指名料・同伴料・場内指名料は orders に依存せず、
+  //   table の mainNominationCastNames / isDouhan / isBanaiShimei /
+  //   assignedCasts から直接計算する。これにより「入店後に編集」で
+  //   本指名等を変更しても会計に正しく反映される。FloorPage 側の
+  //   入店時 auto order 追加 (本指名料/同伴料/場内指名料) は廃止済み。
+  const honShimeiUnit = chargeItems.find((c) => c.id === 'shimei')?.price ?? 0
+  const douhanUnit = chargeItems.find((c) => c.id === 'douhan')?.price ?? 0
+  const banaiShimeiUnit = chargeItems.find((c) => c.id === 'banai')?.price ?? 0
+  const calcNominationFees = (t: import('../data/mock').Table) => {
+    const honShimei = (t.mainNominationCastNames?.length ?? 0) * honShimeiUnit
+    const douhan = t.isDouhan ? (t.assignedCasts?.length ?? 0) * douhanUnit : 0
+    const banai = t.isBanaiShimei ? (t.assignedCasts?.length ?? 0) * banaiShimeiUnit : 0
+    return honShimei + douhan + banai
+  }
   const drinkTotal = table.orders.reduce((sum, o) => sum + o.menuItem.price * o.quantity, 0)
+  const nominationFees = calcNominationFees(table)
 
   // 追補02 R13: 合算会計 - mergeTableIds に指定された卓の小計を加算
   const mergedTables = tables.filter((t) => mergeTableIds.includes(t.id))
@@ -240,8 +254,9 @@ export default function BillingPage() {
     (acc, t) => acc + t.orders.reduce((s, o) => s + o.menuItem.price * o.quantity, 0),
     0,
   )
+  const mergedNominationFees = mergedTables.reduce((s, t) => s + calcNominationFees(t), 0)
 
-  const subtotal = drinkTotal + mergedDrinkTotal  // 内税扱い
+  const subtotal = drinkTotal + mergedDrinkTotal + nominationFees + mergedNominationFees  // 内税扱い
   const setFee = setPriceTotal + mergedSetFee  // 内税扱い
   const taxRate = storeSettings.taxRate
   const cardFeeRate = storeSettings.cardFeeRate
