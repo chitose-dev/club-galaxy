@@ -187,7 +187,7 @@ function StoreTrendView() {
     labels.forEach((l) => map.set(l, { sales: 0, cardSales: 0, expense: 0 }))
 
     for (const r of billingRecords) {
-      const d = r.date ?? today.toISOString().slice(0, 10)
+      const d = r.businessDate ?? r.date ?? new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
       const k = keyOf(d)
       const b = map.get(k)
       if (!b) continue
@@ -476,7 +476,7 @@ function CastTrendView() {
     // 指示書§5.2: 本指名卓の小計を担当キャストの売上に重畳
     for (const r of billingRecords) {
       if (r.nominatedCastId !== cast.id) continue
-      const d = r.date ?? today.toISOString().slice(0, 10)
+      const d = r.businessDate ?? r.date ?? new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
       const k = keyOf(d)
       const b = map.get(k)
       if (!b) continue
@@ -632,7 +632,7 @@ function CalendarView() {
       map.set(ds, { sales: 0, expense: 0, count: 0, food: 0, labor: 0, fl: 0 })
     }
     for (const r of billingRecords) {
-      const d = r.date ?? today.toISOString().slice(0, 10)
+      const d = r.businessDate ?? r.date ?? new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
       if (!d.startsWith(monthPrefix)) continue
       const b = map.get(d)
       if (b) {
@@ -664,7 +664,7 @@ function CalendarView() {
 
   const dayDetail = useMemo(() => {
     if (!selectedDay) return null
-    const records = billingRecords.filter((r) => (r.date ?? '') === selectedDay)
+    const records = billingRecords.filter((r) => (r.businessDate ?? r.date ?? '') === selectedDay)
     // 担当キャスト別にグループ化
     const grouped = new Map<string, typeof records>()
     for (const r of records) {
