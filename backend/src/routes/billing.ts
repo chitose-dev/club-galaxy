@@ -1,8 +1,8 @@
 import { Router } from 'express'
 import { storeCollection } from '../firebase'
-import { getAuthedUser } from '../middleware/auth'
+import { getAuthedUser, requireRole } from '../middleware/auth'
 import { nowJstIso, todayBusinessDate } from '../lib/businessDate'
-import { sendError, throwBadRequest } from '../lib/errors'
+import { sendError, throwBadRequest, throwNotFound } from '../lib/errors'
 import type { BillingRecord, DiscountLog } from '../types'
 
 export const billingRouter = Router()
@@ -55,6 +55,56 @@ billingRouter.post('/records', async (req, res) => {
     } as BillingRecord
     await storeCollection('billingRecords').doc(String(record.id)).set(record)
     res.status(201).json(record)
+  } catch (e) {
+    sendError(res, e)
+  }
+})
+
+// PATCH /api/billing/records/:id — 未収管理（owner only）
+// 更新可能フィールドは uncollectedStatus / uncollectedReason / writtenOffAt / settledOff のみ。
+// 売上等の他フィールドは取り違え防止のため受け付けない（whitelist 方式）。
+billingRouter.patch('/records/:id', requireRole('owner'), async (req, res) => {
+  try {
+    const id = String(req.params.id)
+    const ref = storeCollection('billingRecords').doc(id)
+    const snap = await ref.get()
+    if (!snap.exists) throwNotFound('BillingRecord が見つかりません')
+    const body = req.body ?? {}
+    const update: Record<string, unknown> = {}
+    if (body.uncollectedStatus !== undefined) {
+      const v = body.uncollectedStatus
+      if (v !== 'pending' && v !== 'written_off' && v !== 'recovered') {
+        throwBadRequest('uncollectedStatus は pending / written_off / recovered のいずれか')
+      }
+      update.uncollectedStatus = v
+    }
+    if (body.uncollectedReason !== undefined) {
+      if (typeof body.uncollectedReason !== 'string') {
+        throwBadRequest('uncollectedReason は文字列で指定してください')
+      }
+      update.uncollectedReason = body.uncollectedReason
+    }
+    if (body.writtenOffAt !== undefined) {
+      if (typeof body.writtenOffAt !== 'string') {
+        throwBadRequest('writtenOffAt は ISO 文字列で指定してください')
+      }
+      update.writtenOffAt = body.writtenOffAt
+    }
+    if (body.settledOff !== undefined) {
+      if (typeof body.settledOff !== 'boolean') {
+        throwBadRequest('settledOff は boolean で指定してください')
+      }
+      update.settledOff = body.settledOff
+    }
+    if (Object.keys(update).length === 0) {
+      throwBadRequest('更新可能なフィールドが指定されていません')
+    }
+    const user = getAuthedUser(req)
+    update.updatedBy = user.username
+    update.updatedAt = nowJstIso()
+    await ref.update(update)
+    const updated = await ref.get()
+    res.json(updated.data() as BillingRecord)
   } catch (e) {
     sendError(res, e)
   }

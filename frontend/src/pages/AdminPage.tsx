@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   DndContext,
   PointerSensor,
@@ -18,7 +19,7 @@ import { castsApi } from '../api/casts'
 import { isPercentBackType } from '../data/mock'
 import { computeDailyWork } from '../utils/dailyWork'
 import { calcHourlyPay } from '../utils/payroll'
-import type { Cast, BackType, GuestMenuItem, CastMenuItem, SetPrice, Table, StoreSettings, DailyWork, UserAccount } from '../data/mock'
+import type { Cast, BackType, GuestMenuItem, CastMenuItem, SetPrice, Table, StoreSettings, DailyWork, UserAccount, BillingRecord } from '../data/mock'
 import type { AttendanceRecord, Expense, ExpenseCategory, AdvancePayment, ArchivedData } from '../data/mock'
 import React from 'react'
 import { Pencil, Trash2, Plus, Save, Download, ChevronUp, ChevronDown, GripVertical, Clock, Printer } from 'lucide-react'
@@ -32,7 +33,7 @@ import { getTodayBusinessDay, formatBusinessDay } from '../utils/businessDay'
 type AdminTab =
   | 'menu' | 'cast' | 'price' | 'tables' | 'settings' | 'export' | 'users'
   | 'attendance' | 'expense' | 'advance' | 'archive'
-  | 'dailypay' | 'prepay'
+  | 'dailypay' | 'prepay' | 'uncollected'
 
 const backTypes: BackType[] = [
   'FD', '本D',
@@ -57,6 +58,7 @@ export default function AdminPage() {
     archivedData, archiveOldData,
     deductions, addDailyPayRequest,
     menuCategories, setMenuCategories,
+    updateBillingRecord,
   } = useStore()
 
   const [activeTab, setActiveTab] = useState<AdminTab>('menu')
@@ -71,6 +73,7 @@ export default function AdminPage() {
     { key: 'advance', label: '前借り' },
     { key: 'prepay', label: '前払い' },   // 追補02 R11-5: 出勤未出勤問わず
     { key: 'expense', label: '経費' },
+    { key: 'uncollected', label: '未収管理' },
     { key: 'settings', label: '設定' },
     { key: 'export', label: '出力' },
     { key: 'archive', label: 'アーカイブ' },
@@ -92,6 +95,7 @@ export default function AdminPage() {
       {activeTab === 'tables' && <TableManager tables={tables} setTables={setTables} reorderTables={reorderTables} />}
       {activeTab === 'attendance' && <AttendanceManager attendanceRecords={attendanceRecords} addAttendance={addAttendance} updateAttendance={updateAttendance} casts={casts} attendanceSchedules={attendanceSchedules} addAttendanceSchedule={addAttendanceSchedule} removeAttendanceSchedule={removeAttendanceSchedule} markScheduleProcessed={markScheduleProcessed} />}
       {activeTab === 'expense' && <ExpenseManager expenses={expenses} addExpense={addExpense} removeExpense={removeExpense} />}
+      {activeTab === 'uncollected' && <UncollectedManager billingRecords={billingRecords} updateBillingRecord={updateBillingRecord} />}
       {activeTab === 'advance' && <AdvanceManager advancePayments={advancePayments} addAdvancePayment={addAdvancePayment} casts={casts} storeSettings={storeSettings} />}
       {activeTab === 'dailypay' && <DailyPayManager casts={casts} attendanceRecords={attendanceRecords} dailyPayRequests={dailyPayRequests} addDailyPayRequest={addDailyPayRequest} />}
       {activeTab === 'prepay' && <PrepayManager casts={casts} advancePayments={advancePayments} addAdvancePayment={addAdvancePayment} />}
@@ -2242,6 +2246,157 @@ function PrepayManager({
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────
+// 未収管理 (Fix 7-2): 未収 BillingRecord の確定・回収・締め相殺
+// ────────────────────────────────────────────────────────────
+type UncollectedSubTab = 'pending' | 'written_off'
+
+function UncollectedManager({ billingRecords, updateBillingRecord }: {
+  billingRecords: BillingRecord[]
+  updateBillingRecord: (id: string, patch: Partial<Pick<BillingRecord, 'uncollectedStatus' | 'uncollectedReason' | 'writtenOffAt' | 'settledOff'>>) => void
+}) {
+  const navigate = useNavigate()
+  const [subTab, setSubTab] = useState<UncollectedSubTab>('pending')
+  const [reasonFor, setReasonFor] = useState<BillingRecord | null>(null)
+  const [reasonInput, setReasonInput] = useState('')
+
+  const pendingList = billingRecords.filter(
+    (r) => r.isUncollected && r.uncollectedStatus !== 'written_off' && r.uncollectedStatus !== 'recovered',
+  )
+  const writtenOffList = billingRecords.filter((r) => r.uncollectedStatus === 'written_off')
+
+  const formatDateTime = (iso: string) => {
+    try {
+      const d = new Date(iso)
+      return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+    } catch {
+      return iso
+    }
+  }
+
+  const handleConfirmWrittenOff = () => {
+    if (!reasonFor) return
+    const reason = reasonInput.trim()
+    if (!reason) return
+    updateBillingRecord(reasonFor.id, {
+      uncollectedStatus: 'written_off',
+      uncollectedReason: reason,
+      writtenOffAt: new Date().toISOString(),
+    })
+    setReasonFor(null)
+    setReasonInput('')
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* 事由入力モーダル */}
+      {reasonFor && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 border border-white/10 rounded-lg p-4 max-w-md w-full space-y-3">
+            <h3 className="text-sm font-bold text-white">確定未収にする</h3>
+            <div className="text-xs text-gray-400">
+              卓 {reasonFor.tableNumber} / ¥{reasonFor.total.toLocaleString()} / {formatDateTime(reasonFor.completedAt)}
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">事由（必須）</label>
+              <input
+                value={reasonInput}
+                onChange={(e) => setReasonInput(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm"
+                placeholder="例: 客が支払わず逃走"
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => { setReasonFor(null); setReasonInput('') }} className="flex-1 bg-white/5 border border-white/10 py-2 rounded-lg text-sm text-gray-400">キャンセル</button>
+              <button onClick={handleConfirmWrittenOff} disabled={!reasonInput.trim()} className="flex-1 py-2 rounded-lg text-sm font-bold bg-red-500/20 text-red-400 border border-red-500/30 disabled:opacity-40">確定未収にする</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* サブタブ */}
+      <div className="flex gap-2">
+        <button
+          onClick={() => setSubTab('pending')}
+          className={`flex-1 py-2 rounded-lg text-sm font-bold ${subTab === 'pending' ? 'bg-white text-black' : 'bg-white/5 text-gray-400 border border-white/10'}`}
+        >
+          保留中 ({pendingList.length})
+        </button>
+        <button
+          onClick={() => setSubTab('written_off')}
+          className={`flex-1 py-2 rounded-lg text-sm font-bold ${subTab === 'written_off' ? 'bg-white text-black' : 'bg-white/5 text-gray-400 border border-white/10'}`}
+        >
+          確定未収 ({writtenOffList.length})
+        </button>
+      </div>
+
+      {subTab === 'pending' && (
+        <div className="space-y-2">
+          {pendingList.length === 0 && (
+            <div className="text-center text-gray-500 text-sm py-8">保留中の未収はありません</div>
+          )}
+          {pendingList.map((r) => (
+            <div key={r.id} className="bg-white/5 rounded-lg p-3 space-y-2">
+              <div className="flex justify-between items-start">
+                <div className="text-xs text-gray-400">
+                  <div>{formatDateTime(r.completedAt)}</div>
+                  <div>卓 {r.tableNumber} / 担当: {(r.castNamesSnapshot ?? []).join(', ') || '-'}</div>
+                </div>
+                <div className="text-base font-bold text-red-400 tabular-nums">¥{r.total.toLocaleString()}</div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setReasonFor(r); setReasonInput('') }}
+                  className="flex-1 py-2 rounded-lg text-xs font-bold bg-red-500/20 text-red-400 border border-red-500/30"
+                >
+                  確定未収
+                </button>
+                <button
+                  onClick={() => navigate(`/billing?uncollectedId=${r.id}`)}
+                  className="flex-1 py-2 rounded-lg text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                >
+                  回収
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {subTab === 'written_off' && (
+        <div className="space-y-2">
+          {writtenOffList.length === 0 && (
+            <div className="text-center text-gray-500 text-sm py-8">確定未収はありません</div>
+          )}
+          {writtenOffList.map((r) => (
+            <div key={r.id} className="bg-white/5 rounded-lg p-3 space-y-2">
+              <div className="flex justify-between items-start">
+                <div className="text-xs text-gray-400 space-y-0.5">
+                  <div>{formatDateTime(r.completedAt)}</div>
+                  <div>卓 {r.tableNumber} / 担当: {(r.castNamesSnapshot ?? []).join(', ') || '-'}</div>
+                  {r.uncollectedReason && <div className="text-amber-300/80">事由: {r.uncollectedReason}</div>}
+                  {r.writtenOffAt && <div className="text-gray-500">確定: {formatDateTime(r.writtenOffAt)}</div>}
+                </div>
+                <div className="text-base font-bold text-red-400 tabular-nums">¥{r.total.toLocaleString()}</div>
+              </div>
+              <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!r.settledOff}
+                  onChange={(e) => updateBillingRecord(r.id, { settledOff: e.target.checked })}
+                  className="w-4 h-4"
+                />
+                <span>締め相殺済み</span>
+              </label>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

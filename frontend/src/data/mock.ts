@@ -236,6 +236,17 @@ export interface BillingRecord {
   receiptSnapshot?: ReceiptSnapshot
   /** 未収（代金未収受）フラグ。誤開卓・トラブル等で代金回収できず退卓した場合に true */
   isUncollected?: boolean
+  /** 未収ステータス（オーナーが管理画面で更新）。
+   *  - pending: 未収発生直後、判定待ち
+   *  - written_off: 確定未収（事由を記録）
+   *  - recovered: 後日回収完了（通常会計として処理） */
+  uncollectedStatus?: 'pending' | 'written_off' | 'recovered'
+  /** 確定未収（written_off）時の事由。例: 客が支払わず逃走、誤開卓、等 */
+  uncollectedReason?: string
+  /** 確定未収にした日時（ISO） */
+  writtenOffAt?: string
+  /** レジ締め時に相殺済みかどうか（締め処理で参照） */
+  settledOff?: boolean
 }
 
 /** 領収書再印刷用に必要な会計スナップショット */

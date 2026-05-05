@@ -86,6 +86,10 @@ interface Store {
   resetTable: (id: number) => void
   addDiscountLog: (log: DiscountLog) => void
   addBillingRecord: (record: BillingRecord) => void
+  /** 未収管理用の部分更新。owner only。楽観的に local state に反映してから API。 */
+  updateBillingRecord: (id: string, patch: Partial<Pick<BillingRecord,
+    'uncollectedStatus' | 'uncollectedReason' | 'writtenOffAt' | 'settledOff'
+  >>) => void
   addDailyPayRequest: (req: DailyPayRequest) => void
   setCasts: React.Dispatch<React.SetStateAction<Cast[]>>
   setGuestMenu: React.Dispatch<React.SetStateAction<GuestMenuItem[]>>
@@ -438,6 +442,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     billingApi.create(record).catch(console.error)
   }, [])
 
+  const updateBillingRecord = useCallback((
+    id: string,
+    patch: Partial<Pick<BillingRecord, 'uncollectedStatus' | 'uncollectedReason' | 'writtenOffAt' | 'settledOff'>>,
+  ) => {
+    // 楽観的更新
+    setBillingRecords((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)))
+    billingApi.updateRecord(id, patch).catch(console.error)
+  }, [])
+
   const addDailyPayRequest = useCallback((req: DailyPayRequest) => {
     setDailyPayRequests((prev) => [...prev, req])
     // Day 2: POST /api/payroll/daily-payments
@@ -653,6 +666,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         resetTable,
         addDiscountLog,
         addBillingRecord,
+        updateBillingRecord,
         addDailyPayRequest,
         setCasts,
         setGuestMenu,
