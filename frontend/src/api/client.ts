@@ -7,6 +7,16 @@ function getToken(): string | null {
   return localStorage.getItem('authToken')
 }
 
+/** API 呼び出し失敗時の Error。HTTP status を保持し呼び出し元で 401 等を判定可能にする。 */
+export class ApiError extends Error {
+  status: number
+  constructor(status: number, message: string) {
+    super(message)
+    this.status = status
+    this.name = 'ApiError'
+  }
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken()
   const res = await fetch(`${API_BASE}${path}`, {
@@ -19,7 +29,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   })
   if (!res.ok) {
     const text = await res.text().catch(() => '')
-    throw new Error(`API ${init?.method ?? 'GET'} ${path} → ${res.status}: ${text}`)
+    throw new ApiError(res.status, `API ${init?.method ?? 'GET'} ${path} → ${res.status}: ${text}`)
   }
   return res.json() as Promise<T>
 }
