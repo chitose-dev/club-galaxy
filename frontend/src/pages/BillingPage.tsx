@@ -20,7 +20,7 @@ type PaymentMethod = 'cash' | 'card' | 'mixed'
 type BillingTab = 'total' | 'individual' | 'audit' | 'history'
 
 export default function BillingPage() {
-  const { tables, resetTable, discountLogs, addDiscountLog, addBillingRecord, billingRecords, storeSettings, getNextReceiptNumber, casts, updateBillingRecord } = useStore()
+  const { tables, resetTable, discountLogs, addDiscountLog, addBillingRecord, billingRecords, storeSettings, getNextReceiptNumber, casts } = useStore()
   const { user } = useAuth()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -167,31 +167,7 @@ export default function BillingPage() {
     ? billingRecords.find((r) => r.id === uncollectedId && r.isUncollected) ?? null
     : null
   if (uncollectedRecord) {
-    return (
-      <UncollectedRecoveryView
-        record={uncollectedRecord}
-        onCancel={() => navigate('/admin?tab=uncollected')}
-        onConfirm={(method) => {
-          // 1. 通常 BillingRecord を新規作成（isUncollected: false で売上計上）
-          addBillingRecord({
-            id: String(Date.now()),
-            tableNumber: uncollectedRecord.tableNumber,
-            total: uncollectedRecord.total,
-            paymentMethod: method,
-            cashAmount: method === 'cash' ? uncollectedRecord.total : 0,
-            cardAmount: method === 'card' ? uncollectedRecord.total : 0,
-            completedAt: new Date().toISOString(),
-            date: new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10),
-            isUncollected: false,
-            ...(uncollectedRecord.castNamesSnapshot ? { castNamesSnapshot: [...uncollectedRecord.castNamesSnapshot] } : {}),
-          })
-          // 2. 元の未収レコードを recovered に更新
-          updateBillingRecord(uncollectedRecord.id, { uncollectedStatus: 'recovered' })
-          // 3. 未収管理タブへ戻す
-          navigate('/admin?tab=uncollected')
-        }}
-      />
-    )
+    return <UncollectedRecoveryView record={uncollectedRecord} />
   }
 
   if (!table || table.status === 'empty') {
@@ -1051,13 +1027,35 @@ function AuditLogView({ logs, onClose }: { logs: DiscountLog[]; onClose?: () => 
 
 // ────────────────────────────────────────────────────────────
 // 未収回収モード: AdminPage > 未収管理「回収」ボタン経由で呼ばれる
+// 通常会計と同等の UI（割引 / mixed 決済 / 印刷オプション）。orders は元レコード
+// に含まれないため省略し、レシートには金額・宛名・但書のみ印字する簡易版。
 // ────────────────────────────────────────────────────────────
-function UncollectedRecoveryView({ record, onConfirm, onCancel }: {
-  record: BillingRecord
-  onConfirm: (method: 'cash' | 'card') => void
-  onCancel: () => void
-}) {
-  const [method, setMethod] = useState<'cash' | 'card'>('cash')
+function UncollectedRecoveryView({ record }: { record: BillingRecord }) {
+  const { addBillingRecord, updateBillingRecord, addDiscountLog, storeSettings } = useStore()
+  const { user } = useAuth()
+  const navigate = useNavigate()
+
+  const [method, setMethod] = useState<PaymentMethod>('cash')
+  const [cashInputAmount, setCashInputAmount] = useState('')
+  const [discount, setDiscount] = useState(0)
+  const [discountReason, setDiscountReason] = useState('')
+  const [showReceiptDialog, setShowReceiptDialog] = useState(false)
+  const [receiptName, setReceiptName] = useState('')
+  const [receiptPurpose, setReceiptPurpose] = useState('飲食代として')
+  const [printedTotal, setPrintedTotal] = useState(0)
+
+  const baseTotal = record.total
+  const cardFeeRate = storeSettings.cardFeeRate
+  const preCardTotal = Math.max(0, baseTotal - discount)
+  const mixedCash = method === 'mixed' ? Number(cashInputAmount) || 0 : 0
+  const mixedCard = method === 'mixed' ? Math.max(0, preCardTotal - mixedCash) : 0
+  const mixedCardFee = method === 'mixed' && mixedCard > 0 ? Math.floor(mixedCard * cardFeeRate) : 0
+  const cardFee = method === 'card' ? Math.floor(preCardTotal * cardFeeRate) : 0
+  const finalTotal = method === 'mixed' ? preCardTotal + mixedCardFee : preCardTotal + cardFee
+
+  const discountValid = discount === 0 || discountReason.trim().length > 0
+  const mixedValid = method !== 'mixed' || (mixedCash > 0 && mixedCash < preCardTotal)
+  const canConfirm = discountValid && mixedValid && finalTotal >= 0
 
   const formatDateTime = (iso: string) => {
     try {
@@ -1066,6 +1064,96 @@ function UncollectedRecoveryView({ record, onConfirm, onCancel }: {
     } catch {
       return iso
     }
+  }
+
+  const handleConfirm = () => {
+    if (!canConfirm) return
+    if (discount > 0) {
+      addDiscountLog({
+        id: Date.now(),
+        tableNumber: record.tableNumber,
+        originalTotal: baseTotal,
+        discountAmount: discount,
+        reason: discountReason,
+        operator: user?.displayName ?? 'スタッフ',
+        timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
+      })
+    }
+    addBillingRecord({
+      id: String(Date.now()),
+      tableNumber: record.tableNumber,
+      total: finalTotal,
+      paymentMethod: method,
+      cashAmount: method === 'cash' ? finalTotal : method === 'mixed' ? mixedCash : 0,
+      cardAmount: method === 'card' ? finalTotal : method === 'mixed' ? mixedCard : 0,
+      cardFee: cardFee > 0 || mixedCardFee > 0 ? (method === 'mixed' ? mixedCardFee : cardFee) : undefined,
+      completedAt: new Date().toISOString(),
+      date: new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10),
+      isUncollected: false,
+      ...(record.castNamesSnapshot ? { castNamesSnapshot: [...record.castNamesSnapshot] } : {}),
+    })
+    updateBillingRecord(record.id, { uncollectedStatus: 'recovered' })
+    setPrintedTotal(finalTotal)
+    setShowReceiptDialog(true)
+  }
+
+  const handlePrint = () => {
+    // 簡易レシート (orders なし、金額・宛名・但書のみ)
+    const consumptionTax = Math.floor(printedTotal - printedTotal / (1 + (storeSettings.taxRate || 0)))
+    const html = `
+      <div style="font-family: serif; padding: 16px; max-width: 600px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; border-bottom: 2px solid #000; padding-bottom: 8px;">
+          <div>
+            <div style="font-size: 12px; margin-bottom: 4px;">${new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
+            <div style="font-size: 14px;"><span style="display: inline-block; min-width: 160px; border-bottom: 1px solid #000; padding: 0 8px;">${escapeForReceipt(receiptName) || '　上様　'}</span><span style="margin-left: 4px;">様</span></div>
+          </div>
+          <div style="text-align: right;"><h2 style="font-size: 22px; font-weight: bold; letter-spacing: 0.5em; margin: 0;">領収書</h2><div style="font-size: 11px; margin-top: 4px;">未収回収</div></div>
+        </div>
+        <div style="text-align: center; margin: 16px 0;"><div style="font-size: 28px; font-weight: bold; letter-spacing: 0.1em;">¥ ${printedTotal.toLocaleString()} －</div></div>
+        <div style="font-size: 12px; line-height: 1.6;">
+          <div>但 <span style="border-bottom: 1px solid #000; padding: 0 8px;">${escapeForReceipt(receiptPurpose)}</span></div>
+          <div>として上記正に領収いたしました</div>
+          <div style="margin-top: 8px; color: #444;">うち消費税等 ¥${consumptionTax.toLocaleString()}</div>
+        </div>
+        <div style="margin-top: 24px; font-size: 11px; color: #444;">${escapeForReceipt(storeSettings.storeName)}</div>
+      </div>
+    `
+    openReceiptWindow(html, '領収書（未収回収）')
+    navigate('/admin?tab=uncollected')
+  }
+
+  const handleSkipPrint = () => {
+    navigate('/admin?tab=uncollected')
+  }
+
+  if (showReceiptDialog) {
+    return (
+      <div className="flex flex-col min-h-full">
+        <ContextualHeader accent="billing" title="回収完了" />
+        <div className="flex-1 p-4 max-w-md mx-auto w-full space-y-4">
+          <div className="panel p-4 space-y-3 text-center">
+            <CheckCircle size={48} className="mx-auto text-emerald-400" />
+            <div className="text-lg font-bold text-white">¥{printedTotal.toLocaleString()} を回収しました</div>
+            <div className="text-xs text-gray-400">未収レコードを「回収済み」に更新しました</div>
+          </div>
+          <div className="panel p-4 space-y-3">
+            <h3 className="text-sm font-bold text-white">領収書を発行しますか？</h3>
+            <Field label="宛名">
+              <Input value={receiptName} onChange={(e) => setReceiptName(e.target.value)} placeholder="上様" />
+            </Field>
+            <Field label="但書">
+              <Input value={receiptPurpose} onChange={(e) => setReceiptPurpose(e.target.value)} placeholder="飲食代として" />
+            </Field>
+          </div>
+          <div className="flex gap-2">
+            <DarkButton onClick={handleSkipPrint} className="flex-1">印刷せず閉じる</DarkButton>
+            <button onClick={handlePrint} className="flex-1 py-3 rounded-lg text-sm font-bold bg-white text-black flex items-center justify-center gap-1.5">
+              <Printer size={15} /> 印刷
+            </button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -1083,34 +1171,89 @@ function UncollectedRecoveryView({ record, onConfirm, onCancel }: {
             )}
           </div>
           <div className="flex justify-between items-center pt-2 border-t border-white/10">
-            <span className="text-sm text-gray-400">回収金額</span>
-            <span className="text-2xl font-bold text-gold tabular-nums">¥{record.total.toLocaleString()}</span>
+            <span className="text-sm text-gray-400">未収金額</span>
+            <span className="text-base font-bold text-red-400 tabular-nums">¥{baseTotal.toLocaleString()}</span>
           </div>
+        </div>
+
+        <div className="panel p-4 space-y-3">
+          <h3 className="text-sm font-bold text-white">割引</h3>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500 shrink-0">金額</span>
+            <input
+              type="number"
+              value={discount || ''}
+              onChange={(e) => setDiscount(Math.max(0, Number(e.target.value) || 0))}
+              placeholder="0"
+              className="flex-1 bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-right tabular-nums"
+            />
+            <span className="text-xs text-gray-500">円</span>
+          </div>
+          {discount > 0 && (
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">理由（必須）</label>
+              <select
+                value={discountReason}
+                onChange={(e) => setDiscountReason(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm"
+              >
+                <option value="">-- 選択 --</option>
+                {DISCOUNT_REASON_PRESETS.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+          )}
         </div>
 
         <div className="panel p-4 space-y-3">
           <h3 className="text-sm font-bold text-white">支払い方法</h3>
           <div className="flex gap-2">
-            <button
-              onClick={() => setMethod('cash')}
-              className={`flex-1 py-3 rounded-lg text-sm font-bold ${method === 'cash' ? 'bg-white text-black' : 'bg-white/5 text-gray-400 border border-white/10'}`}
-            >
-              現金
-            </button>
-            <button
-              onClick={() => setMethod('card')}
-              className={`flex-1 py-3 rounded-lg text-sm font-bold ${method === 'card' ? 'bg-white text-black' : 'bg-white/5 text-gray-400 border border-white/10'}`}
-            >
-              カード
-            </button>
+            {(['cash', 'card', 'mixed'] as PaymentMethod[]).map((m) => (
+              <button
+                key={m}
+                onClick={() => setMethod(m)}
+                className={`flex-1 py-3 rounded-lg text-xs font-bold ${method === m ? 'bg-white text-black' : 'bg-white/5 text-gray-400 border border-white/10'}`}
+              >
+                {m === 'cash' ? '現金' : m === 'card' ? 'カード' : '現金+カード'}
+              </button>
+            ))}
+          </div>
+          {method === 'mixed' && (
+            <div className="space-y-2">
+              <Field label="現金額（残額は自動的にカード決済）">
+                <Input
+                  type="number"
+                  value={cashInputAmount}
+                  onChange={(e) => setCashInputAmount(e.target.value)}
+                  placeholder="現金額"
+                />
+              </Field>
+              <div className="text-xs text-gray-400 space-y-0.5">
+                <div className="flex justify-between"><span>カード差額</span><span className="tabular-nums">¥{mixedCard.toLocaleString()}</span></div>
+                <div className="flex justify-between"><span>カード手数料 ({Math.round(cardFeeRate * 100)}%)</span><span className="tabular-nums">¥{mixedCardFee.toLocaleString()}</span></div>
+              </div>
+            </div>
+          )}
+          {method === 'card' && cardFee > 0 && (
+            <div className="text-xs text-gray-400 flex justify-between">
+              <span>カード手数料 ({Math.round(cardFeeRate * 100)}%)</span>
+              <span className="tabular-nums">¥{cardFee.toLocaleString()}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="panel p-4">
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-400">回収合計</span>
+            <span className="text-2xl font-bold text-gold tabular-nums">¥{finalTotal.toLocaleString()}</span>
           </div>
         </div>
 
         <div className="flex gap-2">
-          <DarkButton onClick={onCancel} className="flex-1">キャンセル</DarkButton>
+          <DarkButton onClick={() => navigate('/admin?tab=uncollected')} className="flex-1">キャンセル</DarkButton>
           <button
-            onClick={() => onConfirm(method)}
-            className="flex-1 py-3 rounded-lg text-sm font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+            onClick={handleConfirm}
+            disabled={!canConfirm}
+            className="flex-1 py-3 rounded-lg text-sm font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             回収確定
           </button>
@@ -1118,4 +1261,31 @@ function UncollectedRecoveryView({ record, onConfirm, onCancel }: {
       </div>
     </div>
   )
+}
+
+function escapeForReceipt(s: string | undefined | null): string {
+  if (!s) return ''
+  return s.replace(/[&<>"']/g, (c) => {
+    switch (c) {
+      case '&': return '&amp;'
+      case '<': return '&lt;'
+      case '>': return '&gt;'
+      case '"': return '&quot;'
+      case "'": return '&#39;'
+      default: return c
+    }
+  })
+}
+
+function openReceiptWindow(html: string, title: string) {
+  const w = window.open('', '_blank', 'width=400,height=600')
+  if (!w) {
+    alert('ポップアップがブロックされました。ブラウザの設定で許可してください。')
+    return
+  }
+  w.document.write(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>${escapeForReceipt(title)}</title>
+    <style>@page { size: 80mm auto; margin: 0; } body { margin: 0; padding: 8px; font-family: sans-serif; font-size: 11px; }</style>
+    </head><body>${html}</body></html>`)
+  w.document.close()
+  setTimeout(() => { w.focus(); w.print() }, 50)
 }
