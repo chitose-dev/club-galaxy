@@ -40,16 +40,33 @@ type CategoryKey =
   | 'wine'
   | 'charge'
 
-const categories: Array<{ key: CategoryKey; label: string }> = [
-  { key: 'all', label: '全ての商品' },
-  { key: 'cast-drink', label: 'キャストドリンク' },
-  { key: 'shot-pitcher', label: '単品ドリンク' },
-  { key: 'champagne', label: 'シャンパン' },
-  { key: 'whisky', label: 'ウイスキー' },
-  { key: 'shochu', label: '焼酎' },
-  { key: 'brandy', label: 'ブランデー' },
-  { key: 'wine', label: 'ワイン' },
-  { key: 'charge', label: '指名料・同伴' },
+/**
+ * ISSUE-011: カテゴリごとに色を割り当てて左メニューを視覚的に区別。
+ *  - キャストドリンクはピンク（他と最も差別化、指示書要件）
+ *  - 各色はダーク背景上で WCAG AA (4.5:1) を満たす 200〜300 系
+ *  - inactive 時も左端のカラーバーで色だけは保持し識別性を維持
+ */
+type CategoryDef = {
+  key: CategoryKey
+  label: string
+  /** active 時の背景・文字色クラス (Tailwind purge 検出のため静的記述) */
+  activeBg: string
+  activeText: string
+  /** 左端カラーバー (常時表示、active で太く) */
+  bar: string
+  barActive: string
+}
+
+const categories: CategoryDef[] = [
+  { key: 'all',          label: '全ての商品',     activeBg: 'bg-white/10',        activeText: 'text-white',       bar: 'bg-white/20',     barActive: 'bg-white/60' },
+  { key: 'cast-drink',   label: 'キャストドリンク', activeBg: 'bg-pink-500/15',    activeText: 'text-pink-200',    bar: 'bg-pink-400/40',  barActive: 'bg-pink-300' },
+  { key: 'shot-pitcher', label: '単品ドリンク',    activeBg: 'bg-sky-500/15',      activeText: 'text-sky-200',     bar: 'bg-sky-400/40',   barActive: 'bg-sky-300' },
+  { key: 'champagne',    label: 'シャンパン',      activeBg: 'bg-amber-500/15',    activeText: 'text-amber-200',   bar: 'bg-amber-400/40', barActive: 'bg-amber-300' },
+  { key: 'whisky',       label: 'ウイスキー',      activeBg: 'bg-orange-500/15',   activeText: 'text-orange-200',  bar: 'bg-orange-400/40',barActive: 'bg-orange-300' },
+  { key: 'shochu',       label: '焼酎',            activeBg: 'bg-emerald-500/15',  activeText: 'text-emerald-200', bar: 'bg-emerald-400/40',barActive: 'bg-emerald-300' },
+  { key: 'brandy',       label: 'ブランデー',      activeBg: 'bg-rose-500/15',     activeText: 'text-rose-200',    bar: 'bg-rose-400/40',  barActive: 'bg-rose-300' },
+  { key: 'wine',         label: 'ワイン',          activeBg: 'bg-red-500/15',      activeText: 'text-red-200',     bar: 'bg-red-400/40',   barActive: 'bg-red-300' },
+  { key: 'charge',       label: '指名料・同伴',    activeBg: 'bg-cyan-500/15',     activeText: 'text-cyan-200',    bar: 'bg-cyan-400/40',  barActive: 'bg-cyan-300' },
 ]
 
 /**
@@ -299,21 +316,31 @@ export default function OrderPage() {
       />
 
       <div className="flex-1 overflow-hidden grid grid-cols-1 md:grid-cols-[160px_minmax(0,1fr)_170px_minmax(0,1.3fr)]">
-        {/* ── Column 1: カテゴリー ── */}
+        {/* ── Column 1: カテゴリー (ISSUE-011: カテゴリ別カラー識別) ── */}
         <div className="border-r border-white/10 overflow-y-auto bg-primary-dark">
-          {categories.map((cat) => (
-            <button
-              key={cat.key}
-              onClick={() => setActiveCategory(cat.key)}
-              className={`w-full text-left px-4 py-3 text-sm border-b border-white/5 transition-colors ${
-                activeCategory === cat.key
-                  ? 'bg-gold/15 text-gold font-bold'
-                  : 'text-gray-400 hover:bg-white/5'
-              }`}
-            >
-              {cat.label}
-            </button>
-          ))}
+          {categories.map((cat) => {
+            const isActive = activeCategory === cat.key
+            return (
+              <button
+                key={cat.key}
+                onClick={() => setActiveCategory(cat.key)}
+                className={`relative w-full text-left pl-5 pr-4 py-3 text-sm border-b border-white/5 transition-colors ${
+                  isActive
+                    ? `${cat.activeBg} ${cat.activeText} font-bold`
+                    : 'text-gray-300 hover:bg-white/5'
+                }`}
+              >
+                {/* 左端カラーバー: 常時表示、active で太く＋明るく */}
+                <span
+                  aria-hidden
+                  className={`absolute left-0 top-0 bottom-0 transition-all ${
+                    isActive ? `w-1.5 ${cat.barActive}` : `w-1 ${cat.bar}`
+                  }`}
+                />
+                {cat.label}
+              </button>
+            )
+          })}
         </div>
 
         {/* ── Column 2: メニュー ── */}
