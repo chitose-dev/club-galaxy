@@ -106,6 +106,8 @@ export interface Cast extends AuditFields, SoftDeletable {
   active: boolean
   onBreak?: boolean
   lastAssignedAt?: string
+  /** ISSUE-007: 直近の出勤打刻時刻 (ルーズタイム判定用) */
+  lastClockInAt?: string
 }
 
 // ─────────────────────────────────────────────────────────────
