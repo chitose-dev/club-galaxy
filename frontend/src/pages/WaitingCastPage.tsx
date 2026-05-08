@@ -28,8 +28,8 @@ import type { Cast, Table } from '../data/mock'
  *  - 右 = 出勤中  (active=true: 出勤 + 休憩中)
  *  - 長押しドラッグで列間移動 → 出勤 / 退勤
  *  - 出勤後 15 分の「ルーズタイム」中は待機時間表示を出さない
- *  - ルーズタイム (14 分以内) の出退勤往復は lastClockInAt をクリアして
- *    給与計算対象外として扱う (= 給与 ¥0)
+ *  - ルーズタイム (LOOSE_TIME_MINUTES = 15 分未満) の出退勤往復は
+ *    lastClockInAt をクリアして給与計算対象外として扱う (= 給与 ¥0)
  */
 
 const LOOSE_TIME_MINUTES = 15
@@ -83,9 +83,10 @@ export default function WaitingCastPage() {
     setCasts((prev) =>
       prev.map((c) => {
         if (c.id !== id) return c
-        // ルーズタイム内 (14 分未満) の退勤は出勤打刻を打消し → 給与計算対象外
+        // ルーズタイム中（15 分未満）の退勤は出勤打刻を打消し → 給与計算対象外。
+        // isInLooseTime と同じ閾値 (LOOSE_TIME_MS) を使い境界をそろえる。
         const within = c.lastClockInAt
-          ? Date.now() - new Date(c.lastClockInAt).getTime() < (LOOSE_TIME_MINUTES - 1) * 60 * 1000
+          ? Date.now() - new Date(c.lastClockInAt).getTime() < LOOSE_TIME_MS
           : false
         return {
           ...c,
