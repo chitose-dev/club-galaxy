@@ -2433,10 +2433,12 @@ function DailyReportManager({
   const [reopenReason, setReopenReason] = useState<string>('')
   const [reopenError, setReopenError] = useState<string>('')
   const [submitError, setSubmitError] = useState<string>('')
+  const [submitting, setSubmitting] = useState(false)
 
-  // 当該営業日の billingRecords から理論値を集計（取消は除外）
+  // 当該営業日の billingRecords から理論値を集計（取消は除外）。
+  // 古い記録は businessDate を持たないため date にフォールバック。
   const todayRecords = billingRecords.filter(
-    (r) => !r.voidedAt && (r.businessDate === businessDate),
+    (r) => !r.voidedAt && ((r.businessDate ?? r.date) === businessDate),
   )
   const cashSales = todayRecords.reduce((s, r) => s + (r.cashAmount ?? 0), 0)
   const cardSales = todayRecords.reduce((s, r) => s + (r.cardAmount ?? 0), 0)
@@ -2446,11 +2448,13 @@ function DailyReportManager({
   const difference = actualCash - theoreticalCash
 
   const handleSubmit = async () => {
+    if (submitting) return
     setSubmitError('')
     if (!businessDate) {
       setSubmitError('営業日を入力してください')
       return
     }
+    setSubmitting(true)
     const report: DailyReport = {
       id: Date.now(),
       date: businessDate,
@@ -2479,6 +2483,8 @@ function DailyReportManager({
       setNote('')
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : '登録に失敗しました')
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -2585,9 +2591,10 @@ function DailyReportManager({
         {submitError && <div className="text-xs text-red-400">{submitError}</div>}
         <button
           onClick={handleSubmit}
-          className="w-full py-2 rounded-lg text-sm font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+          disabled={submitting}
+          className="w-full py-2 rounded-lg text-sm font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          締めて記録
+          {submitting ? '処理中…' : '締めて記録'}
         </button>
       </div>
 
