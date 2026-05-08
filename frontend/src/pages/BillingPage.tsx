@@ -493,6 +493,7 @@ export default function BillingPage() {
       {billingTab === 'history' ? (
         <BillingHistoryView
           records={billingRecords}
+          isOwner={user?.role === 'owner'}
           onReprint={(record) => reprintFromHistory(record, 'summary')}
           onReprintDetailed={(record) => reprintFromHistory(record, 'detailed')}
         />
@@ -958,13 +959,21 @@ export default function BillingPage() {
 
 function BillingHistoryView({
   records,
+  isOwner,
   onReprint,
   onReprintDetailed,
 }: {
   records: BillingRecord[]
+  isOwner: boolean
   onReprint: (record: BillingRecord) => void
   onReprintDetailed: (record: BillingRecord) => void
 }) {
+  const { voidBillingRecord } = useStore()
+  const [voidTarget, setVoidTarget] = useState<BillingRecord | null>(null)
+  const [voidReason, setVoidReason] = useState('')
+  const [voidError, setVoidError] = useState('')
+  const [voiding, setVoiding] = useState(false)
+
   const today = new Date().toISOString().slice(0, 10)
   const sorted = [...records].sort((a, b) => {
     const ad = a.date ?? today
@@ -974,6 +983,27 @@ function BillingHistoryView({
   })
   const paymentLabel = (m: BillingRecord['paymentMethod']) =>
     m === 'cash' ? '現金' : m === 'card' ? 'カード' : '現金+カード'
+
+  const handleVoidConfirm = async () => {
+    if (!voidTarget) return
+    const reason = voidReason.trim()
+    if (!reason) {
+      setVoidError('理由を入力してください')
+      return
+    }
+    setVoiding(true)
+    setVoidError('')
+    try {
+      await voidBillingRecord(voidTarget.id, reason)
+      setVoidTarget(null)
+      setVoidReason('')
+    } catch (e) {
+      // バックエンドの 422 ALREADY_CLOSED / 409 ALREADY_VOIDED もここで表示する
+      setVoidError(e instanceof Error ? e.message : '取消に失敗しました')
+    } finally {
+      setVoiding(false)
+    }
+  }
   return (
     <div className="flex-1 overflow-y-auto p-4">
       <h3 className="text-sm font-bold mb-2 text-gray-400">会計履歴</h3>
@@ -988,15 +1018,21 @@ function BillingHistoryView({
         <div className="space-y-3">
           {sorted.map((r) => {
             const reprintable = !!r.receiptSnapshot
+            const isVoided = !!r.voidedAt
             return (
-              <div key={r.id} className="panel p-3">
+              <div key={r.id} className={`panel p-3 ${isVoided ? 'opacity-60' : ''}`}>
                 <div className="flex justify-between items-start mb-2">
                   <div>
-                    <div className="text-sm font-bold">
+                    <div className="text-sm font-bold flex items-center gap-2">
                       卓 {r.tableNumber}
                       {r.receiptSnapshot && (
-                        <span className="ml-2 text-xs text-gray-500">
+                        <span className="text-xs text-gray-500">
                           伝票No. {r.receiptSnapshot.receiptNumber}
+                        </span>
+                      )}
+                      {isVoided && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30">
+                          取消済
                         </span>
                       )}
                     </div>
@@ -1006,8 +1042,11 @@ function BillingHistoryView({
                         <span className="ml-2">担当: {r.castNamesSnapshot.join(', ')}</span>
                       )}
                     </div>
+                    {isVoided && r.voidReason && (
+                      <div className="text-[11px] text-red-300/80 mt-1">取消理由: {r.voidReason}</div>
+                    )}
                   </div>
-                  <div className="text-gold font-bold tabular-nums">¥{r.total.toLocaleString()}</div>
+                  <div className={`font-bold tabular-nums ${isVoided ? 'text-gray-500 line-through' : 'text-gold'}`}>¥{r.total.toLocaleString()}</div>
                 </div>
                 <div className="flex gap-2">
                   <button
@@ -1024,6 +1063,15 @@ function BillingHistoryView({
                   >
                     <Printer size={12} /> 明細再印刷
                   </button>
+                  {isOwner && (
+                    <button
+                      onClick={() => { setVoidTarget(r); setVoidReason(''); setVoidError('') }}
+                      disabled={isVoided}
+                      className="px-3 py-2 text-xs font-bold rounded-lg bg-red-500/20 text-red-400 border border-red-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      取消
+                    </button>
+                  )}
                 </div>
                 {!reprintable && (
                   <p className="text-[10px] text-gray-600 mt-1 text-center">※ 再印刷データなし</p>
@@ -1031,6 +1079,50 @@ function BillingHistoryView({
               </div>
             )
           })}
+        </div>
+      )}
+
+      {voidTarget && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 border border-white/10 rounded-lg p-4 max-w-md w-full space-y-3">
+            <h3 className="text-sm font-bold text-white">会計記録を取消</h3>
+            <div className="text-xs text-gray-400">
+              卓 {voidTarget.tableNumber} / ¥{voidTarget.total.toLocaleString()}
+              {voidTarget.receiptSnapshot && (
+                <span className="ml-2">伝票No. {voidTarget.receiptSnapshot.receiptNumber}</span>
+              )}
+            </div>
+            <div className="text-xs text-amber-300/80">
+              取消後は売上集計から除外されます。レジ締め済みの場合は先に「日報・レジ締め」で解除してください。
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">取消理由（必須）</label>
+              <input
+                value={voidReason}
+                onChange={(e) => { setVoidReason(e.target.value); setVoidError('') }}
+                className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm"
+                placeholder="例: 誤って会計を確定した"
+                autoFocus
+              />
+              {voidError && <div className="text-xs text-red-400 mt-1">{voidError}</div>}
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setVoidTarget(null); setVoidReason(''); setVoidError('') }}
+                disabled={voiding}
+                className="flex-1 bg-white/5 border border-white/10 py-2 rounded-lg text-sm text-gray-400 disabled:opacity-40"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={handleVoidConfirm}
+                disabled={!voidReason.trim() || voiding}
+                className="flex-1 py-2 rounded-lg text-sm font-bold bg-red-500/20 text-red-400 border border-red-500/30 disabled:opacity-40"
+              >
+                {voiding ? '処理中…' : '取消する'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

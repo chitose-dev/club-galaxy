@@ -91,6 +91,9 @@ interface Store {
   updateBillingRecord: (id: string, patch: Partial<Pick<BillingRecord,
     'uncollectedStatus' | 'uncollectedReason' | 'writtenOffAt' | 'settledOff'
   >>) => void
+  /** 取消（void）。owner only、設計書 §3.1.1 / §6。
+   *  reason は必須。締め後 (DailyReport.closedAt) は 422 ALREADY_CLOSED で reject。 */
+  voidBillingRecord: (id: string, reason: string) => Promise<void>
   addDailyPayRequest: (req: DailyPayRequest) => void
   setCasts: React.Dispatch<React.SetStateAction<Cast[]>>
   setGuestMenu: React.Dispatch<React.SetStateAction<GuestMenuItem[]>>
@@ -140,6 +143,9 @@ interface Store {
   dailyReports: DailyReport[]
   addDailyReport: (report: DailyReport) => void
   removeDailyReport: (id: number) => void
+  /** reopen 後など local state を直接更新したい場合に使う raw setter。
+   *  AdminPage > 日報・レジ締めタブから利用。 */
+  setDailyReports: React.Dispatch<React.SetStateAction<DailyReport[]>>
   // 伝票番号カウンター
   nextReceiptNumber: number
   getNextReceiptNumber: () => number
@@ -478,6 +484,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     billingApi.updateRecord(id, patch).catch(console.error)
   }, [])
 
+  // 取消は楽観的更新せず、API 成功後にサーバーが返した記録で置き換える。
+  // 締め後の取消は 422 で弾かれるため、ローカルだけ取消扱いにすると整合が崩れる。
+  const voidBillingRecord = useCallback(async (id: string, reason: string) => {
+    const updated = await billingApi.voidRecord(id, reason)
+    setBillingRecords((prev) => prev.map((r) => (r.id === id ? { ...r, ...updated } : r)))
+  }, [])
+
   const addDailyPayRequest = useCallback((req: DailyPayRequest) => {
     setDailyPayRequests((prev) => [...prev, req])
     // Day 2: POST /api/payroll/daily-payments
@@ -694,6 +707,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         addDiscountLog,
         addBillingRecord,
         updateBillingRecord,
+        voidBillingRecord,
         addDailyPayRequest,
         setCasts,
         setGuestMenu,
@@ -731,6 +745,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         dailyReports,
         addDailyReport,
         removeDailyReport,
+        setDailyReports,
         nextReceiptNumber,
         getNextReceiptNumber,
       }}

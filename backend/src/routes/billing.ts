@@ -2,8 +2,9 @@ import { Router } from 'express'
 import { storeCollection } from '../firebase'
 import { getAuthedUser, requireRole } from '../middleware/auth'
 import { nowJstIso, todayBusinessDate } from '../lib/businessDate'
-import { sendError, throwBadRequest, throwNotFound } from '../lib/errors'
-import type { BillingRecord, DiscountLog } from '../types'
+import { ApiError, sendError, throwBadRequest, throwNotFound } from '../lib/errors'
+import { append, buildEntry } from '../lib/audit'
+import type { BillingRecord, DailyReport, DiscountLog } from '../types'
 
 export const billingRouter = Router()
 
@@ -103,6 +104,62 @@ billingRouter.patch('/records/:id', requireRole('owner'), async (req, res) => {
     update.updatedBy = user.username
     update.updatedAt = nowJstIso()
     await ref.update(update)
+    const updated = await ref.get()
+    res.json(updated.data() as BillingRecord)
+  } catch (e) {
+    sendError(res, e)
+  }
+})
+
+// POST /api/billing/records/:id/void — 取消（owner only、設計書 §3.1.1 / §6）
+//   - voidedAt / voidedBy / voidReason を立てて取消扱いに
+//   - 該当 businessDate の DailyReport.closedAt が立っていれば 422
+//     （reopen → void → 再締めのフローを案内）
+//   - 既に voidedAt があれば 409
+billingRouter.post('/records/:id/void', requireRole('owner'), async (req, res) => {
+  try {
+    const user = getAuthedUser(req)
+    const id = String(req.params.id)
+    const body = req.body ?? {}
+    if (typeof body.voidReason !== 'string' || body.voidReason.trim() === '') {
+      throwBadRequest('voidReason は必須（空文字禁止）')
+    }
+    const ref = storeCollection('billingRecords').doc(id)
+    const snap = await ref.get()
+    if (!snap.exists) throwNotFound('BillingRecord が見つかりません')
+    const record = snap.data() as BillingRecord
+    if (record.voidedAt) {
+      throw new ApiError(409, 'ALREADY_VOIDED', '既に取消済みです')
+    }
+    // 締め後 void は禁止: 該当営業日の dailyReport.closedAt をチェック
+    if (record.businessDate) {
+      const drSnap = await storeCollection('dailyReports').doc(record.businessDate).get()
+      if (drSnap.exists) {
+        const dr = drSnap.data() as DailyReport
+        if (dr.closedAt) {
+          throw new ApiError(
+            422,
+            'ALREADY_CLOSED',
+            'レジ締め済みのため取消できません。reopen 後に取消してください。',
+          )
+        }
+      }
+    }
+    const now = nowJstIso()
+    const update = {
+      voidedAt: now,
+      voidedBy: user.username,
+      voidReason: body.voidReason,
+    }
+    await ref.update(update)
+    await append(buildEntry({
+      action: 'void',
+      performedBy: user.username,
+      targetType: 'billingRecord',
+      targetId: id,
+      payload: { voidReason: body.voidReason },
+      businessDate: record.businessDate,
+    }))
     const updated = await ref.get()
     res.json(updated.data() as BillingRecord)
   } catch (e) {
