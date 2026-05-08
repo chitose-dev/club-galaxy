@@ -16,11 +16,12 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { useStore } from '../store'
 import { castsApi } from '../api/casts'
+import { dailyReportsApi } from '../api/dailyReports'
 import { isPercentBackType } from '../data/mock'
 import { computeDailyWork } from '../utils/dailyWork'
 import { calcHourlyPay } from '../utils/payroll'
 import type { Cast, BackType, GuestMenuItem, CastMenuItem, SetPrice, Table, StoreSettings, DailyWork, UserAccount, BillingRecord } from '../data/mock'
-import type { AttendanceRecord, Expense, ExpenseCategory, AdvancePayment, ArchivedData } from '../data/mock'
+import type { AttendanceRecord, Expense, ExpenseCategory, AdvancePayment, ArchivedData, DailyReport } from '../data/mock'
 import React from 'react'
 import { Pencil, Trash2, Plus, Save, Download, ChevronUp, ChevronDown, GripVertical, Clock, Printer } from 'lucide-react'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -33,7 +34,7 @@ import { getTodayBusinessDay, formatBusinessDay } from '../utils/businessDay'
 type AdminTab =
   | 'menu' | 'cast' | 'price' | 'tables' | 'settings' | 'export' | 'users'
   | 'attendance' | 'expense' | 'advance' | 'archive'
-  | 'dailypay' | 'prepay' | 'uncollected'
+  | 'dailypay' | 'prepay' | 'uncollected' | 'dailyreport'
 
 const backTypes: BackType[] = [
   'FD', '本D',
@@ -59,6 +60,7 @@ export default function AdminPage() {
     deductions, addDailyPayRequest,
     menuCategories, setMenuCategories,
     updateBillingRecord,
+    dailyReports, setDailyReports,
   } = useStore()
 
   // ?tab=<key> クエリで初期タブを指定可能（未収回収後に navigate('/admin?tab=uncollected') 等）
@@ -66,7 +68,7 @@ export default function AdminPage() {
   const tabParam = searchParams.get('tab') as AdminTab | null
   const validTabs: AdminTab[] = [
     'menu', 'cast', 'price', 'tables', 'attendance', 'dailypay', 'advance',
-    'prepay', 'expense', 'uncollected', 'settings', 'export', 'archive', 'users',
+    'prepay', 'expense', 'uncollected', 'dailyreport', 'settings', 'export', 'archive', 'users',
   ]
   const [activeTab, setActiveTab] = useState<AdminTab>(
     tabParam && validTabs.includes(tabParam) ? tabParam : 'menu',
@@ -83,6 +85,7 @@ export default function AdminPage() {
     { key: 'prepay', label: '前払い' },   // 追補02 R11-5: 出勤未出勤問わず
     { key: 'expense', label: '経費' },
     { key: 'uncollected', label: '未収管理' },
+    { key: 'dailyreport', label: '日報・レジ締め' },
     { key: 'settings', label: '設定' },
     { key: 'export', label: '出力' },
     { key: 'archive', label: 'アーカイブ' },
@@ -105,6 +108,7 @@ export default function AdminPage() {
       {activeTab === 'attendance' && <AttendanceManager attendanceRecords={attendanceRecords} addAttendance={addAttendance} updateAttendance={updateAttendance} casts={casts} attendanceSchedules={attendanceSchedules} addAttendanceSchedule={addAttendanceSchedule} removeAttendanceSchedule={removeAttendanceSchedule} markScheduleProcessed={markScheduleProcessed} />}
       {activeTab === 'expense' && <ExpenseManager expenses={expenses} addExpense={addExpense} removeExpense={removeExpense} />}
       {activeTab === 'uncollected' && <UncollectedManager billingRecords={billingRecords} updateBillingRecord={updateBillingRecord} />}
+      {activeTab === 'dailyreport' && <DailyReportManager dailyReports={dailyReports} setDailyReports={setDailyReports} billingRecords={billingRecords} />}
       {activeTab === 'advance' && <AdvanceManager advancePayments={advancePayments} addAdvancePayment={addAdvancePayment} casts={casts} storeSettings={storeSettings} />}
       {activeTab === 'dailypay' && <DailyPayManager casts={casts} attendanceRecords={attendanceRecords} dailyPayRequests={dailyPayRequests} addDailyPayRequest={addDailyPayRequest} />}
       {activeTab === 'prepay' && <PrepayManager casts={casts} advancePayments={advancePayments} addAdvancePayment={addAdvancePayment} />}
@@ -2406,6 +2410,229 @@ function UncollectedManager({ billingRecords, updateBillingRecord }: {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── 日報・レジ締め管理（owner only） ────────────────────────────────
+// 設計書 §6: 締め (POST /api/daily-reports) と reopen (POST /:businessDate/reopen) の owner UI。
+// reopen 後は closedAt: null になり、その営業日の billingRecord 取消が再度可能になる。
+function DailyReportManager({
+  dailyReports,
+  setDailyReports,
+  billingRecords,
+}: {
+  dailyReports: DailyReport[]
+  setDailyReports: React.Dispatch<React.SetStateAction<DailyReport[]>>
+  billingRecords: BillingRecord[]
+}) {
+  const [businessDate, setBusinessDate] = useState<string>(() => getTodayBusinessDay())
+  const [actualCash, setActualCash] = useState<number>(0)
+  const [note, setNote] = useState<string>('')
+  const [reopenTarget, setReopenTarget] = useState<DailyReport | null>(null)
+  const [reopenReason, setReopenReason] = useState<string>('')
+  const [reopenError, setReopenError] = useState<string>('')
+  const [submitError, setSubmitError] = useState<string>('')
+  const [submitting, setSubmitting] = useState(false)
+
+  // 当該営業日の billingRecords から理論値を集計（取消は除外）。
+  // 古い記録は businessDate を持たないため date にフォールバック。
+  const todayRecords = billingRecords.filter(
+    (r) => !r.voidedAt && ((r.businessDate ?? r.date) === businessDate),
+  )
+  const cashSales = todayRecords.reduce((s, r) => s + (r.cashAmount ?? 0), 0)
+  const cardSales = todayRecords.reduce((s, r) => s + (r.cardAmount ?? 0), 0)
+  const totalSales = cashSales + cardSales
+  const initialCash = 100000
+  const theoreticalCash = initialCash + cashSales
+  const difference = actualCash - theoreticalCash
+
+  const handleSubmit = async () => {
+    if (submitting) return
+    setSubmitError('')
+    if (!businessDate) {
+      setSubmitError('営業日を入力してください')
+      return
+    }
+    setSubmitting(true)
+    const report: DailyReport = {
+      id: Date.now(),
+      date: businessDate,
+      businessDate,
+      initialCash,
+      cashSales,
+      cardSales,
+      totalSales,
+      dailyPayTotal: 0,
+      cashExpenseTotal: 0,
+      cashAdvanceTotal: 0,
+      theoreticalCash,
+      actualCash,
+      difference,
+      note,
+      operator: '',
+      createdAt: new Date().toISOString(),
+      closedAt: new Date().toISOString(),
+    }
+    // addDailyReport は内部で API を叩くが catch で握り潰すので、
+    // ここでは API レスポンスを待ってサーバー側で正規化された値を local に反映する。
+    try {
+      const created = await dailyReportsApi.create(report)
+      setDailyReports((prev) => [...prev, created])
+      setActualCash(0)
+      setNote('')
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : '登録に失敗しました')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleReopen = async () => {
+    if (!reopenTarget) return
+    const reason = reopenReason.trim()
+    if (!reason) {
+      setReopenError('理由を入力してください')
+      return
+    }
+    const bd = reopenTarget.businessDate ?? reopenTarget.date
+    try {
+      const updated = await dailyReportsApi.reopen(bd, reason)
+      setDailyReports((prev) =>
+        prev.map((r) =>
+          (r.businessDate ?? r.date) === bd ? { ...r, ...updated } : r,
+        ),
+      )
+      setReopenTarget(null)
+      setReopenReason('')
+      setReopenError('')
+    } catch (e) {
+      setReopenError(e instanceof Error ? e.message : '解除に失敗しました')
+    }
+  }
+
+  const sortedReports = [...dailyReports].sort((a, b) => {
+    const ad = a.businessDate ?? a.date
+    const bd = b.businessDate ?? b.date
+    return bd.localeCompare(ad)
+  })
+
+  return (
+    <div className="space-y-4">
+      {reopenTarget && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 border border-white/10 rounded-lg p-4 max-w-md w-full space-y-3">
+            <h3 className="text-sm font-bold text-white">レジ締めを解除</h3>
+            <div className="text-xs text-gray-400">
+              営業日 {reopenTarget.businessDate ?? reopenTarget.date} / 売上 ¥{reopenTarget.totalSales.toLocaleString()}
+            </div>
+            <div className="text-xs text-amber-300/80">
+              解除すると、この営業日の会計記録に対して取消が再度可能になります。
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">解除理由（必須）</label>
+              <input
+                value={reopenReason}
+                onChange={(e) => { setReopenReason(e.target.value); setReopenError('') }}
+                className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm"
+                placeholder="例: 取消漏れの修正"
+                autoFocus
+              />
+              {reopenError && <div className="text-xs text-red-400 mt-1">{reopenError}</div>}
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => { setReopenTarget(null); setReopenReason(''); setReopenError('') }} className="flex-1 bg-white/5 border border-white/10 py-2 rounded-lg text-sm text-gray-400">キャンセル</button>
+              <button onClick={handleReopen} disabled={!reopenReason.trim()} className="flex-1 py-2 rounded-lg text-sm font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 disabled:opacity-40">解除する</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white/5 border border-white/10 rounded-lg p-3 space-y-2">
+        <h3 className="text-sm font-bold text-white">レジ締め登録</h3>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="text-xs text-gray-400">
+            営業日
+            <input
+              type="date"
+              value={businessDate}
+              onChange={(e) => setBusinessDate(e.target.value)}
+              className="w-full mt-1 bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm"
+            />
+          </label>
+          <label className="text-xs text-gray-400">
+            実有高（円）
+            <NumberInput
+              value={actualCash}
+              onChange={setActualCash}
+              className="w-full mt-1 bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm"
+            />
+          </label>
+        </div>
+        <div className="text-xs text-gray-400 grid grid-cols-2 gap-x-2 gap-y-1 tabular-nums">
+          <div>レジ金</div><div className="text-right">¥{initialCash.toLocaleString()}</div>
+          <div>現金売上</div><div className="text-right">¥{cashSales.toLocaleString()}</div>
+          <div>カード売上</div><div className="text-right">¥{cardSales.toLocaleString()}</div>
+          <div>売上合計</div><div className="text-right">¥{totalSales.toLocaleString()}</div>
+          <div>理論有高</div><div className="text-right">¥{theoreticalCash.toLocaleString()}</div>
+          <div className={difference === 0 ? 'text-emerald-400' : 'text-red-400'}>過不足</div>
+          <div className={`text-right font-bold ${difference === 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+            {difference >= 0 ? '+' : ''}¥{difference.toLocaleString()}
+          </div>
+        </div>
+        <label className="text-xs text-gray-400 block">
+          備考
+          <input
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            className="w-full mt-1 bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm"
+          />
+        </label>
+        {submitError && <div className="text-xs text-red-400">{submitError}</div>}
+        <button
+          onClick={handleSubmit}
+          disabled={submitting}
+          className="w-full py-2 rounded-lg text-sm font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {submitting ? '処理中…' : '締めて記録'}
+        </button>
+      </div>
+
+      <div className="space-y-2">
+        <h3 className="text-sm font-bold text-white">締め済みレポート</h3>
+        {sortedReports.length === 0 && (
+          <div className="text-center text-gray-500 text-sm py-8">レポートはありません</div>
+        )}
+        {sortedReports.map((r) => {
+          const bd = r.businessDate ?? r.date
+          const isReopened = !r.closedAt && !!r.reopenedAt
+          return (
+            <div key={`${bd}-${r.id}`} className="bg-white/5 rounded-lg p-3 space-y-2">
+              <div className="flex justify-between items-start">
+                <div className="text-xs text-gray-400 space-y-0.5">
+                  <div className="text-white font-bold">{formatBusinessDay(bd)}</div>
+                  <div>売上 ¥{r.totalSales.toLocaleString()} / 実有高 ¥{r.actualCash.toLocaleString()}</div>
+                  <div className={r.difference === 0 ? 'text-emerald-400' : 'text-red-400'}>
+                    過不足 {r.difference >= 0 ? '+' : ''}¥{r.difference.toLocaleString()}
+                  </div>
+                  {isReopened && (
+                    <div className="text-amber-300/80">
+                      解除中: {r.reopenedBy ?? ''} / 理由: {r.reopenReason ?? ''}
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => { setReopenTarget(r); setReopenReason(''); setReopenError('') }}
+                  disabled={isReopened}
+                  className="py-1.5 px-3 rounded-lg text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 disabled:opacity-40"
+                >
+                  {isReopened ? '解除済' : '解除'}
+                </button>
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

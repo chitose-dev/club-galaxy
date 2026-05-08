@@ -21,4 +21,8 @@ export const billingApi = {
     return api.get<DiscountLog[]>(`/api/billing/discounts${qs}`)
   },
   createDiscount: (log: DiscountLog) => api.post<DiscountLog>('/api/billing/discounts', log),
+  /** 取消（owner only）。voidedAt / voidedBy / voidReason を立てる。
+   *  該当営業日が締め済みなら 422 ALREADY_CLOSED、二重 void は 409 ALREADY_VOIDED。 */
+  voidRecord: (id: string, reason: string) =>
+    api.post<BillingRecord>(`/api/billing/records/${id}/void`, { voidReason: reason }),
 }

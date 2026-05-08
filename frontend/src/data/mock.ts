@@ -253,6 +253,12 @@ export interface BillingRecord {
   writtenOffAt?: string
   /** レジ締め時に相殺済みかどうか（締め処理で参照） */
   settledOff?: boolean
+  /** 取消（void）情報 — 設計書 §3.1.1 / §6。
+   *  voidedAt が立っている記録は売上集計から除外される。
+   *  レジ締め後の取消は禁止（reopen 必須）。 */
+  voidedAt?: string
+  voidedBy?: string
+  voidReason?: string
 }
 
 /** 領収書再印刷用に必要な会計スナップショット */
@@ -399,6 +405,9 @@ export interface StoreSettings {
 export interface DailyReport {
   id: number
   date: string               // YYYY-MM-DD
+  /** 設計書 §6: businessDate（バックエンドの doc ID）。
+   *  既存データは date と同値として扱える。reopen API は businessDate を URL に取る。 */
+  businessDate?: string
   initialCash: number
   cashSales: number
   cardSales: number
@@ -412,6 +421,11 @@ export interface DailyReport {
   note: string
   operator: string
   createdAt: string          // ISO timestamp
+  /** 締めた時刻。reopen 後は null。設計書 §6 */
+  closedAt?: string | null
+  reopenedAt?: string
+  reopenedBy?: string
+  reopenReason?: string
 }
 
 // ─── アーカイブ ───
