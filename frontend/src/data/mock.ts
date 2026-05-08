@@ -190,6 +190,12 @@ export interface Cast {
   onBreak?: boolean
   /** 最後に卓にアサインされた時刻 (付け回しの待機時間順表示用) */
   lastAssignedAt?: string | null
+  /**
+   * ISSUE-007: 直近の出勤打刻時刻 (active=false → true になった瞬間)。
+   *  - ルーズタイム判定 (出勤後 15 分以内) に使用。
+   *  - 14 分以内に退勤した場合、勤怠は給与計算対象外として扱う。
+   */
+  lastClockInAt?: string | null
 }
 
 export interface SetPrice {

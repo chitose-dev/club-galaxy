@@ -1,33 +1,60 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  TouchSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core'
 import { useStore } from '../store'
 import ContextualHeader from '../components/ContextualHeader'
-import { GoldButton, DarkButton, GhostButton } from '../components/Buttons'
+import { GoldButton, GhostButton } from '../components/Buttons'
 import ConfirmDialog from '../components/ConfirmDialog'
 import Modal from '../components/Modal'
 import { Input, Field } from '../components/Input'
 import NumberInput from '../components/NumberInput'
-import { ArrowUpDown, Edit2, Trash2, MapPin, ArrowRightCircle } from 'lucide-react'
+import { Edit2, Trash2, MapPin, ArrowRightCircle, Pause, Play, GripVertical } from 'lucide-react'
 import type { Cast, Table } from '../data/mock'
 
 /**
- * 待機キャスト画面 (TRUST 準拠)
- * - 縦リスト: 円形アバター / 出勤トグル / 編集・削除 / 源氏名 / 待機時間
- * - 上部: 並び替え
- *
- * キャスト新規追加は AdminPage > キャストタブに一本化（userAccount との同時作成のため）。
- * 本画面は出勤管理・編集・削除のみ。
+ * ISSUE-007: 待機キャスト画面 — 2 カラム DnD レイアウト。
+ *  - 左 = 在籍全員 (active=false: 退勤 / 休み)
+ *  - 右 = 出勤中  (active=true: 出勤 + 休憩中)
+ *  - 長押しドラッグで列間移動 → 出勤 / 退勤
+ *  - 出勤後 15 分の「ルーズタイム」中は待機時間表示を出さない
+ *  - ルーズタイム (14 分以内) の出退勤往復は lastClockInAt をクリアして
+ *    給与計算対象外として扱う (= 給与 ¥0)
  */
+
+const LOOSE_TIME_MINUTES = 15
+const LOOSE_TIME_MS = LOOSE_TIME_MINUTES * 60 * 1000
+
+const isInLooseTime = (c: Cast): boolean => {
+  if (!c.lastClockInAt) return false
+  return Date.now() - new Date(c.lastClockInAt).getTime() < LOOSE_TIME_MS
+}
+
 export default function WaitingCastPage() {
   const { casts, setCasts, tables, moveCast } = useStore()
   const navigate = useNavigate()
-  const [sortMode, setSortMode] = useState<'custom' | 'waiting'>('custom')
+
   const [editing, setEditing] = useState<Cast | null>(null)
   const [pendingDelete, setPendingDelete] = useState<Cast | null>(null)
-  /** 接客中の行タップ時のポップオーバー表示対象 */
   const [locateCast, setLocateCast] = useState<{ cast: Cast; tableId: number | null } | null>(null)
-  /** 待機中の行タップ時の卓割当モーダル対象 */
   const [assignCast, setAssignCast] = useState<Cast | null>(null)
+  const [draggingId, setDraggingId] = useState<number | null>(null)
+
+  // 長押し (delay 200ms) で誤発火防止。タップでは drag が始まらず編集等が可能。
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
+  )
 
   const castTableMap = useMemo(() => {
     const m = new Map<string, Table>()
@@ -39,37 +66,39 @@ export default function WaitingCastPage() {
 
   const assignedNames = useMemo(() => new Set(tables.flatMap((t) => t.assignedCasts)), [tables])
 
-  const sorted = useMemo(() => {
-    if (sortMode === 'custom') return casts
-    // 待機時間降順 (未アサインを優先、次に lastAssignedAt が古い順)
-    return [...casts].sort((a, b) => {
-      const aAssigned = assignedNames.has(a.name)
-      const bAssigned = assignedNames.has(b.name)
-      if (aAssigned !== bAssigned) return aAssigned ? 1 : -1
-      return (a.lastAssignedAt ?? '').localeCompare(b.lastAssignedAt ?? '')
-    })
-  }, [casts, assignedNames, sortMode])
+  const offCasts = useMemo(() => casts.filter((c) => !c.active), [casts])
+  const onCasts = useMemo(() => casts.filter((c) => c.active), [casts])
 
-  type AttendanceStatus = 'working' | 'break' | 'off'
-
-  const getStatus = (c: Cast): AttendanceStatus => {
-    if (!c.active) return 'off'
-    if (c.onBreak) return 'break'
-    return 'working'
-  }
-
-  const setStatus = (id: number, status: AttendanceStatus) => {
+  const handleClockIn = (id: number) => {
     setCasts((prev) =>
       prev.map((c) =>
         c.id === id
-          ? {
-              ...c,
-              active: status !== 'off',
-              onBreak: status === 'break',
-            }
+          ? { ...c, active: true, onBreak: false, lastClockInAt: new Date().toISOString() }
           : c,
       ),
     )
+  }
+
+  const handleClockOut = (id: number) => {
+    setCasts((prev) =>
+      prev.map((c) => {
+        if (c.id !== id) return c
+        // ルーズタイム内 (14 分未満) の退勤は出勤打刻を打消し → 給与計算対象外
+        const within = c.lastClockInAt
+          ? Date.now() - new Date(c.lastClockInAt).getTime() < (LOOSE_TIME_MINUTES - 1) * 60 * 1000
+          : false
+        return {
+          ...c,
+          active: false,
+          onBreak: false,
+          lastClockInAt: within ? null : c.lastClockInAt,
+        }
+      }),
+    )
+  }
+
+  const handleToggleBreak = (id: number) => {
+    setCasts((prev) => prev.map((c) => (c.id === id ? { ...c, onBreak: !c.onBreak } : c)))
   }
 
   const deleteCast = () => {
@@ -78,116 +107,109 @@ export default function WaitingCastPage() {
     setPendingDelete(null)
   }
 
-  const waitingLabel = (c: Cast): string => {
-    // 休み > 接客中 > 休憩 > 待機
-    if (!c.active) return '本日休み'
-    if (assignedNames.has(c.name)) return '接客中'
-    if (c.onBreak) return '休憩中'
-    if (!c.lastAssignedAt) return '待機中'
-    const ms = Date.now() - new Date(c.lastAssignedAt).getTime()
-    const min = Math.max(0, Math.floor(ms / 60000))
-    return `待機 ${min}分`
+  const onDragStart = (e: DragStartEvent) => {
+    setDraggingId(Number(e.active.id))
   }
+
+  const onDragEnd = (e: DragEndEvent) => {
+    setDraggingId(null)
+    if (!e.over) return
+    const castId = Number(e.active.id)
+    if (e.over.id === 'on-zone') {
+      const c = casts.find((x) => x.id === castId)
+      if (c && !c.active) handleClockIn(castId)
+    } else if (e.over.id === 'off-zone') {
+      const c = casts.find((x) => x.id === castId)
+      if (c && c.active) handleClockOut(castId)
+    }
+  }
+
+  const draggingCast = draggingId !== null ? casts.find((c) => c.id === draggingId) ?? null : null
 
   return (
     <div className="flex flex-col h-full">
-      <ContextualHeader
-        accent="waiting"
-        title="待機キャスト"
-        right={
-          <DarkButton
-            onClick={() => setSortMode((s) => (s === 'custom' ? 'waiting' : 'custom'))}
-            className="flex items-center gap-1 text-sm"
-          >
-            <ArrowUpDown size={16} /> {sortMode === 'custom' ? 'カスタム順' : '待機時間順'}
-          </DarkButton>
-        }
-      />
+      <ContextualHeader accent="waiting" title="待機キャスト" />
 
-      <div className="flex-1 overflow-y-auto p-4">
-        <div className="max-w-3xl mx-auto space-y-2">
-          {sorted.length === 0 && <div className="text-center text-gray-500 py-12">キャスト未登録</div>}
+      <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
+        <div className="flex-1 overflow-y-auto p-3">
+          <div className="text-[11px] text-gray-500 mb-2 px-1">
+            長押しでドラッグ → 列間移動で出勤 / 退勤。タップで編集・削除・所在確認。
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-5xl mx-auto">
+            <DroppableColumn
+              id="off-zone"
+              title="在籍全員 (退勤 / 休み)"
+              accent="off"
+              count={offCasts.length}
+            >
+              {offCasts.map((c) => (
+                <DraggableCastCard
+                  key={c.id}
+                  cast={c}
+                  variant="off"
+                  busy={false}
+                  onEdit={() => setEditing(c)}
+                  onDelete={() => setPendingDelete(c)}
+                  onTap={() => {/* 在籍全員側は出勤するまで卓割当不可 */}}
+                  isDragging={draggingId === c.id}
+                />
+              ))}
+              {offCasts.length === 0 && (
+                <div className="text-center text-gray-600 text-xs py-8">全員出勤中</div>
+              )}
+            </DroppableColumn>
 
-          {sorted.map((c) => {
-            const busy = assignedNames.has(c.name)
-            return (
-              <div
-                key={c.id}
-                className="panel p-3 flex items-center gap-3"
-                style={{ background: busy ? 'rgba(212, 175, 55, 0.08)' : undefined }}
-              >
-                {/* アバター (イニシャル) */}
-                <div className="shrink-0 w-12 h-12 rounded-full bg-gradient-to-br from-gold to-gold-dark flex items-center justify-center text-primary font-bold text-lg">
-                  {c.name.slice(0, 1)}
-                </div>
-
-                {/* 出勤・休憩・休み 3択 */}
-                <div className="shrink-0 flex rounded-full bg-white/5 border border-white/10 overflow-hidden text-xs font-semibold tracking-wider">
-                  {(['working', 'break', 'off'] as const).map((s) => {
-                    const labelMap = { working: '出勤', break: '休憩', off: '休み' } as const
-                    const active = getStatus(c) === s
-                    const activeCls =
-                      s === 'working'
-                        ? 'bg-gold text-primary'
-                        : s === 'break'
-                        ? 'bg-amber-400/90 text-primary'
-                        : 'bg-white/10 text-gray-200'
-                    return (
-                      <button
-                        key={s}
-                        onClick={() => setStatus(c.id, s)}
-                        className={`px-3 py-1.5 transition-colors ${active ? activeCls : 'text-gray-400 hover:text-white'}`}
-                      >
-                        {labelMap[s]}
-                      </button>
-                    )
-                  })}
-                </div>
-
-                {/* 編集・削除 */}
-                <button
-                  onClick={() => setEditing(c)}
-                  className="shrink-0 p-2 rounded-md bg-white/5 hover:bg-white/10 text-gold"
-                  aria-label="編集"
-                >
-                  <Edit2 size={14} />
-                </button>
-                <button
-                  onClick={() => setPendingDelete(c)}
-                  className="shrink-0 p-2 rounded-md bg-white/5 hover:bg-red-500/20 text-red-400"
-                  aria-label="削除"
-                >
-                  <Trash2 size={14} />
-                </button>
-
-                {/* 名前とステータス (追補02 R10-7/R10-8: 接客中/待機中でタップ時の挙動を変える) */}
-                <button
-                  onClick={() => {
-                    if (!c.active) return // 休みは操作不可
-                    const currentTable = castTableMap.get(c.name)
-                    if (currentTable) {
-                      // 接客中 → ポップオーバーで卓番号表示 + ジャンプボタン
-                      setLocateCast({ cast: c, tableId: currentTable.id })
-                    } else {
-                      // 待機中 (休憩含む) → 卓割当モーダル
-                      setAssignCast(c)
-                    }
-                  }}
-                  className="flex-1 text-right hover:bg-white/5 rounded-md px-2 py-1 transition-colors"
-                >
-                  <div className="text-lg text-white font-semibold">{c.name}</div>
-                  <div className="text-xs text-gray-400 tracking-wide flex items-center justify-end gap-1">
-                    {castTableMap.has(c.name) && <MapPin size={10} className="text-gold" />}
-                    {waitingLabel(c)}
-                  </div>
-                </button>
-              </div>
-            )
-          })}
+            <DroppableColumn
+              id="on-zone"
+              title="出勤中"
+              accent="on"
+              count={onCasts.length}
+            >
+              {onCasts.map((c) => {
+                const busy = assignedNames.has(c.name)
+                return (
+                  <DraggableCastCard
+                    key={c.id}
+                    cast={c}
+                    variant="on"
+                    busy={busy}
+                    location={busy ? castTableMap.get(c.name) ?? null : null}
+                    onEdit={() => setEditing(c)}
+                    onDelete={() => setPendingDelete(c)}
+                    onToggleBreak={() => handleToggleBreak(c.id)}
+                    onTap={() => {
+                      if (busy) {
+                        const t = castTableMap.get(c.name) ?? null
+                        setLocateCast({ cast: c, tableId: t?.id ?? null })
+                      } else {
+                        setAssignCast(c)
+                      }
+                    }}
+                    isDragging={draggingId === c.id}
+                  />
+                )
+              })}
+              {onCasts.length === 0 && (
+                <div className="text-center text-gray-600 text-xs py-8">出勤中のキャストがいません</div>
+              )}
+            </DroppableColumn>
+          </div>
         </div>
-      </div>
 
-      {/* 追補02 R10-7: 接客中キャスト タップ → 該当卓の情報を表示、ジャンプボタン */}
+        <DragOverlay>
+          {draggingCast ? (
+            <div className="panel p-3 flex items-center gap-3 shadow-2xl border-2 border-gold/60 bg-primary-dark/95 rounded-lg max-w-[280px]">
+              <Avatar name={draggingCast.name} />
+              <div className="flex-1">
+                <div className="text-base font-bold text-white">{draggingCast.name}</div>
+                <div className="text-[10px] text-gold">移動中…</div>
+              </div>
+            </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+
+      {/* 接客中 → 所在表示 */}
       <Modal
         open={!!locateCast}
         onClose={() => setLocateCast(null)}
@@ -199,10 +221,7 @@ export default function WaitingCastPage() {
               <GhostButton onClick={() => setLocateCast(null)} className="flex-1">閉じる</GhostButton>
               {locateCast.tableId && (
                 <GoldButton
-                  onClick={() => {
-                    navigate('/floor')
-                    setLocateCast(null)
-                  }}
+                  onClick={() => { navigate('/floor'); setLocateCast(null) }}
                   className="flex-1 flex items-center justify-center gap-1"
                 >
                   <ArrowRightCircle size={16} /> 卓へ
@@ -228,7 +247,7 @@ export default function WaitingCastPage() {
                 </div>
                 {t.mainNominationCastNames.length > 0 && (
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">本指名担当</span>
+                    <span className="text-gray-400">本指名</span>
                     <span className="text-gold">{t.mainNominationCastNames.join(', ')}</span>
                   </div>
                 )}
@@ -239,7 +258,6 @@ export default function WaitingCastPage() {
               </div>
               <button
                 onClick={() => {
-                  // 待機に戻す (追補02 R10-3)
                   moveCast(locateCast.cast.name, null)
                   setLocateCast(null)
                 }}
@@ -252,15 +270,13 @@ export default function WaitingCastPage() {
         })()}
       </Modal>
 
-      {/* 追補02 R10-8: 待機中キャスト タップ → 卓割当モーダル */}
+      {/* 待機 → 卓割当 */}
       <Modal
         open={!!assignCast}
         onClose={() => setAssignCast(null)}
         size="md"
         title={`${assignCast?.name ?? ''} を卓に割当`}
-        footer={
-          <GhostButton onClick={() => setAssignCast(null)} className="flex-1">キャンセル</GhostButton>
-        }
+        footer={<GhostButton onClick={() => setAssignCast(null)} className="flex-1">キャンセル</GhostButton>}
       >
         {assignCast && (
           <div className="space-y-2">
@@ -271,17 +287,16 @@ export default function WaitingCastPage() {
             {tables.filter((t) => t.status !== 'empty').map((t) => (
               <button
                 key={t.id}
-                onClick={() => {
-                  moveCast(assignCast.name, t.id)
-                  setAssignCast(null)
-                }}
+                onClick={() => { moveCast(assignCast.name, t.id); setAssignCast(null) }}
                 className="w-full panel p-3 flex items-center justify-between hover:bg-white/10 transition-colors text-left"
               >
                 <div>
                   <div className="font-bold">卓 {t.number}</div>
                   <div className="text-xs text-gray-400 mt-0.5">
                     対応中: {t.assignedCasts.length > 0 ? t.assignedCasts.join(', ') : '担当なし'}
-                    {t.mainNominationCastNames.length > 0 && <span className="text-gold ml-2">(本指名: {t.mainNominationCastNames.join(', ')})</span>}
+                    {t.mainNominationCastNames.length > 0 && (
+                      <span className="text-gold ml-2">(本指名: {t.mainNominationCastNames.join(', ')})</span>
+                    )}
                   </div>
                 </div>
                 <ArrowRightCircle size={18} className="text-gold" />
@@ -310,6 +325,149 @@ export default function WaitingCastPage() {
         onConfirm={deleteCast}
         onCancel={() => setPendingDelete(null)}
       />
+    </div>
+  )
+}
+
+// ─── サブコンポーネント ───────────────────────────────────
+
+function Avatar({ name }: { name: string }) {
+  return (
+    <div className="shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-gold to-gold-dark flex items-center justify-center text-primary font-bold">
+      {name.slice(0, 1)}
+    </div>
+  )
+}
+
+function DroppableColumn({
+  id, title, count, accent, children,
+}: {
+  id: string
+  title: string
+  count: number
+  accent: 'on' | 'off'
+  children: React.ReactNode
+}) {
+  const { isOver, setNodeRef } = useDroppable({ id })
+  const accentCls =
+    accent === 'on'
+      ? `border-gold/40 ${isOver ? 'bg-gold/10 border-gold' : 'bg-gold/5'}`
+      : `border-white/10 ${isOver ? 'bg-white/10 border-white/30' : 'bg-white/[0.02]'}`
+  return (
+    <div
+      ref={setNodeRef}
+      className={`rounded-lg border-2 border-dashed ${accentCls} p-2 min-h-[400px] transition-colors`}
+    >
+      <div className="flex items-center justify-between mb-2 px-1">
+        <span className={`text-sm font-bold tracking-wider ${accent === 'on' ? 'text-gold' : 'text-gray-300'}`}>{title}</span>
+        <span className="text-[10px] text-gray-500 tabular-nums">{count} 名</span>
+      </div>
+      <div className="space-y-1.5">{children}</div>
+    </div>
+  )
+}
+
+interface CardProps {
+  cast: Cast
+  variant: 'on' | 'off'
+  busy: boolean
+  location?: Table | null
+  onEdit: () => void
+  onDelete: () => void
+  onToggleBreak?: () => void
+  onTap: () => void
+  isDragging: boolean
+}
+
+function DraggableCastCard(props: CardProps) {
+  const { cast, variant, busy, onEdit, onDelete, onToggleBreak, onTap, isDragging } = props
+  const { attributes, listeners, setNodeRef, transform } = useDraggable({ id: String(cast.id) })
+
+  const inLoose = isInLooseTime(cast)
+  // ルーズタイム中は「料金発生中」(= 待機時間表示) を出さない
+  const statusLabel = (() => {
+    if (variant === 'off') return '本日休み / 退勤'
+    if (busy) return '接客中'
+    if (cast.onBreak) return '休憩中'
+    if (inLoose) return 'ルーズタイム'
+    if (!cast.lastAssignedAt) return '待機中'
+    const ms = Date.now() - new Date(cast.lastAssignedAt).getTime()
+    const min = Math.max(0, Math.floor(ms / 60000))
+    return `待機 ${min}分`
+  })()
+
+  const style = transform
+    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, opacity: isDragging ? 0.3 : 1 }
+    : { opacity: isDragging ? 0.3 : 1 }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`panel p-2.5 flex items-center gap-2 select-none ${
+        busy ? 'bg-gold/[0.08] border-gold/30' : ''
+      } ${inLoose && variant === 'on' ? 'border-amber-400/40' : ''}`}
+    >
+      {/* ドラッグハンドル — 長押しでカード全体が動く。誤発火防止のため左端のグリップ部のみで反応 */}
+      <button
+        {...attributes}
+        {...listeners}
+        className="shrink-0 p-1.5 -ml-1 text-gray-500 hover:text-gold cursor-grab active:cursor-grabbing touch-none"
+        aria-label="ドラッグ"
+        type="button"
+      >
+        <GripVertical size={16} />
+      </button>
+
+      <Avatar name={cast.name} />
+
+      <button
+        type="button"
+        onClick={onTap}
+        className="flex-1 min-w-0 text-left hover:bg-white/5 rounded px-1 py-0.5 transition-colors"
+      >
+        <div className="flex items-center gap-1.5">
+          <span className="text-base font-semibold text-white truncate">{cast.name}</span>
+          {inLoose && variant === 'on' && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold tracking-tight whitespace-nowrap">
+              ルーズ
+            </span>
+          )}
+          {busy && <MapPin size={10} className="text-gold shrink-0" />}
+        </div>
+        <div className="text-[10px] text-gray-400 tracking-wide">{statusLabel}</div>
+      </button>
+
+      <div className="shrink-0 flex items-center gap-1">
+        {variant === 'on' && onToggleBreak && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onToggleBreak() }}
+            className={`p-1.5 rounded-md text-xs ${
+              cast.onBreak ? 'bg-amber-400/20 text-amber-300' : 'bg-white/5 text-gray-400 hover:bg-white/10'
+            }`}
+            title={cast.onBreak ? '休憩解除' : '休憩へ'}
+          >
+            {cast.onBreak ? <Play size={12} /> : <Pause size={12} />}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onEdit() }}
+          className="p-1.5 rounded-md bg-white/5 hover:bg-white/10 text-gold"
+          aria-label="編集"
+        >
+          <Edit2 size={12} />
+        </button>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onDelete() }}
+          className="p-1.5 rounded-md bg-white/5 hover:bg-red-500/20 text-red-400"
+          aria-label="削除"
+        >
+          <Trash2 size={12} />
+        </button>
+      </div>
     </div>
   )
 }
@@ -359,21 +517,10 @@ function CastEditModal({ initial, onClose, onUpdate }: ModalProps) {
           <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
         </Field>
         <Field label="時給 (円)">
-          <NumberInput
-            value={hourlyRate}
-            onChange={setHourlyRate}
-            step={100}
-            min={0}
-          />
+          <NumberInput value={hourlyRate} onChange={setHourlyRate} step={100} min={0} />
         </Field>
         <Field label="売上保証率 (0.0〜1.0)">
-          <NumberInput
-            value={guaranteeRate}
-            onChange={setGuaranteeRate}
-            step={0.05}
-            min={0}
-            max={1}
-          />
+          <NumberInput value={guaranteeRate} onChange={setGuaranteeRate} step={0.05} min={0} max={1} />
         </Field>
         <Field label="本名 (税理士提出用・任意)">
           <Input value={realName} onChange={(e) => setRealName(e.target.value)} />
