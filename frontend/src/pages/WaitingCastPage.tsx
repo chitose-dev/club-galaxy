@@ -83,16 +83,13 @@ export default function WaitingCastPage() {
     setCasts((prev) =>
       prev.map((c) => {
         if (c.id !== id) return c
-        // ルーズタイム中（15 分未満）の退勤は出勤打刻を打消し → 給与計算対象外。
-        // isInLooseTime と同じ閾値 (LOOSE_TIME_MS) を使い境界をそろえる。
-        const within = c.lastClockInAt
-          ? Date.now() - new Date(c.lastClockInAt).getTime() < LOOSE_TIME_MS
-          : false
+        // ルーズタイム中の退勤は出勤打刻を打消し → 給与計算対象外。
+        // 判定は isInLooseTime に一本化（閾値変更時の二重管理を防ぐ）。
         return {
           ...c,
           active: false,
           onBreak: false,
-          lastClockInAt: within ? null : c.lastClockInAt,
+          lastClockInAt: isInLooseTime(c) ? null : c.lastClockInAt,
         }
       }),
     )
