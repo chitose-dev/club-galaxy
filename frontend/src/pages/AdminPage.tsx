@@ -60,7 +60,7 @@ export default function AdminPage() {
     deductions, addDailyPayRequest,
     menuCategories, setMenuCategories,
     updateBillingRecord,
-    dailyReports, addDailyReport, setDailyReports,
+    dailyReports, setDailyReports,
   } = useStore()
 
   // ?tab=<key> クエリで初期タブを指定可能（未収回収後に navigate('/admin?tab=uncollected') 等）
@@ -108,7 +108,7 @@ export default function AdminPage() {
       {activeTab === 'attendance' && <AttendanceManager attendanceRecords={attendanceRecords} addAttendance={addAttendance} updateAttendance={updateAttendance} casts={casts} attendanceSchedules={attendanceSchedules} addAttendanceSchedule={addAttendanceSchedule} removeAttendanceSchedule={removeAttendanceSchedule} markScheduleProcessed={markScheduleProcessed} />}
       {activeTab === 'expense' && <ExpenseManager expenses={expenses} addExpense={addExpense} removeExpense={removeExpense} />}
       {activeTab === 'uncollected' && <UncollectedManager billingRecords={billingRecords} updateBillingRecord={updateBillingRecord} />}
-      {activeTab === 'dailyreport' && <DailyReportManager dailyReports={dailyReports} addDailyReport={addDailyReport} setDailyReports={setDailyReports} billingRecords={billingRecords} />}
+      {activeTab === 'dailyreport' && <DailyReportManager dailyReports={dailyReports} setDailyReports={setDailyReports} billingRecords={billingRecords} />}
       {activeTab === 'advance' && <AdvanceManager advancePayments={advancePayments} addAdvancePayment={addAdvancePayment} casts={casts} storeSettings={storeSettings} />}
       {activeTab === 'dailypay' && <DailyPayManager casts={casts} attendanceRecords={attendanceRecords} dailyPayRequests={dailyPayRequests} addDailyPayRequest={addDailyPayRequest} />}
       {activeTab === 'prepay' && <PrepayManager casts={casts} advancePayments={advancePayments} addAdvancePayment={addAdvancePayment} />}
@@ -2419,12 +2419,10 @@ function UncollectedManager({ billingRecords, updateBillingRecord }: {
 // reopen 後は closedAt: null になり、その営業日の billingRecord 取消が再度可能になる。
 function DailyReportManager({
   dailyReports,
-  addDailyReport,
   setDailyReports,
   billingRecords,
 }: {
   dailyReports: DailyReport[]
-  addDailyReport: (report: DailyReport) => void
   setDailyReports: React.Dispatch<React.SetStateAction<DailyReport[]>>
   billingRecords: BillingRecord[]
 }) {
@@ -2447,7 +2445,7 @@ function DailyReportManager({
   const theoreticalCash = initialCash + cashSales
   const difference = actualCash - theoreticalCash
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     setSubmitError('')
     if (!businessDate) {
       setSubmitError('営業日を入力してください')
@@ -2472,9 +2470,16 @@ function DailyReportManager({
       createdAt: new Date().toISOString(),
       closedAt: new Date().toISOString(),
     }
-    addDailyReport(report)
-    setActualCash(0)
-    setNote('')
+    // addDailyReport は内部で API を叩くが catch で握り潰すので、
+    // ここでは API レスポンスを待ってサーバー側で正規化された値を local に反映する。
+    try {
+      const created = await dailyReportsApi.create(report)
+      setDailyReports((prev) => [...prev, created])
+      setActualCash(0)
+      setNote('')
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : '登録に失敗しました')
+    }
   }
 
   const handleReopen = async () => {

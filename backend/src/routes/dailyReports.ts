@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { storeCollection } from '../firebase'
 import { getAuthedUser, requireRole } from '../middleware/auth'
 import { nowJstIso, todayBusinessDate } from '../lib/businessDate'
-import { sendError, throwBadRequest, throwNotFound } from '../lib/errors'
+import { ApiError, sendError, throwBadRequest, throwNotFound } from '../lib/errors'
 import { append, buildEntry } from '../lib/audit'
 import type { DailyReport } from '../types'
 
@@ -61,6 +61,11 @@ dailyReportsRouter.post('/:businessDate/reopen', requireRole('owner'), async (re
     const ref = storeCollection('dailyReports').doc(businessDate)
     const snap = await ref.get()
     if (!snap.exists) throwNotFound('日報が見つかりません')
+    // 既に解除済み（closedAt が null/未設定）の二重 reopen を防ぐ
+    const current = snap.data() as DailyReport
+    if (!current.closedAt) {
+      throw new ApiError(400, 'NOT_CLOSED', '締め済みではないため解除できません')
+    }
     const now = nowJstIso()
     const update = {
       // closedAt を null に戻して以降の void / 編集を再び可能に
