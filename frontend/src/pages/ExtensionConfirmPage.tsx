@@ -5,7 +5,6 @@ import ContextualHeader from '../components/ContextualHeader'
 import BottomActionBar from '../components/BottomActionBar'
 import { GhostButton, GoldButton } from '../components/Buttons'
 import {
-  displayOrderName,
   getSetPriceForTime,
   getSetPriceLabel,
   SET_DURATION_MINUTES,
@@ -250,7 +249,3 @@ export default function ExtensionConfirmPage() {
     </div>
   )
 }
-
-// メニュー表示で displayOrderName を使う想定だが、本ページは延長単独の固定メニュー
-// （セット料金・本指名・場内指名）のみを並べるためインポートだけ残す（lint 警告抑止用）。
-void displayOrderName

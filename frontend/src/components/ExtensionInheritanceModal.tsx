@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Modal from './Modal'
 import { GhostButton, GoldButton } from './Buttons'
 import { useStore } from '../store'
@@ -53,9 +53,10 @@ export default function ExtensionInheritanceModal({ open, table, onClose, onConf
   const [addedShimei, setAddedShimei] = useState<Set<string>>(new Set())
   const [minutes, setMinutes] = useState<30 | 60>(60)
 
-  // モーダルが開いた時の同期（table が切り替わったら state を初期化）
-  // useState 初期値は最初のレンダーのみ。table 変更時は明示的にリセットする。
-  useMemo(() => {
+  // モーダルが開いた時の同期（table が切り替わったら state を初期化）。
+  // setState は副作用なので useEffect を使う（useMemo 内 setState は React ルール違反）。
+  // table.id のみを依存に置き、チェック中の操作で state を上書きしないようにする。
+  useEffect(() => {
     if (!table) return
     setKeptShimei(new Set(table.mainNominationCastNames))
     setKeptBanai(
@@ -65,7 +66,6 @@ export default function ExtensionInheritanceModal({ open, table, onClose, onConf
     )
     setAddedShimei(new Set())
     setMinutes(60)
-    // depend on table.id only — チェック中の操作で state を上書きしないため
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [table?.id])
 

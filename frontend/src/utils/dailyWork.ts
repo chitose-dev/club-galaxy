@@ -54,12 +54,14 @@ export function computeDailyWork(
     const dw = ensure(date)
 
     // spec.md §5.5: 売上帰属は salesAttributionByCast を優先参照（会計時スナップショット）。
-    //   - att に該当キャストのキーがあればその値（複数本指名の均等按分済み）。
-    //   - att はあるがキー無し → このキャストは本指名ではない（assigned だが帰属外） → 0
-    //   - att 自体無し（旧形式） → subtotal を全額（按分なしフォールバック）
+    //   - att !== undefined（新形式、フリー卓含む）→ att[castName] ?? 0
+    //     フリー卓は att = {} で保存されるため att[castName] が undefined → 0 加算（誰にも帰属しない）。
+    //   - att === undefined（旧形式レコード）→ subtotalBeforeTax を全額計上（按分なしフォールバック）。
+    //     注意: Object.keys(att).length > 0 で判定するとフリー卓 ({}) が旧形式扱いになり
+    //     subtotal が castNamesSnapshot 全員に重複加算されるバグになる。
     const att = (billing as BillingRecord & { salesAttributionByCast?: Record<string, number> }).salesAttributionByCast
     let perCastSales: number
-    if (att && Object.keys(att).length > 0) {
+    if (att !== undefined) {
       perCastSales = att[castName] ?? 0
     } else {
       perCastSales =
