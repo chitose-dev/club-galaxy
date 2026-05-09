@@ -1001,6 +1001,9 @@ function SettingsManager({ storeSettings, setStoreSettings }: {
   const [storePhone, setStorePhone] = useState(storeSettings.storePhone)
   const [invoiceNumber, setInvoiceNumber] = useState(storeSettings.invoiceNumber)
   const [staffFixedCost, setStaffFixedCost] = useState(String(storeSettings.staffFixedCost))
+  // spec.md §5.2.2: 延長料金（30 分 / 60 分）を店舗設定で管理
+  const [extensionPrice30Min, setExtensionPrice30Min] = useState(String(storeSettings.extensionPrice30Min))
+  const [extensionPrice60Min, setExtensionPrice60Min] = useState(String(storeSettings.extensionPrice60Min))
   const [saved, setSaved] = useState(false)
 
   const handleSave = () => {
@@ -1015,6 +1018,8 @@ function SettingsManager({ storeSettings, setStoreSettings }: {
       storePhone,
       invoiceNumber,
       staffFixedCost: Number(staffFixedCost),
+      extensionPrice30Min: Number(extensionPrice30Min),
+      extensionPrice60Min: Number(extensionPrice60Min),
     })
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
@@ -1075,6 +1080,19 @@ function SettingsManager({ storeSettings, setStoreSettings }: {
         <label className="text-xs text-gray-500 block mb-1.5">1日あたり固定人件費 (¥)</label>
         <p className="text-[10px] text-gray-600 mb-1">ボーイ等の固定人件費。FL計算の労務費に加算されます。</p>
         <input type="number" value={staffFixedCost} onChange={(e) => setStaffFixedCost(e.target.value)} min="0" className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" />
+      </div>
+
+      {/* spec.md §5.2.2: 延長料金（30分 / 60分）の店舗設定 */}
+      <div className="bg-white/5 rounded-lg p-3">
+        <label className="text-xs text-gray-500 block mb-1.5">延長 30 分料金 (¥)</label>
+        <p className="text-[10px] text-gray-600 mb-1">継承選択モーダルで「30分」を選んだ際の料金。デフォルト ¥3,000。</p>
+        <input type="number" value={extensionPrice30Min} onChange={(e) => setExtensionPrice30Min(e.target.value)} min="0" step="100" className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" />
+      </div>
+
+      <div className="bg-white/5 rounded-lg p-3">
+        <label className="text-xs text-gray-500 block mb-1.5">延長 60 分料金 (¥)</label>
+        <p className="text-[10px] text-gray-600 mb-1">継承選択モーダルで「60分」を選んだ際の料金。通常セット料金と同額の運用想定。</p>
+        <input type="number" value={extensionPrice60Min} onChange={(e) => setExtensionPrice60Min(e.target.value)} min="0" step="100" className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" />
       </div>
 
       <button onClick={handleSave} className={`w-full py-3 rounded-lg font-bold transition-colors ${saved ? 'bg-emerald-500/20 border border-emerald-500/30 text-emerald-400' : 'bg-white text-black'}`}>

@@ -407,6 +407,12 @@ export interface StoreSettings {
   invoiceNumber: string  // インボイス登録番号
   /** 1日あたり固定人件費 (ボーイ等) default 28800。FL計算の労務費に加算 */
   staffFixedCost: number
+  /** spec.md §5.2.2: 延長 30 分料金（人数 × 単価ではなく1セット分の延長料金として扱う）。
+   *  default ¥3,000。半額固定（¥2,000）はやめる。 */
+  extensionPrice30Min: number
+  /** spec.md §5.2.2: 延長 60 分料金。デフォルトは時間帯別セット料金と同額の運用想定。
+   *  ここでは固定値で持つ（時間帯別はオープン課題、初期値は 22:00〜 の ¥5,000）。 */
+  extensionPrice60Min: number
 }
 
 // ─── 日報 ───
@@ -882,6 +888,9 @@ export const defaultStoreSettings: StoreSettings = {
   storePhone: '023-654-XXXX',
   invoiceNumber: 'T5390001005970',
   staffFixedCost: 28800,
+  // spec.md §5.2.2: 延長料金デフォルト
+  extensionPrice30Min: 3000,
+  extensionPrice60Min: 5000,
 }
 
 // ─── アカウント型 ───
