@@ -232,12 +232,21 @@ export interface BillingRecord {
    *  集計時は businessDate を優先参照することで、UTC 起点の date が前日付に
    *  なる JST 深夜 0〜9 時の問題を回避する。 */
   businessDate?: string
-  /** 本指名卓の場合の担当キャストID (指示書§5.2: 売上重畳のため) */
+  /** 本指名卓の場合の担当キャストID (指示書§5.2: 売上重畳のため、後方互換で先頭1名) */
   nominatedCastId?: number
+  /** spec.md §5.5: 本指名キャスト全員分の ID（複数本指名対応）。
+   *  会計確定時に Table.mainNominationCastNames から resolve したスナップショット。 */
+  nominatedCastIdsSnapshot?: number[]
   /** TAX前の小計(保証計算・売上重畳に使用) */
   subtotalBeforeTax?: number
   /** 担当キャスト名(集計表示用) */
   castNamesSnapshot?: string[]
+  /** spec.md §5.5 売上帰属スナップショット（会計時計算）。
+   *  会計時の Table.mainNominationCastNames で subtotalBeforeTax を均等按分した結果。
+   *  キー = キャスト名、値 = そのキャストへの帰属売上（円）。
+   *  本指名がいない卓（フリー）は空オブジェクト or 未設定（誰にも帰属しない）。
+   *  集計時は salesAttributionByCast[castName] を優先参照。 */
+  salesAttributionByCast?: Record<string, number>
   /** 会計履歴からの再印刷用スナップショット */
   receiptSnapshot?: ReceiptSnapshot
   /** 未収（代金未収受）フラグ。誤開卓・トラブル等で代金回収できず退卓した場合に true */

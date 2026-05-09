@@ -52,11 +52,22 @@ export function computeDailyWork(
     if (!date) continue
 
     const dw = ensure(date)
-    const subtotal =
-      (billing as BillingRecord & { subtotalBeforeTax?: number }).subtotalBeforeTax ??
-      billing.total ??
-      0
-    dw.sales += subtotal
+
+    // spec.md §5.5: 売上帰属は salesAttributionByCast を優先参照（会計時スナップショット）。
+    //   - att に該当キャストのキーがあればその値（複数本指名の均等按分済み）。
+    //   - att はあるがキー無し → このキャストは本指名ではない（assigned だが帰属外） → 0
+    //   - att 自体無し（旧形式） → subtotal を全額（按分なしフォールバック）
+    const att = (billing as BillingRecord & { salesAttributionByCast?: Record<string, number> }).salesAttributionByCast
+    let perCastSales: number
+    if (att && Object.keys(att).length > 0) {
+      perCastSales = att[castName] ?? 0
+    } else {
+      perCastSales =
+        (billing as BillingRecord & { subtotalBeforeTax?: number }).subtotalBeforeTax ??
+        billing.total ??
+        0
+    }
+    dw.sales += perCastSales
 
     // receiptSnapshot.orders から backs 集計（orders が無ければスキップ）
     const snap = (billing as BillingRecord & {
