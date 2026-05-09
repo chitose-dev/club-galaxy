@@ -5,7 +5,6 @@ import ContextualHeader from '../components/ContextualHeader'
 import BottomActionBar from '../components/BottomActionBar'
 import { DangerButton, DarkButton, GhostButton } from '../components/Buttons'
 import { displayOrderName, getSetPriceForTime, getSetPriceLabel } from '../data/mock'
-import { getNominationLabel } from '../utils/nomination'
 import { FileText, CreditCard, Trash2 } from 'lucide-react'
 
 /**
@@ -73,15 +72,15 @@ export default function UsageDetailPage() {
               <span className="text-sm text-gray-400">対応中</span>
               <span className="text-sm">{table.assignedCasts.join(', ') || '担当なし'}</span>
             </div>
-            {table.mainNominationCastNames.length > 0 && (
-              <div className="flex justify-between">
-                <span className="text-sm text-gray-400">本指名担当</span>
-                <span className="text-sm text-gold">{table.mainNominationCastNames.join(', ')}</span>
-              </div>
-            )}
+            {/* spec.md §3.2.2: 「指名タイプ」ラベル → 「担当」。本指名がいればキャスト名を
+                カンマ区切りで動的表示し、いなければ「フリー」と表示する。 */}
             <div className="flex justify-between">
-              <span className="text-sm text-gray-400">指名タイプ</span>
-              <span className="text-sm">{getNominationLabel(table)}</span>
+              <span className="text-sm text-gray-400">担当</span>
+              <span className={`text-sm ${table.mainNominationCastNames.length > 0 ? 'text-gold' : ''}`}>
+                {table.mainNominationCastNames.length > 0
+                  ? table.mainNominationCastNames.join(', ')
+                  : 'フリー'}
+              </span>
             </div>
             <div className="flex justify-between">
               <span className="text-sm text-gray-400">人数</span>
