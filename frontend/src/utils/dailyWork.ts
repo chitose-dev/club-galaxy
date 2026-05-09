@@ -52,11 +52,24 @@ export function computeDailyWork(
     if (!date) continue
 
     const dw = ensure(date)
-    const subtotal =
-      (billing as BillingRecord & { subtotalBeforeTax?: number }).subtotalBeforeTax ??
-      billing.total ??
-      0
-    dw.sales += subtotal
+
+    // spec.md §5.5: 売上帰属は salesAttributionByCast を優先参照（会計時スナップショット）。
+    //   - att !== undefined（新形式、フリー卓含む）→ att[castName] ?? 0
+    //     フリー卓は att = {} で保存されるため att[castName] が undefined → 0 加算（誰にも帰属しない）。
+    //   - att === undefined（旧形式レコード）→ subtotalBeforeTax を全額計上（按分なしフォールバック）。
+    //     注意: Object.keys(att).length > 0 で判定するとフリー卓 ({}) が旧形式扱いになり
+    //     subtotal が castNamesSnapshot 全員に重複加算されるバグになる。
+    const att = (billing as BillingRecord & { salesAttributionByCast?: Record<string, number> }).salesAttributionByCast
+    let perCastSales: number
+    if (att !== undefined) {
+      perCastSales = att[castName] ?? 0
+    } else {
+      perCastSales =
+        (billing as BillingRecord & { subtotalBeforeTax?: number }).subtotalBeforeTax ??
+        billing.total ??
+        0
+    }
+    dw.sales += perCastSales
 
     // receiptSnapshot.orders から backs 集計（orders が無ければスキップ）
     const snap = (billing as BillingRecord & {

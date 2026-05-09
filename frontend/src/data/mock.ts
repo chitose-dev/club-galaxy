@@ -232,12 +232,21 @@ export interface BillingRecord {
    *  集計時は businessDate を優先参照することで、UTC 起点の date が前日付に
    *  なる JST 深夜 0〜9 時の問題を回避する。 */
   businessDate?: string
-  /** 本指名卓の場合の担当キャストID (指示書§5.2: 売上重畳のため) */
+  /** 本指名卓の場合の担当キャストID (指示書§5.2: 売上重畳のため、後方互換で先頭1名) */
   nominatedCastId?: number
+  /** spec.md §5.5: 本指名キャスト全員分の ID（複数本指名対応）。
+   *  会計確定時に Table.mainNominationCastNames から resolve したスナップショット。 */
+  nominatedCastIdsSnapshot?: number[]
   /** TAX前の小計(保証計算・売上重畳に使用) */
   subtotalBeforeTax?: number
   /** 担当キャスト名(集計表示用) */
   castNamesSnapshot?: string[]
+  /** spec.md §5.5 売上帰属スナップショット（会計時計算）。
+   *  会計時の Table.mainNominationCastNames で subtotalBeforeTax を均等按分した結果。
+   *  キー = キャスト名、値 = そのキャストへの帰属売上（円）。
+   *  本指名がいない卓（フリー）は空オブジェクト or 未設定（誰にも帰属しない）。
+   *  集計時は salesAttributionByCast[castName] を優先参照。 */
+  salesAttributionByCast?: Record<string, number>
   /** 会計履歴からの再印刷用スナップショット */
   receiptSnapshot?: ReceiptSnapshot
   /** 未収（代金未収受）フラグ。誤開卓・トラブル等で代金回収できず退卓した場合に true */
@@ -398,6 +407,12 @@ export interface StoreSettings {
   invoiceNumber: string  // インボイス登録番号
   /** 1日あたり固定人件費 (ボーイ等) default 28800。FL計算の労務費に加算 */
   staffFixedCost: number
+  /** spec.md §5.2.2: 延長 30 分料金（人数 × 単価ではなく1セット分の延長料金として扱う）。
+   *  default ¥3,000。半額固定（¥2,000）はやめる。 */
+  extensionPrice30Min: number
+  /** spec.md §5.2.2: 延長 60 分料金。デフォルトは時間帯別セット料金と同額の運用想定。
+   *  ここでは固定値で持つ（時間帯別はオープン課題、初期値は 22:00〜 の ¥5,000）。 */
+  extensionPrice60Min: number
 }
 
 // ─── 日報 ───
@@ -453,6 +468,19 @@ export const chargeItems: SetPrice[] = [
   { id: 'banai', label: '場内指名', price: 500, cost: 300 },
   { id: 'help', label: 'Help(1名)', price: 4000, cost: 300 },
 ]
+
+/** spec.md §2.2.1: 卓詳細モーダル内の「注文（n品）」表示で除外する charge/指名系の品名集合。
+ *  注文画面で chargeItems を OrderItem 化する際は menuItem.name = label、
+ *  ヘルプ専用 HELP_GUEST_ITEM は name = 'ヘルプ' で追加されるため、name で判定する。 */
+const CHARGE_AND_NOMINATION_NAMES: ReadonlySet<string> = new Set([
+  'シングルチャージ', '同伴', '本指名', '場内指名', 'Help(1名)', 'ヘルプ',
+])
+
+/** 卓詳細モーダルで指名情報を二重表示しないためのフィルタ判定。
+ *  true = 指名/同伴/Help/ヘルプ系（ホール画面で別途表示済）→ 注文一覧からは隠す。 */
+export function isChargeOrNominationOrder(item: { menuItem: { name: string } }): boolean {
+  return CHARGE_AND_NOMINATION_NAMES.has(item.menuItem.name)
+}
 
 export const SET_DURATION_MINUTES = 60
 export const EXTENSION_OPTIONS = [30, 60] as const
@@ -860,6 +888,9 @@ export const defaultStoreSettings: StoreSettings = {
   storePhone: '023-654-XXXX',
   invoiceNumber: 'T5390001005970',
   staffFixedCost: 28800,
+  // spec.md §5.2.2: 延長料金デフォルト
+  extensionPrice30Min: 3000,
+  extensionPrice60Min: 5000,
 }
 
 // ─── アカウント型 ───

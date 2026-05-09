@@ -3,14 +3,13 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../store'
 import type { MenuItem, CastMenuItem, OrderItem } from '../data/mock'
 import { displayOrderName, chargeItems } from '../data/mock'
-import { Minus, Plus, Trash2, CreditCard, Printer, Gift, UserMinus } from 'lucide-react'
+import { Minus, Plus, Trash2, CreditCard, Gift, UserMinus } from 'lucide-react'
 import ContextualHeader from '../components/ContextualHeader'
 import BottomActionBar from '../components/BottomActionBar'
 import CastChip from '../components/CastChip'
 import Modal from '../components/Modal'
 import { Input, Field as FormField } from '../components/Input'
-import { GoldButton, DangerButton, DarkButton, GhostButton } from '../components/Buttons'
-import { openPrintWindow } from '../utils/print'
+import { GoldButton, DangerButton, GhostButton } from '../components/Buttons'
 
 // ビデオレビュー N6 (注1 15:50): ヘルプの再定義
 //   - 待機キャストが場内指名なしで入った状態
@@ -259,27 +258,7 @@ export default function OrderPage() {
   const setSubtotal = selectedTable ? adjustedSetPrice * selectedTable.guestCount * selectedTable.setCount : 0
   const grandTotal = subtotal + setSubtotal + Math.round((subtotal + setSubtotal) * storeSettings.taxRate)
 
-  const handlePrintOrder = () => {
-    if (!selectedTable || orders.length === 0) return
-    const body = `
-      <div class="header">${storeSettings.storeName} 注文票</div>
-      <div class="row"><span>卓:</span><span>${selectedTable.number}</span></div>
-      <div class="row"><span>時刻:</span><span>${new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}</span></div>
-      <div class="divider"></div>
-      ${orders.map((o) => `<div class="row"><span>${displayOrderName(o)} x${o.quantity}</span><span>&yen;${(o.menuItem.price * o.quantity).toLocaleString()}</span></div>`).join('')}
-      <div class="divider"></div>
-      <div class="row total"><span>小計:</span><span>&yen;${subtotal.toLocaleString()}</span></div>
-    `
-    const extraStyles = `
-      body { max-width: 300px; margin: 0 auto; }
-      .header { text-align: center; font-size: 18px; font-weight: bold; margin-bottom: 10px; }
-      .row { display: flex; justify-content: space-between; font-size: 13px; margin: 4px 0; }
-      .divider { border-top: 1px dashed #ccc; margin: 8px 0; }
-      .total { font-size: 16px; font-weight: bold; }
-    `
-    openPrintWindow(body, '注文票', { width: 350, height: 500, extraStyles })
-  }
-
+  // spec.md §3.2.1: 「注文印刷」ボタン削除に伴い handlePrintOrder も削除。
   if (!selectedTable) {
     return (
       <div className="p-8 text-center text-gray-400">
@@ -555,9 +534,9 @@ export default function OrderPage() {
         </div>
       </div>
 
+      {/* spec.md §3.2.1: フッター左「注文小計」と右「注文印刷」を削除。
+          合計表示は右ペインの「合計（税込）」に集約済。中央の「利用明細へ」のみ残す。 */}
       <BottomActionBar
-        leftLabel="注文小計"
-        leftValue={`¥${subtotal.toLocaleString()}`}
         center={
           <DangerButton
             // ISSUE-010: 利用明細から戻る時に元の注文画面 (/order?table=N) に戻れるよう from を付与
@@ -566,11 +545,6 @@ export default function OrderPage() {
           >
             <CreditCard size={18} /> 利用明細へ
           </DangerButton>
-        }
-        right={
-          <DarkButton onClick={handlePrintOrder} disabled={orders.length === 0} className="text-sm flex items-center gap-1">
-            <Printer size={15} /> 注文印刷
-          </DarkButton>
         }
       />
 

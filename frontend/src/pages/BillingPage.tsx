@@ -296,13 +296,25 @@ export default function BillingPage() {
       })
     }
 
-    // 追補02 R1-3 + 追補03 R24: 本指名担当の売上は常に該当キャストに帰属。
-    // 複数本指名時は先頭 1 名のみ nominatedCastId に記録 (後方互換)。
-    // 将来的には nominatedCastIds: number[] に拡張して正確に分配する予定。
-    const primaryNomName = table.mainNominationCastNames[0]
-    const nominatedCastId = primaryNomName
-      ? casts.find((c) => c.name === primaryNomName)?.id
-      : undefined
+    // spec.md §5.5: 本指名キャスト全員分の ID をスナップショット保存。
+    // 売上帰属は mainNominationCastNames で subtotalBeforeTax を均等按分（会計時スナップショット方式）。
+    // 後方互換のため nominatedCastId（先頭1名）も継続して保存する。
+    const nomNames = table.mainNominationCastNames
+    const nominatedCastIdsSnapshot = nomNames
+      .map((n) => casts.find((c) => c.name === n)?.id)
+      .filter((id): id is number => typeof id === 'number')
+    const nominatedCastId = nominatedCastIdsSnapshot[0]
+    // 均等按分（端数は最後のキャストに寄せる）。本指名なしのフリー卓は誰にも帰属しない。
+    const buildAttribution = (subtotal: number): Record<string, number> => {
+      if (nomNames.length === 0) return {}
+      const each = Math.floor(subtotal / nomNames.length)
+      const acc: Record<string, number> = {}
+      nomNames.forEach((n, i) => {
+        acc[n] = i === nomNames.length - 1 ? subtotal - each * (nomNames.length - 1) : each
+      })
+      return acc
+    }
+    const salesAttributionByCast = buildAttribution(subtotalAll)
 
     const receiptNumberForRecord = getNextReceiptNumber()
 
@@ -325,8 +337,10 @@ export default function BillingPage() {
       completedAt: new Date().toISOString(),
       date: nowIso,
       nominatedCastId,
+      nominatedCastIdsSnapshot,
       subtotalBeforeTax: subtotalAll,
       castNamesSnapshot: [...table.assignedCasts],
+      salesAttributionByCast,
       // 再印刷用スナップショット
       receiptSnapshot: {
         receiptNumber: receiptNumberForRecord,
@@ -355,8 +369,18 @@ export default function BillingPage() {
       const mSubtotal = mSetTotal + mDrink
       const mTax = Math.floor(mSubtotal * taxRate)
       const mTotal = mSubtotal + mTax
-      const mNomName = mt.mainNominationCastNames[0]
-      const mNomCastId = mNomName ? casts.find((c) => c.name === mNomName)?.id : undefined
+      const mNomNames = mt.mainNominationCastNames
+      const mNomIds = mNomNames
+        .map((n) => casts.find((c) => c.name === n)?.id)
+        .filter((id): id is number => typeof id === 'number')
+      // shadow レコードも spec.md §5.5 に従い卓単位で salesAttributionByCast を計算
+      const mAttribution: Record<string, number> = {}
+      if (mNomNames.length > 0) {
+        const mEach = Math.floor(mSubtotal / mNomNames.length)
+        mNomNames.forEach((n, i) => {
+          mAttribution[n] = i === mNomNames.length - 1 ? mSubtotal - mEach * (mNomNames.length - 1) : mEach
+        })
+      }
       addBillingRecord({
         id: String(Date.now() + mid),
         tableNumber: mt.number,
@@ -366,9 +390,11 @@ export default function BillingPage() {
         cardAmount: 0,
         completedAt: new Date().toISOString(),
         date: nowIso,
-        nominatedCastId: mNomCastId,
+        nominatedCastId: mNomIds[0],
+        nominatedCastIdsSnapshot: mNomIds,
         subtotalBeforeTax: mSubtotal,
         castNamesSnapshot: [...mt.assignedCasts],
+        salesAttributionByCast: mAttribution,
         // shadow レコードには receiptSnapshot を付けない (代表卓 1 枚で印字済)
       })
     }
