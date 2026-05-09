@@ -11,10 +11,11 @@ import {
   SET_DURATION_MINUTES,
   chargeItems,
   displayOrderName,
+  isChargeOrNominationOrder,
 } from '../data/mock'
 import { getNominationBadge, getNominationLabel } from '../utils/nomination'
 import { getSetLabel } from '../utils/setCountLabel'
-import { Clock, Users, Plus, Printer, RotateCcw, ChevronRight, FileText, CreditCard, Undo2, X } from 'lucide-react'
+import { Clock, Users, Plus, ChevronRight, FileText, CreditCard, Undo2, X } from 'lucide-react'
 import { openPrintWindow } from '../utils/print'
 import BottomActionBar from '../components/BottomActionBar'
 import { GoldButton, DangerButton, GhostButton, DarkButton } from '../components/Buttons'
@@ -803,29 +804,30 @@ export default function FloorPage() {
             {/* ビデオレビュー D2: 卓詳細からキープボトル表示を削除
                 (操作がややこしいため、ボトルキープページに集約) */}
 
-            {selected.orders.length > 0 && (
-              <div className="mt-4 panel p-3">
-                <div className="text-gray-500 text-xs mb-2">注文 ({selected.orders.length}品)</div>
-                {selected.orders.slice(0, 5).map((o, idx) => (
-                  <div key={`${o.menuItem.id}-${o.castName ?? ''}-${idx}`} className="flex justify-between text-sm py-0.5">
-                    <span className="text-gray-300">{displayOrderName(o)} x{o.quantity}</span>
-                    <span>¥{(o.menuItem.price * o.quantity).toLocaleString()}</span>
-                  </div>
-                ))}
-                {selected.orders.length > 5 && (
-                  <div className="text-xs text-gray-600 mt-1">...他{selected.orders.length - 5}品</div>
-                )}
-              </div>
-            )}
+            {/* spec.md §2.2.1: 注文の1行は商品のみ表示。本指名/場内指名/同伴/Help/ヘルプ等の
+                指名系 OrderItem は卓詳細モーダルから除外（ホール画面・利用明細で別途表示）。 */}
+            {(() => {
+              const productOrders = selected.orders.filter((o) => !isChargeOrNominationOrder(o))
+              if (productOrders.length === 0) return null
+              return (
+                <div className="mt-4 panel p-3">
+                  <div className="text-gray-500 text-xs mb-2">注文 ({productOrders.length}品)</div>
+                  {productOrders.slice(0, 5).map((o, idx) => (
+                    <div key={`${o.menuItem.id}-${o.castName ?? ''}-${idx}`} className="flex justify-between text-sm py-0.5">
+                      <span className="text-gray-300">{displayOrderName(o)} x{o.quantity}</span>
+                      <span>¥{(o.menuItem.price * o.quantity).toLocaleString()}</span>
+                    </div>
+                  ))}
+                  {productOrders.length > 5 && (
+                    <div className="text-xs text-gray-600 mt-1">...他{productOrders.length - 5}品</div>
+                  )}
+                </div>
+              )
+            })()}
 
-            <div className="flex gap-2 mt-5">
-              {EXTENSION_OPTIONS.map((min) => (
-                <DarkButton key={min} onClick={() => requestExtend(min as 30 | 60)} className="flex-1 text-sm">
-                  延長 +{min}分
-                </DarkButton>
-              ))}
-            </div>
-            <div className="flex gap-2 mt-2 items-center text-xs">
+            {/* spec.md §2.2.1: 「延長 +30分／+60分」は注文画面側の延長フローと
+                同一処理ではないため卓詳細モーダルから削除し、利用明細画面の [延長] に集約。 */}
+            <div className="flex gap-2 mt-5 items-center text-xs">
               <span className="text-gray-500">残り時間微調整:</span>
               <button onClick={() => handleTimeAdjust(-10)} className="flex-1 panel py-2 rounded-[10px] font-bold hover:bg-white/10 transition-colors">-10分</button>
               <button onClick={() => handleTimeAdjust(+10)} className="flex-1 panel py-2 rounded-[10px] font-bold hover:bg-white/10 transition-colors">+10分</button>
@@ -854,17 +856,7 @@ export default function FloorPage() {
               </GoldButton>
             </div>
 
-            <div className="flex gap-2 mt-2">
-              <button
-                onClick={() => handlePrintCheckTicket(selected)}
-                className="flex-1 py-3 rounded-[10px] font-bold text-sm flex items-center justify-center gap-1.5 transition-colors panel text-gray-300"
-              >
-                <Printer size={15} /> ご延長交渉
-              </button>
-              <button onClick={() => setShowRotation(true)} className="flex-1 panel py-3 rounded-[10px] font-bold text-sm flex items-center justify-center gap-1.5 text-gray-300 hover:bg-white/10 transition-colors">
-                <RotateCcw size={15} /> 付け回し
-              </button>
-            </div>
+            {/* spec.md §2.2.1: 「ご延長交渉」「付け回し」を削除（注文・利用明細側に集約）。 */}
             {user?.role !== 'cast' && (
               <button
                 onClick={handleForceCheckout}

@@ -555,9 +555,9 @@ export default function OrderPage() {
         </div>
       </div>
 
+      {/* spec.md §3.2.1: フッター左「注文小計」と右「注文印刷」を削除。
+          合計表示は右ペインの「合計（税込）」に集約済。中央の「利用明細へ」のみ残す。 */}
       <BottomActionBar
-        leftLabel="注文小計"
-        leftValue={`¥${subtotal.toLocaleString()}`}
         center={
           <DangerButton
             // ISSUE-010: 利用明細から戻る時に元の注文画面 (/order?table=N) に戻れるよう from を付与
@@ -566,11 +566,6 @@ export default function OrderPage() {
           >
             <CreditCard size={18} /> 利用明細へ
           </DangerButton>
-        }
-        right={
-          <DarkButton onClick={handlePrintOrder} disabled={orders.length === 0} className="text-sm flex items-center gap-1">
-            <Printer size={15} /> 注文印刷
-          </DarkButton>
         }
       />
 

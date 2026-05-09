@@ -463,6 +463,19 @@ export const chargeItems: SetPrice[] = [
   { id: 'help', label: 'Help(1名)', price: 4000, cost: 300 },
 ]
 
+/** spec.md §2.2.1: 卓詳細モーダル内の「注文（n品）」表示で除外する charge/指名系の品名集合。
+ *  注文画面で chargeItems を OrderItem 化する際は menuItem.name = label、
+ *  ヘルプ専用 HELP_GUEST_ITEM は name = 'ヘルプ' で追加されるため、name で判定する。 */
+const CHARGE_AND_NOMINATION_NAMES: ReadonlySet<string> = new Set([
+  'シングルチャージ', '同伴', '本指名', '場内指名', 'Help(1名)', 'ヘルプ',
+])
+
+/** 卓詳細モーダルで指名情報を二重表示しないためのフィルタ判定。
+ *  true = 指名/同伴/Help/ヘルプ系（ホール画面で別途表示済）→ 注文一覧からは隠す。 */
+export function isChargeOrNominationOrder(item: { menuItem: { name: string } }): boolean {
+  return CHARGE_AND_NOMINATION_NAMES.has(item.menuItem.name)
+}
+
 export const SET_DURATION_MINUTES = 60
 export const EXTENSION_OPTIONS = [30, 60] as const
 export const ALERT_MINUTES = 50
