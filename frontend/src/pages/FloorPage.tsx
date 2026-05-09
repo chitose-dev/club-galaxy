@@ -76,7 +76,17 @@ const defaultStartTime = () => {
   return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
 }
 
-function calcRemainingMinutes(startTime: string, setCount: number, timeAdjustment: number = 0, extensionMinutes: number = 0): number {
+/** spec.md §2.2.4: 残時間は「現在いるセット」単位で再計算する。
+ *  1セット目（60分）が終わって EX1（30分 or 60分）に入った瞬間、
+ *  EX1 の長さで残時間が再カウントされる。
+ *  各セット長を順に積み上げ、経過時間が含まれるセットを特定して残りを返す。
+ *  全セット終了後は負値（END 表示用）。 */
+function calcRemainingMinutes(
+  startTime: string,
+  setCount: number,
+  timeAdjustment: number = 0,
+  extensionHistory: ReadonlyArray<{ minutes: 30 | 60 }> = [],
+): number {
   const [h, m] = startTime.split(':').map(Number)
   const now = new Date()
   const startDate = new Date()
@@ -84,13 +94,21 @@ function calcRemainingMinutes(startTime: string, setCount: number, timeAdjustmen
   if (startDate.getTime() > now.getTime() + 60 * 60 * 1000) {
     startDate.setDate(startDate.getDate() - 1)
   }
-  const totalSetMinutes = setCount * SET_DURATION_MINUTES + extensionMinutes
-  const endTime = new Date(startDate.getTime() + totalSetMinutes * 60 * 1000)
-  return Math.ceil((endTime.getTime() - now.getTime()) / (60 * 1000)) + timeAdjustment
-}
-
-function totalExtensionMinutes(t: { extensionHistory?: { minutes: 30 | 60 }[] }): number {
-  return (t.extensionHistory ?? []).reduce((s, e) => s + e.minutes, 0)
+  const elapsed = (now.getTime() - startDate.getTime()) / 60_000
+  // 各セットの長さ: 通常セット setCount 個 + EX セット extensionHistory.length 個
+  const setDurations = [
+    ...Array<number>(Math.max(1, setCount)).fill(SET_DURATION_MINUTES),
+    ...extensionHistory.map((e) => e.minutes),
+  ]
+  let cum = 0
+  for (const d of setDurations) {
+    if (elapsed < cum + d) {
+      return Math.ceil(cum + d - elapsed) + timeAdjustment
+    }
+    cum += d
+  }
+  // 全セット終了後（END）
+  return Math.ceil(cum - elapsed) + timeAdjustment
 }
 
 function calcElapsedMinutes(startTime: string): number {
@@ -145,7 +163,7 @@ export default function FloorPage() {
   const checkStatuses = useCallback(() => {
     for (const table of tables) {
       if (table.status === 'empty' || !table.startTime) continue
-      const remaining = calcRemainingMinutes(table.startTime, table.setCount, table.timeAdjustmentMinutes ?? 0, totalExtensionMinutes(table))
+      const remaining = calcRemainingMinutes(table.startTime, table.setCount, table.timeAdjustmentMinutes ?? 0, table.extensionHistory ?? [])
       const elapsed = calcElapsedMinutes(table.startTime)
 
       if (remaining <= 5 && table.status !== 'ending') {
@@ -578,10 +596,11 @@ export default function FloorPage() {
 
       {/* Table Grid — ビデオレビュー C18: 並び順は固定 (id 昇順)
           時間で入れ替わると目で覚えた配置と合わなくなり混乱する。
-          状態は色 (statusStyle) で表現。 */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+          状態は色 (statusStyle) で表現。
+          spec.md §2.2.4: 卓ボタンを大きめに（min-h-[160px]）してスクロール不要なサイズに。 */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 gap-3">
         {[...tables].sort((a, b) => a.id - b.id).map((table) => {
-          const remaining = table.startTime ? calcRemainingMinutes(table.startTime, table.setCount, table.timeAdjustmentMinutes ?? 0, totalExtensionMinutes(table)) : null
+          const remaining = table.startTime ? calcRemainingMinutes(table.startTime, table.setCount, table.timeAdjustmentMinutes ?? 0, table.extensionHistory ?? []) : null
           const elapsed = table.startTime ? calcElapsedMinutes(table.startTime) : 0
           const style = statusStyle[table.status]
           return (
@@ -594,7 +613,7 @@ export default function FloorPage() {
                   setSelected(table)
                 }
               }}
-              className={`relative overflow-hidden ${style.bg} ${style.border} border-2 rounded-[14px] p-5 pt-6 text-left transition-all active:scale-[0.97] min-h-[120px]`}
+              className={`relative overflow-hidden ${style.bg} ${style.border} border-2 rounded-[14px] p-5 pt-6 text-left transition-all active:scale-[0.97] min-h-[160px]`}
             >
               <span className={`absolute top-0 left-0 right-0 h-1.5 ${style.accent}`} />
               <div className="flex justify-between items-start">
@@ -625,9 +644,15 @@ export default function FloorPage() {
                     <Clock size={11} />
                     <span>{table.startTime}〜</span>
                   </div>
-                  <span className="inline-block text-xs bg-gold/10 text-gold border border-gold/20 px-1.5 py-0.5 rounded mt-0.5">
-                    {getNominationBadge(table)}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                    {/* spec.md §2.2.4: セット数バッジを 1セット目 / EX1 / EX2 表記で表示 */}
+                    <span className="inline-block text-xs bg-white/10 text-gray-200 border border-white/20 px-1.5 py-0.5 rounded">
+                      {getSetLabel(table)}
+                    </span>
+                    <span className="inline-block text-xs bg-gold/10 text-gold border border-gold/20 px-1.5 py-0.5 rounded">
+                      {getNominationBadge(table)}
+                    </span>
+                  </div>
                   {elapsed >= 50 && (
                     <div className="text-xs text-accent font-bold mt-0.5">50分経過</div>
                   )}
@@ -648,7 +673,7 @@ export default function FloorPage() {
         {selected && selected.status !== 'empty' && (
           <>
             {selected.startTime && (() => {
-              const rem = calcRemainingMinutes(selected.startTime, selected.setCount, selected.timeAdjustmentMinutes ?? 0, totalExtensionMinutes(selected))
+              const rem = calcRemainingMinutes(selected.startTime, selected.setCount, selected.timeAdjustmentMinutes ?? 0, selected.extensionHistory ?? [])
               return (
                 <div className={`text-center py-3 rounded-[10px] mb-4 font-bold text-lg ${rem <= 5 ? 'bg-accent/10 text-red-300 border border-accent/30' : rem <= 10 ? 'bg-amber-500/10 text-amber-300 border border-amber-500/30' : 'panel-gold'}`}>
                   残り {rem > 0 ? `${rem}分` : '終了'}
