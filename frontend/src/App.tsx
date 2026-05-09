@@ -13,6 +13,7 @@ import AdminPage from './pages/AdminPage'
 import ProfitPage from './pages/ProfitPage'
 import WaitingCastPage from './pages/WaitingCastPage'
 import UsageDetailPage from './pages/UsageDetailPage'
+import ExtensionConfirmPage from './pages/ExtensionConfirmPage'
 
 function AuthGuard({ children, allowedRoles }: { children: React.ReactNode; allowedRoles: string[] }) {
   const { user } = useAuth()
@@ -83,6 +84,7 @@ function App() {
         <Route path="/waiting" element={<AuthGuard allowedRoles={['owner', 'staff']}><WaitingCastPage /></AuthGuard>} />
         <Route path="/order" element={<AuthGuard allowedRoles={['owner', 'staff']}><OrderPage /></AuthGuard>} />
         <Route path="/table/:id" element={<AuthGuard allowedRoles={['owner', 'staff']}><UsageDetailPage /></AuthGuard>} />
+        <Route path="/table/:id/extend" element={<AuthGuard allowedRoles={['owner', 'staff']}><ExtensionConfirmPage /></AuthGuard>} />
         <Route path="/billing" element={<AuthGuard allowedRoles={['owner', 'staff']}><BillingPage /></AuthGuard>} />
         <Route path="/salary" element={<AuthGuard allowedRoles={['owner', 'cast']}><SalaryPage /></AuthGuard>} />
         <Route path="/profit" element={<AuthGuard allowedRoles={['owner']}><ProfitPage /></AuthGuard>} />

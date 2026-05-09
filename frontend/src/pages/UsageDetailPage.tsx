@@ -4,8 +4,15 @@ import { useStore } from '../store'
 import ContextualHeader from '../components/ContextualHeader'
 import BottomActionBar from '../components/BottomActionBar'
 import { DangerButton, DarkButton, GhostButton } from '../components/Buttons'
-import { displayOrderName, getSetPriceForTime, getSetPriceLabel } from '../data/mock'
-import { FileText, CreditCard, Trash2 } from 'lucide-react'
+import {
+  displayOrderName,
+  getSetPriceForTime,
+  getSetPriceLabel,
+  SET_DURATION_MINUTES,
+} from '../data/mock'
+import { getSetLabel } from '../utils/setCountLabel'
+import ExtensionInheritanceModal from '../components/ExtensionInheritanceModal'
+import { FileText, CreditCard, Trash2, ArrowLeft, Clock as ClockIcon } from 'lucide-react'
 
 /**
  * TRUST の「利用明細」画面相当。
@@ -23,6 +30,8 @@ export default function UsageDetailPage() {
   const { tables, removeOrderFromTable, storeSettings } = useStore()
   // ISSUE-005: 内訳の折りたたみ（デフォルト非表示で合計を強調）
   const [showBreakdown, setShowBreakdown] = useState(false)
+  // spec.md §5.2: 延長押下 → キャスト継承選択モーダル → 確定で /table/:id/extend へ
+  const [showExtModal, setShowExtModal] = useState(false)
 
   const table = useMemo(() => tables.find((t) => String(t.id) === params.id), [tables, params.id])
 
@@ -46,6 +55,24 @@ export default function UsageDetailPage() {
   const tax = Math.round(subtotal * storeSettings.taxRate)
   const total = subtotal + tax
 
+  // spec.md §4.1.1: 表頭の時間帯（HH:MM 〜 HH:MM）。
+  //   開始 = startTime、終了 = startTime + 通常セット * 60 + 延長累計分。
+  const sessionEnd = (() => {
+    if (!table.startTime) return '-'
+    const exMin = (table.extensionHistory ?? []).reduce((s, e) => s + e.minutes, 0)
+    const total = table.setCount * SET_DURATION_MINUTES + exMin
+    const [h, m] = table.startTime.split(':').map(Number)
+    const t = h * 60 + m + total
+    const eh = Math.floor((t / 60) % 24)
+    const em = t % 60
+    return `${String((eh + 24) % 24).padStart(2, '0')}:${String(em).padStart(2, '0')}`
+  })()
+
+  const handleExtensionConfirm = (config: import('../components/ExtensionInheritanceModal').ExtensionInheritanceConfig) => {
+    setShowExtModal(false)
+    navigate(`/table/${table.id}/extend`, { state: { config } })
+  }
+
   return (
     <div className="flex flex-col min-h-full">
       <ContextualHeader
@@ -53,13 +80,11 @@ export default function UsageDetailPage() {
         title={`卓 ${table.number} の利用明細`}
         // ISSUE-010: from クエリ優先、無ければ BackButton が navigate(-1) 既定動作
         backTo={from}
+        // spec.md §4.1.1: 表頭右上に時間帯（HH:MM 〜 HH:MM）を表示
         right={
-          <DarkButton
-            onClick={() => navigate(`/order?table=${table.id}`)}
-            className="text-sm flex items-center gap-1"
-          >
-            <FileText size={15} /> 注文追加
-          </DarkButton>
+          <span className="text-sm tabular-nums tracking-wider text-gray-300 flex items-center gap-1">
+            <ClockIcon size={14} /> {table.startTime ?? '-'} 〜 {sessionEnd}
+          </span>
         }
       />
 
@@ -93,9 +118,10 @@ export default function UsageDetailPage() {
           </div>
 
           <div className="panel p-4 space-y-2">
-            <h3 className="text-xs text-gray-400 tracking-wider mb-1">セット料金</h3>
+            {/* spec.md §4.1.2: 「セット小計」「料金」表記揺れを「セット料金」に統一 */}
+            <h3 className="text-xs text-gray-400 tracking-wider mb-1">セット料金（{getSetLabel(table)}）</h3>
             <div className="flex justify-between text-sm">
-              <span className="text-gray-400">料金</span>
+              <span className="text-gray-400">セット料金</span>
               <span className="tabular-nums">
                 ¥{adjustedSetPrice.toLocaleString()} × {table.guestCount}名 × {table.setCount}セット
               </span>
@@ -111,7 +137,7 @@ export default function UsageDetailPage() {
               </div>
             )}
             <div className="flex justify-between pt-2 border-t border-white/10">
-              <span className="text-sm text-gray-400">セット小計</span>
+              <span className="text-sm text-gray-400">セット料金 小計</span>
               <span className="tabular-nums font-bold">¥{setSubtotal.toLocaleString()}</span>
             </div>
           </div>
@@ -154,12 +180,14 @@ export default function UsageDetailPage() {
             </div>
             {showBreakdown && (
               <div className="space-y-1 pt-2 border-t border-white/10">
+                {/* spec.md §4.1.2: 「ドリンク・フード」表記を「証券（税抜小計）」に統一。
+                    指名料も含むため "ドリンク・フード" は不正確。 */}
                 <div className="flex justify-between text-sm text-gray-400">
-                  <span>ドリンク・フード小計</span>
-                  <span className="tabular-nums">¥{orderSubtotal.toLocaleString()}</span>
+                  <span>証券（税抜小計）</span>
+                  <span className="tabular-nums">¥{subtotal.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between text-sm text-gray-400">
-                  <span>TAX {Math.round(storeSettings.taxRate * 100)}%</span>
+                  <span>タックス ({Math.round(storeSettings.taxRate * 100)}%)</span>
                   <span className="tabular-nums">¥{tax.toLocaleString()}</span>
                 </div>
               </div>
@@ -174,36 +202,44 @@ export default function UsageDetailPage() {
         </div>
       </div>
 
+      {/* spec.md §4.2: 画面下に [戻る][延長][注文を追加][会計] の4ボタン。
+          [延長] は ExtensionInheritanceModal（§5.2）→ /table/:id/extend（§5.3）に進む。 */}
       <BottomActionBar
-        leftLabel="合計"
-        leftValue={`¥${total.toLocaleString()}`}
         center={
-          <DangerButton
-            onClick={() => navigate(`/billing?table=${table.id}`)}
-            className="text-base px-6 flex items-center gap-2"
-          >
-            <CreditCard size={18} /> 会計へ
-          </DangerButton>
-        }
-        right={
-          // ビデオレビュー N15: 利用明細から延長交渉ボタンへの導線追加
-          <div className="flex gap-1.5">
-            <DarkButton
-              // ISSUE-010: 延長交渉モーダル経由でも /table/:id に戻れるよう from を付与
-              onClick={() => navigate(`/floor?action=extend&table=${table.id}&from=${encodeURIComponent(`/table/${table.id}`)}`)}
+          <div className="flex gap-2 flex-wrap justify-center">
+            <GhostButton
+              onClick={() => (from ? navigate(from) : navigate(-1))}
               className="text-sm flex items-center gap-1"
-              title="ご延長交渉印字を表示 (ホール画面で卓を開いて印字)"
             >
-              <FileText size={15} /> 延長交渉
+              <ArrowLeft size={15} /> 戻る
+            </GhostButton>
+            <DarkButton
+              onClick={() => setShowExtModal(true)}
+              className="text-sm flex items-center gap-1"
+            >
+              <ClockIcon size={15} /> 延長
             </DarkButton>
             <DarkButton
               onClick={() => navigate(`/order?table=${table.id}`)}
               className="text-sm flex items-center gap-1"
             >
-              <FileText size={15} /> 注文追加
+              <FileText size={15} /> 注文を追加
             </DarkButton>
+            <DangerButton
+              onClick={() => navigate(`/billing?table=${table.id}`)}
+              className="text-sm flex items-center gap-1"
+            >
+              <CreditCard size={15} /> 会計
+            </DangerButton>
           </div>
         }
+      />
+
+      <ExtensionInheritanceModal
+        open={showExtModal}
+        table={table}
+        onClose={() => setShowExtModal(false)}
+        onConfirm={handleExtensionConfirm}
       />
     </div>
   )

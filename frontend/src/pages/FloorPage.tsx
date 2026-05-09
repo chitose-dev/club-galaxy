@@ -15,8 +15,7 @@ import {
 } from '../data/mock'
 import { getNominationBadge, getNominationLabel } from '../utils/nomination'
 import { getSetLabel } from '../utils/setCountLabel'
-import { Clock, Users, Plus, ChevronRight, FileText, CreditCard, Undo2, X } from 'lucide-react'
-import { openPrintWindow } from '../utils/print'
+import { Clock, Users, Plus, Printer, ChevronRight, FileText, CreditCard, Undo2, X } from 'lucide-react'
 import BottomActionBar from '../components/BottomActionBar'
 import { GoldButton, DangerButton, GhostButton, DarkButton } from '../components/Buttons'
 import Modal from '../components/Modal'
@@ -382,100 +381,8 @@ export default function FloorPage() {
     })
   }
 
-  /**
-   * 追補02 R7: ご延長交渉 (INTERIM CHECK SHEET) サーマル印字
-   *
-   * 旧「チェック票」を画像 IMG_1033 準拠のレイアウトに刷新:
-   *   - ヘッダー「【ご延長確認】【ただいまの料金】 INTERIM CHECK SHEET」
-   *   - 【只今の料金】ブロック: キャスト名付き内訳 + 合計 (税サ別)
-   *   - 【ご延長予算(目安)】ブロック: 30 分の場合 / 60 分の場合
-   *   - 注記 ※ドリンク、指名料は別途 / ※税サ別
-   */
-  const handlePrintCheckTicket = (table: Table) => {
-    const setPrice = table.startTime ? getSetPriceForTime(table.startTime) : 0
-    const discountPerSet = table.setDiscountPerSet ?? 0
-    const adjustedSetPrice = Math.max(0, setPrice - discountPerSet)
-    const setSubtotal = adjustedSetPrice * table.guestCount * table.setCount
-
-    // ─── 内訳 (指名料 / ドリンク / チャージ 等に分類) ───
-    const nominationOrders = table.orders.filter((o) => /指名|同伴|シングルチャージ/.test(o.menuItem.name))
-    const castDrinkOrders = table.orders.filter((o) => o.menuItem.category === 'cast')
-    const guestDrinkOrders = table.orders.filter((o) => o.menuItem.category === 'guest' && !nominationOrders.includes(o))
-
-    const nominationTotal = nominationOrders.reduce((s, o) => s + o.menuItem.price * o.quantity, 0)
-    const castDrinkTotal = castDrinkOrders.reduce((s, o) => s + o.menuItem.price * o.quantity, 0)
-    const guestDrinkTotal = guestDrinkOrders.reduce((s, o) => s + o.menuItem.price * o.quantity, 0)
-
-    const grandTotal = setSubtotal + nominationTotal + castDrinkTotal + guestDrinkTotal
-
-    // 延長予算試算: 時間帯別セット料金 × 人数 × (30分=0.5セット、60分=1セット)
-    // 本指名がいれば本指名料も継続で加算
-    const nominationContinueCharge = table.mainNominationCastNames.length * 1500
-    const banaiContinueCharge = table.isBanaiShimei ? 500 * table.assignedCasts.length : 0
-    const ext30Price = Math.round(adjustedSetPrice * table.guestCount * 0.5) + nominationContinueCharge + banaiContinueCharge
-    const ext60Price = adjustedSetPrice * table.guestCount + nominationContinueCharge + banaiContinueCharge
-
-    const now = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
-
-    const castNameSuffix = (o: typeof table.orders[0]) => (o.castName ? `（${o.castName}）` : '（ゲスト）')
-
-    const body = `
-      <div class="title-block">
-        <div class="title-ja">【 ご延長確認 】【 ただいまの料金 】</div>
-        <div class="title-en">INTERIM CHECK SHEET</div>
-      </div>
-      <div class="divider-double"></div>
-      <div class="row"><span>卓番:</span><span>${table.number}</span></div>
-      <div class="row"><span>現在時刻:</span><span>${now}</span></div>
-
-      <div class="section-title">─── 【 只今の料金 】 ───</div>
-      <div class="section-sub">（内訳）</div>
-      <div class="row"><span>セット(${table.setCount * SET_DURATION_MINUTES}分)</span><span>¥ ${setSubtotal.toLocaleString()}</span></div>
-      ${nominationOrders.map((o) => `<div class="row"><span>${o.menuItem.name}${castNameSuffix(o)}</span><span>¥ ${(o.menuItem.price * o.quantity).toLocaleString()}</span></div>`).join('')}
-      ${castDrinkOrders.map((o) => `<div class="row"><span>Lドリンク${castNameSuffix(o)}</span><span>¥ ${(o.menuItem.price * o.quantity).toLocaleString()}</span></div>`).join('')}
-      ${guestDrinkOrders.map((o) => `<div class="row"><span>ドリンク${castNameSuffix(o)}</span><span>¥ ${(o.menuItem.price * o.quantity).toLocaleString()}</span></div>`).join('')}
-      <div class="divider"></div>
-      <div class="row total"><span>合計 (Total)</span><span>¥ ${grandTotal.toLocaleString()}</span></div>
-      <div class="note">（税サ別）</div>
-
-      <div class="section-title">─── 【 ご延長予算 （目安）】 ───</div>
-      <div class="hint">ご延長の確認をさせていただきます。</div>
-      <div class="row"><span>30 分の場合</span><span>¥ ${ext30Price.toLocaleString()}</span></div>
-      <div class="row"><span>60 分の場合</span><span>¥ ${ext60Price.toLocaleString()}</span></div>
-      <div class="note-list">
-        <div>※ドリンク、指名料は別途</div>
-        <div>※税サ別</div>
-      </div>
-
-      <div class="divider-double"></div>
-      <div class="footer">ご来店ありがとうございます。</div>
-      <div class="footer store-name">${storeSettings.storeName}</div>
-      <div class="divider-dash"></div>
-    `
-    const extraStyles = `
-      body { max-width: 300px; margin: 0 auto; font-family: 'Noto Sans JP', sans-serif; }
-      .title-block { text-align: center; margin: 6px 0; }
-      .title-ja { font-size: 14px; font-weight: bold; }
-      .title-en { font-size: 11px; letter-spacing: 0.1em; margin-top: 2px; }
-      .divider-double { border-top: 2px double #000; margin: 8px 0; }
-      .divider { border-top: 1px solid #000; margin: 6px 0; }
-      .divider-dash { border-top: 1px dashed #ccc; margin: 8px 0; }
-      .row { display: flex; justify-content: space-between; font-size: 12px; margin: 3px 0; border: none; padding: 0; text-align: left; }
-      .section-title { text-align: center; font-size: 13px; font-weight: bold; margin: 10px 0 4px; }
-      .section-sub { text-align: center; font-size: 11px; color: #666; margin-bottom: 4px; }
-      .total { font-size: 15px; font-weight: bold; margin-top: 4px; }
-      .note { text-align: right; font-size: 10px; color: #666; margin-top: 2px; }
-      .hint { font-size: 11px; color: #444; margin-bottom: 6px; }
-      .note-list { margin-top: 8px; font-size: 10px; color: #555; }
-      .footer { text-align: center; font-size: 11px; }
-      .store-name { font-weight: bold; margin-top: 2px; }
-    `
-    openPrintWindow(body, 'ご延長交渉', { width: 350, height: 600, extraStyles })
-  }
-
-  // 50分経過で未印字の「ご延長交渉」対象卓 (追補02 R7-1: 旧「チェック票」)
-  // 追補03 R21: 自動「ご延長交渉」印字機能は削除 (チェック票と重複)。
-  // 手動でのご延長交渉印字は卓詳細の「ご延長交渉」ボタンから可能。
+  // spec.md §2.2.1: 「ご延長交渉」ボタン削除に伴い、INTERIM CHECK SHEET 印字関数も削除。
+  // pending banner は常に空のため非表示。
   const pendingCheckTickets: typeof tables = []
 
   // 追補03 R21: 一括自動印字機能は削除済 (旧 handlePrintPendingChecks)
