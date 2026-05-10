@@ -58,7 +58,7 @@ export default function UsageDetailPage() {
   const discountPerSet = table.setDiscountPerSet ?? 0
   const adjustedSetPrice = Math.max(0, setPrice - discountPerSet)
   const setSubtotal = adjustedSetPrice * table.guestCount * table.setCount
-  const orderSubtotal = orders.reduce((s, o) => s + o.menuItem.price * o.quantity, 0)
+  const orderSubtotal = orders.reduce((s, o) => s + (o.menuItem?.price ?? 0) * o.quantity, 0)
   const subtotal = setSubtotal + orderSubtotal
   const tax = Math.round(subtotal * storeSettings.taxRate)
   const total = subtotal + tax
@@ -155,27 +155,35 @@ export default function UsageDetailPage() {
             <div className="text-center text-gray-500 py-8 text-sm">注文なし</div>
           ) : (
             <div className="divide-y divide-white/5">
-              {orders.map((o, idx) => (
-                <div key={`${o.menuItem.id}-${o.castName ?? ''}-${idx}`} className="flex items-center justify-between py-2.5 gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm text-white truncate">{displayOrderName(o)}</div>
-                    {o.castName && <div className="text-[10px] text-gold tracking-wider">→ {o.castName}</div>}
+              {orders.map((o, idx) => {
+                // menuItem 自体が undefined のケースもガードする(displayOrderName は
+                // 内部で o.menuItem.name を参照するため、ここでフォールバック表示する)。
+                const price = o.menuItem?.price ?? 0
+                const itemId = o.menuItem?.id
+                const label = o.menuItem ? displayOrderName(o) : '(商品情報なし)'
+                return (
+                  <div key={`${itemId ?? `idx-${idx}`}-${o.castName ?? ''}-${idx}`} className="flex items-center justify-between py-2.5 gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-white truncate">{label}</div>
+                      {o.castName && <div className="text-[10px] text-gold tracking-wider">→ {o.castName}</div>}
+                    </div>
+                    <div className="text-sm text-gray-400 tabular-nums shrink-0 w-24 text-right">
+                      ¥{price.toLocaleString()} × {o.quantity}
+                    </div>
+                    <div className="text-sm tabular-nums shrink-0 w-24 text-right font-bold">
+                      ¥{(price * o.quantity).toLocaleString()}
+                    </div>
+                    <button
+                      onClick={() => itemId !== undefined && removeOrderFromTable(table.id, itemId, o.castName)}
+                      disabled={itemId === undefined}
+                      className="shrink-0 p-2 rounded-md bg-white/5 hover:bg-red-500/20 text-red-400 disabled:opacity-30 disabled:cursor-not-allowed"
+                      aria-label="数量を1減らす"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </div>
-                  <div className="text-sm text-gray-400 tabular-nums shrink-0 w-24 text-right">
-                    ¥{o.menuItem.price.toLocaleString()} × {o.quantity}
-                  </div>
-                  <div className="text-sm tabular-nums shrink-0 w-24 text-right font-bold">
-                    ¥{(o.menuItem.price * o.quantity).toLocaleString()}
-                  </div>
-                  <button
-                    onClick={() => removeOrderFromTable(table.id, o.menuItem.id, o.castName)}
-                    className="shrink-0 p-2 rounded-md bg-white/5 hover:bg-red-500/20 text-red-400"
-                    aria-label="数量を1減らす"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
           {/* ISSUE-005: 合計を最大フォントで強調、内訳は折りたたみ（デフォルト非表示） */}
