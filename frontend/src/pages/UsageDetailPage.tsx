@@ -46,11 +46,19 @@ export default function UsageDetailPage() {
     )
   }
 
+  // 旧スキーマの卓ドキュメントだと配列フィールドが undefined で返ることがあり、
+  // .length / .map / .reduce が即クラッシュ → ページ全体が真っ白になる。
+  // render に使う配列フィールドは ?? [] で防御する。
+  const assignedCasts = table.assignedCasts ?? []
+  const mainNominations = table.mainNominationCastNames ?? []
+  const orders = table.orders ?? []
+  const extensionHistory = table.extensionHistory ?? []
+
   const setPrice = table.startTime ? getSetPriceForTime(table.startTime) : 0
   const discountPerSet = table.setDiscountPerSet ?? 0
   const adjustedSetPrice = Math.max(0, setPrice - discountPerSet)
   const setSubtotal = adjustedSetPrice * table.guestCount * table.setCount
-  const orderSubtotal = table.orders.reduce((s, o) => s + o.menuItem.price * o.quantity, 0)
+  const orderSubtotal = orders.reduce((s, o) => s + o.menuItem.price * o.quantity, 0)
   const subtotal = setSubtotal + orderSubtotal
   const tax = Math.round(subtotal * storeSettings.taxRate)
   const total = subtotal + tax
@@ -59,7 +67,7 @@ export default function UsageDetailPage() {
   //   開始 = startTime、終了 = startTime + 通常セット * 60 + 延長累計分。
   const sessionEnd = (() => {
     if (!table.startTime) return '-'
-    const exMin = (table.extensionHistory ?? []).reduce((s, e) => s + e.minutes, 0)
+    const exMin = extensionHistory.reduce((s, e) => s + e.minutes, 0)
     const total = table.setCount * SET_DURATION_MINUTES + exMin
     const [h, m] = table.startTime.split(':').map(Number)
     const t = h * 60 + m + total
@@ -95,16 +103,14 @@ export default function UsageDetailPage() {
             {/* 追補02 R1-7: 「対応中」(現在接客中) と「本指名」を区別 */}
             <div className="flex justify-between">
               <span className="text-sm text-gray-400">対応中</span>
-              <span className="text-sm">{table.assignedCasts.join(', ') || '担当なし'}</span>
+              <span className="text-sm">{assignedCasts.join(', ') || '担当なし'}</span>
             </div>
             {/* spec.md §3.2.2: 「指名タイプ」ラベル → 「担当」。本指名がいればキャスト名を
                 カンマ区切りで動的表示し、いなければ「フリー」と表示する。 */}
             <div className="flex justify-between">
               <span className="text-sm text-gray-400">担当</span>
-              <span className={`text-sm ${table.mainNominationCastNames.length > 0 ? 'text-gold' : ''}`}>
-                {table.mainNominationCastNames.length > 0
-                  ? table.mainNominationCastNames.join(', ')
-                  : 'フリー'}
+              <span className={`text-sm ${mainNominations.length > 0 ? 'text-gold' : ''}`}>
+                {mainNominations.length > 0 ? mainNominations.join(', ') : 'フリー'}
               </span>
             </div>
             <div className="flex justify-between">
@@ -144,12 +150,12 @@ export default function UsageDetailPage() {
         </div>
 
         <div className="max-w-4xl mx-auto mt-4 panel p-4">
-          <h3 className="text-xs text-gray-400 tracking-wider mb-3">注文明細 ({table.orders.length} 品)</h3>
-          {table.orders.length === 0 ? (
+          <h3 className="text-xs text-gray-400 tracking-wider mb-3">注文明細 ({orders.length} 品)</h3>
+          {orders.length === 0 ? (
             <div className="text-center text-gray-500 py-8 text-sm">注文なし</div>
           ) : (
             <div className="divide-y divide-white/5">
-              {table.orders.map((o, idx) => (
+              {orders.map((o, idx) => (
                 <div key={`${o.menuItem.id}-${o.castName ?? ''}-${idx}`} className="flex items-center justify-between py-2.5 gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="text-sm text-white truncate">{displayOrderName(o)}</div>
