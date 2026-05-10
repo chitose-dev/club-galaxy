@@ -84,8 +84,11 @@ export default function ExtensionInheritanceModal({ open, table, onClose, onConf
       !(table?.assignedCasts ?? []).includes(c.name),
   )
 
+  // backend /api/settings レスポンスに extensionPrice30Min / 60Min が無い場合
+  // undefined になり .toLocaleString() でクラッシュ → 利用明細ページが
+  // ErrorBoundary に落ちる。0 フォールバックで render を通す。
   const extensionPrice =
-    minutes === 30 ? storeSettings.extensionPrice30Min : storeSettings.extensionPrice60Min
+    (minutes === 30 ? storeSettings.extensionPrice30Min : storeSettings.extensionPrice60Min) ?? 0
 
   const handleConfirm = () => {
     onConfirm({
@@ -206,7 +209,7 @@ export default function ExtensionInheritanceModal({ open, table, onClose, onConf
               ))}
             </div>
             <div className="text-xs text-gray-400 mt-2 tabular-nums">
-              延長料金: ¥{extensionPrice.toLocaleString()}
+              延長料金: ¥{(extensionPrice ?? 0).toLocaleString()}
               <span className="text-gray-600 ml-2">（管理画面 &gt; 設定 で変更可）</span>
             </div>
           </section>
