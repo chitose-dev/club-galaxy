@@ -33,6 +33,9 @@ const DEFAULT_SETTINGS: Partial<StoreSettings> = {
   // 延長料金（M22）
   extensionPricingMode: 'per_guest_set',
   extensionMinuteOptions: [30, 60],
+  // spec.md §5.2.2: frontend defaultStoreSettings と整合させる
+  extensionPrice30Min: 3000,
+  extensionPrice60Min: 5000,
   // 中間チェック票
   checkTicketAutoPrintMinutes: 50,
   // セッション

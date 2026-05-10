@@ -586,6 +586,10 @@ export interface StoreSettings extends AuditFields {
   // 延長料金 (M22 で人数連動)
   extensionPricingMode: 'per_guest_set'
   extensionMinuteOptions: [30, 60]
+  /** 30 分延長の 1 セット料金 (default ¥3,000)。frontend defaultStoreSettings と整合。 */
+  extensionPrice30Min: number
+  /** 60 分延長の 1 セット料金 (default ¥5,000、22:00〜セット料金と同額の運用想定)。 */
+  extensionPrice60Min: number
 
   // 中間チェック票
   checkTicketAutoPrintMinutes: number // 50
