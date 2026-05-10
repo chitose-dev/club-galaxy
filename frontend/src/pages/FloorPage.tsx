@@ -13,7 +13,7 @@ import {
   displayOrderName,
   isChargeOrNominationOrder,
 } from '../data/mock'
-import { getNominationBadge, getNominationLabel } from '../utils/nomination'
+import { getNominationBadge } from '../utils/nomination'
 import { getSetLabel } from '../utils/setCountLabel'
 import { Clock, Users, Plus, Printer, ChevronRight, FileText, CreditCard, Undo2, X } from 'lucide-react'
 import BottomActionBar from '../components/BottomActionBar'
@@ -153,6 +153,7 @@ export default function FloorPage() {
 
   const [showExtend, setShowExtend] = useState(false)
   const [showRotation, setShowRotation] = useState(false)
+  const [rotationSelected, setRotationSelected] = useState<string[]>([])
   const [forceCheckoutPending, setForceCheckoutPending] = useState<{ total: number } | null>(null)
   const [, setTick] = useState(0)
 
@@ -445,23 +446,33 @@ export default function FloorPage() {
     setForceCheckoutPending(null)
   }
 
-  const handleAssignCast = (castName: string) => {
+  const closeRotationModal = () => {
+    setShowRotation(false)
+    setRotationSelected([])
+    setSelected(null)
+  }
+
+  const handleAssignCastsBulk = () => {
     if (!selected) return
-    if (selected.assignedCasts.includes(castName)) return
+    // 既に同卓に居るキャストは除外
+    const newCasts = rotationSelected.filter((n) => !selected.assignedCasts.includes(n))
+    if (newCasts.length === 0) {
+      closeRotationModal()
+      return
+    }
     // 追補02 R2-2/R10-3: 別卓で対応中だった場合はそちらから外す (排他的移動)
     for (const t of tables) {
       if (t.id === selected.id) continue
-      if (t.assignedCasts.includes(castName)) {
-        updateTable(t.id, { assignedCasts: t.assignedCasts.filter((n) => n !== castName) })
-      }
+      const overlap = t.assignedCasts.filter((n) => newCasts.includes(n))
+      if (overlap.length === 0) continue
+      updateTable(t.id, { assignedCasts: t.assignedCasts.filter((n) => !newCasts.includes(n)) })
     }
     updateTable(selected.id, {
-      assignedCasts: [...selected.assignedCasts, castName],
+      assignedCasts: [...selected.assignedCasts, ...newCasts],
     })
     const now = new Date().toISOString()
-    setCasts((prev) => prev.map((c) => c.name === castName ? { ...c, lastAssignedAt: now } : c))
-    setShowRotation(false)
-    setSelected(null)
+    setCasts((prev) => prev.map((c) => newCasts.includes(c.name) ? { ...c, lastAssignedAt: now } : c))
+    closeRotationModal()
   }
 
   const occupiedCount = tables.filter((t) => t.status !== 'empty').length
@@ -615,65 +626,6 @@ export default function FloorPage() {
                     <Plus size={12} /> 追加
                   </button>
                 </div>
-              </div>
-
-              {/* 指名タイプ編集 (C5: フリー⇄本指名/同伴/場内指名 切替) */}
-              <div className="panel p-3">
-                <div className="text-gray-500 text-xs mb-2">指名タイプ</div>
-                <div className="text-xs text-gold mb-2">{getNominationLabel(selected)}</div>
-                {selected.assignedCasts.length === 0 ? (
-                  <div className="text-xs text-gray-500">担当を追加すると本指名を指定できます</div>
-                ) : (
-                  <>
-                    <div className="text-[10px] text-gray-500 mb-1">本指名担当 (複数選択可)</div>
-                    <div className="flex flex-wrap gap-1.5 mb-2">
-                      {selected.assignedCasts.map((name) => {
-                        const isMain = selected.mainNominationCastNames.includes(name)
-                        return (
-                          <button
-                            key={name}
-                            onClick={() => updateTable(selected.id, {
-                              mainNominationCastNames: isMain
-                                ? selected.mainNominationCastNames.filter((n) => n !== name)
-                                : [...selected.mainNominationCastNames, name],
-                            })}
-                            className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${isMain ? 'bg-gold/20 border-gold text-gold' : 'bg-white/5 border-white/10 text-gray-400'}`}
-                          >
-                            {isMain ? '★ ' : ''}{name}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </>
-                )}
-                <div className="flex gap-1.5">
-                  <button
-                    onClick={() => updateTable(selected.id, { isDouhan: !selected.isDouhan })}
-                    className={`text-xs px-2.5 py-1 rounded-full border ${selected.isDouhan ? 'bg-gold/20 border-gold text-gold' : 'bg-white/5 border-white/10 text-gray-400'}`}
-                  >
-                    {selected.isDouhan ? '✓ ' : ''}同伴
-                  </button>
-                  {/* ビデオレビュー N7: 本指名と場内指名は排他 (本指名キャストには場内指名つかない) */}
-                  <button
-                    onClick={() => updateTable(selected.id, { isBanaiShimei: !selected.isBanaiShimei })}
-                    disabled={selected.mainNominationCastNames.length > 0}
-                    className={`text-xs px-2.5 py-1 rounded-full border ${
-                      selected.mainNominationCastNames.length > 0
-                        ? 'bg-white/5 border-white/10 text-gray-700 cursor-not-allowed'
-                        : selected.isBanaiShimei
-                        ? 'bg-gold/20 border-gold text-gold'
-                        : 'bg-white/5 border-white/10 text-gray-400'
-                    }`}
-                    title={selected.mainNominationCastNames.length > 0 ? '本指名がある卓には場内指名はつきません' : ''}
-                  >
-                    {selected.isBanaiShimei ? '✓ ' : ''}場内指名
-                  </button>
-                </div>
-                {selected.mainNominationCastNames.length > 0 && selected.isBanaiShimei && (
-                  <div className="text-[10px] text-amber-400 mt-1">
-                    ※ 本指名がついているため場内指名は外してください
-                  </div>
-                )}
               </div>
 
               {/* 入店時刻 + 人数 + セット料金 + セット数 */}
@@ -887,32 +839,54 @@ export default function FloorPage() {
       {/* Rotation Modal */}
       <Modal
         open={showRotation && !!selected}
-        onClose={() => { setShowRotation(false); setSelected(null) }}
+        onClose={closeRotationModal}
         title={selected ? `付け回し - 卓 ${selected.number}` : ''}
         size="sm"
       >
         {selected && (
           <>
-            <p className="text-sm text-gray-400 mb-4">空いているキャストを選択してください</p>
+            <p className="text-sm text-gray-400 mb-4">付け回すキャストを選択してください（複数選択可）</p>
             {freeCasts.length === 0 ? (
               <p className="text-sm text-gray-500 text-center py-4">現在空いているキャストはいません</p>
             ) : (
               <div className="space-y-2">
-                {freeCasts.map((c) => (
-                  <button
-                    key={c.id}
-                    onClick={() => handleAssignCast(c.name)}
-                    className="panel w-full p-3 text-left hover:bg-gold/5 hover:border-gold/40 transition-all flex items-center justify-between"
-                  >
-                    <div>
-                      <div className="font-bold text-sm">{c.name}</div>
-                      <div className="text-xs text-gray-500">→ 卓{selected.number} に付け回し</div>
-                    </div>
-                    <div className="text-xs text-emerald-400/80 tabular-nums">{formatWaitTime(c.lastAssignedAt)}</div>
-                  </button>
-                ))}
+                {freeCasts.map((c) => {
+                  const isSelected = rotationSelected.includes(c.name)
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => setRotationSelected((prev) =>
+                        isSelected ? prev.filter((n) => n !== c.name) : [...prev, c.name]
+                      )}
+                      className={`panel w-full p-3 text-left transition-all flex items-center justify-between ${
+                        isSelected ? 'border-gold bg-gold/10' : 'hover:bg-gold/5 hover:border-gold/40'
+                      }`}
+                    >
+                      <div>
+                        <div className="font-bold text-sm flex items-center gap-2">
+                          {isSelected && <span className="text-gold">✓</span>}
+                          {c.name}
+                        </div>
+                        <div className="text-xs text-gray-500">→ 卓{selected.number} に付け回し</div>
+                      </div>
+                      <div className="text-xs text-emerald-400/80 tabular-nums">{formatWaitTime(c.lastAssignedAt)}</div>
+                    </button>
+                  )
+                })}
               </div>
             )}
+            <div className="mt-4 flex gap-2">
+              <GhostButton onClick={closeRotationModal} className="flex-1">
+                キャンセル
+              </GhostButton>
+              <GoldButton
+                onClick={handleAssignCastsBulk}
+                disabled={rotationSelected.length === 0}
+                className="flex-1"
+              >
+                {rotationSelected.length > 0 ? `${rotationSelected.length}名を付け回し` : '確定'}
+              </GoldButton>
+            </div>
           </>
         )}
       </Modal>
