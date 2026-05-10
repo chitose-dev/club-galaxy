@@ -389,8 +389,18 @@ export default function OrderPage() {
             <UserMinus size={14} /> 待機へ{selectedCastNames.length > 0 && ` (${selectedCastNames.length})`}
           </button>
 
-          <div className="text-[10px] text-gray-500 mb-2 tracking-wider">
-            キャスト選択（複数選択可）
+          {/* spec.md: 担当欄 — 本指名キャスト名(複数はカンマ区切り)、いなければ「フリー」 */}
+          <div className="mb-2">
+            <div className="text-[10px] text-gray-500 tracking-wider">担当</div>
+            <div
+              className={`text-[11px] mt-0.5 tracking-wider ${
+                selectedTable.mainNominationCastNames.length > 0 ? 'text-gold' : 'text-gray-400'
+              }`}
+            >
+              {selectedTable.mainNominationCastNames.length > 0
+                ? selectedTable.mainNominationCastNames.join(', ')
+                : 'フリー'}
+            </div>
           </div>
           <div className="grid grid-cols-1 gap-1.5">
             <CastChip
@@ -438,12 +448,6 @@ export default function OrderPage() {
 
           <div className="mt-3 text-[10px] text-gray-500 leading-relaxed">
             タップで選択 / 解除、複数選択中は商品 1 タップで全員に注文が追加されます。
-            {hasMainShimei && (
-              <>
-                <br />
-                <span className="text-amber-400">本指名: {selectedTable.mainNominationCastNames.join(', ')}</span>
-              </>
-            )}
           </div>
         </div>
 
