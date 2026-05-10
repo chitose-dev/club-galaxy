@@ -53,11 +53,14 @@ export default function UsageDetailPage() {
   const mainNominations = table.mainNominationCastNames ?? []
   const orders = table.orders ?? []
   const extensionHistory = table.extensionHistory ?? []
+  // 数値フィールドが null/undefined で来た場合の防御(NaN 計算 / NaN 表示の回避)
+  const guestCount = table.guestCount ?? 0
+  const setCount = table.setCount ?? 0
 
   const setPrice = table.startTime ? getSetPriceForTime(table.startTime) : 0
   const discountPerSet = table.setDiscountPerSet ?? 0
   const adjustedSetPrice = Math.max(0, setPrice - discountPerSet)
-  const setSubtotal = adjustedSetPrice * table.guestCount * table.setCount
+  const setSubtotal = adjustedSetPrice * guestCount * setCount
   const orderSubtotal = orders.reduce((s, o) => s + (o.menuItem?.price ?? 0) * o.quantity, 0)
   const subtotal = setSubtotal + orderSubtotal
   const tax = Math.round(subtotal * storeSettings.taxRate)
@@ -68,7 +71,7 @@ export default function UsageDetailPage() {
   const sessionEnd = (() => {
     if (!table.startTime) return '-'
     const exMin = extensionHistory.reduce((s, e) => s + e.minutes, 0)
-    const total = table.setCount * SET_DURATION_MINUTES + exMin
+    const total = setCount * SET_DURATION_MINUTES + exMin
     const [h, m] = table.startTime.split(':').map(Number)
     const t = h * 60 + m + total
     const eh = Math.floor((t / 60) % 24)
@@ -115,7 +118,7 @@ export default function UsageDetailPage() {
             </div>
             <div className="flex justify-between">
               <span className="text-sm text-gray-400">人数</span>
-              <span className="text-sm">{table.guestCount} 名</span>
+              <span className="text-sm">{guestCount} 名</span>
             </div>
             <div className="flex justify-between">
               <span className="text-sm text-gray-400">入店時刻</span>
@@ -129,7 +132,7 @@ export default function UsageDetailPage() {
             <div className="flex justify-between text-sm">
               <span className="text-gray-400">セット料金</span>
               <span className="tabular-nums">
-                ¥{adjustedSetPrice.toLocaleString()} × {table.guestCount}名 × {table.setCount}セット
+                ¥{adjustedSetPrice.toLocaleString()} × {guestCount}名 × {setCount}セット
               </span>
             </div>
             <div className="flex justify-between text-sm">
