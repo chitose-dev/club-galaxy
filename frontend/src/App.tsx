@@ -1,7 +1,8 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from './auth'
 import { useStore } from './store'
 import Layout from './components/Layout'
+import ErrorBoundary from './utils/ErrorBoundary'
 import LoginPage from './pages/LoginPage'
 import TopPage from './pages/TopPage'
 import FloorPage from './pages/FloorPage'
@@ -29,6 +30,7 @@ function AuthGuard({ children, allowedRoles }: { children: React.ReactNode; allo
 function App() {
   const { user } = useAuth()
   const { fetchFailed, loading } = useStore()
+  const navigate = useNavigate()
 
   // 起動時 fetch 中はフルスクリーン「読み込み中...」（キャッシュがあれば下のルートでも
   // 即時表示は可能だが、画面ちらつき・データ未確定の操作を避けるためここで待つ）
@@ -77,7 +79,9 @@ function App() {
   return (
     <Routes>
       <Route path="/login" element={<Navigate to={defaultRoute} replace />} />
-      <Route element={<Layout />}>
+      {/* ページ render の例外を捕捉してアプリ全体のアンマウントを防ぐ。
+          フォールバック UI からは「ホールへ戻る」で /floor に戻り state リセット。 */}
+      <Route element={<ErrorBoundary onReset={() => navigate('/floor')}><Layout /></ErrorBoundary>}>
         <Route path="/" element={<Navigate to={defaultRoute} replace />} />
         <Route path="/top" element={<AuthGuard allowedRoles={['owner', 'staff']}><TopPage /></AuthGuard>} />
         <Route path="/floor" element={<AuthGuard allowedRoles={['owner', 'staff']}><FloorPage /></AuthGuard>} />
