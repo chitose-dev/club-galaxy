@@ -589,7 +589,6 @@ export default function FloorPage() {
                 </div>
                 <div className="panel p-3">
                   <div className="text-gray-500 text-xs mb-1">セット数</div>
-                  {/* ビデオレビュー C9-C11: 1セット目 / EX1半 / EX1 / EX2半 / EX2 表記 */}
                   <div className="font-medium">{getSetLabel(selected)}</div>
                 </div>
               </div>

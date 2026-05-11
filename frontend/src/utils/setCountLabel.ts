@@ -1,12 +1,12 @@
 /**
- * セット数表記（spec.md §2.2.4 / FloorPage ビデオレビュー C9-C11 準拠）
+ * セット数表記（spec.md §2.2.4 準拠）
  *
  * - 入店直後（延長 0 回） → "1セット目"
- * - 直近の延長が 30 分 → "EX{n}半"（半セット）
- * - 直近の延長が 60 分 → "EX{n}"（フルセット）
+ * - 1 回目の延長確定 → "EX1"
+ * - 2 回目の延長確定 → "EX2"
+ * - …
  *
- * 例: 60 → 30 → 60 と延長 → 表記は "EX1" → "EX2半" → "EX3"。
- * 直近セットの長短で「半」を付与するため n の値で 60/30 を判定しない（履歴の末尾を参照する）。
+ * 計算: extensionHistory.length のみで判定。延長分数の長短（30/60）は表示分けしない。
  */
 
 export interface SetLabelInput {
@@ -15,9 +15,7 @@ export interface SetLabelInput {
 }
 
 export function getSetLabel(t: SetLabelInput): string {
-  const history = t.extensionHistory ?? []
-  const exCount = history.length
+  const exCount = (t.extensionHistory ?? []).length
   if (exCount === 0) return '1セット目'
-  const last = history[exCount - 1]
-  return last.minutes === 30 ? `EX${exCount}半` : `EX${exCount}`
+  return `EX${exCount}`
 }
