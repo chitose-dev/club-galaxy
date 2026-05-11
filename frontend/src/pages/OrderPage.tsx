@@ -107,7 +107,7 @@ export default function OrderPage() {
   // ISSUE-005: 内訳の折りたたみ（デフォルト非表示）
   const [showBreakdown, setShowBreakdown] = useState(false)
   // 延長確認モーダル: 指名キャスト未確定なら開いたまま選択
-  const [pendingExtend, setPendingExtend] = useState<{ minutes: 30 | 60; castName?: string } | null>(null)
+  const [pendingExtend, setPendingExtend] = useState<{ minutes: 30 | 60; castNames: string[] } | null>(null)
 
   const selectedTable = tables.find((t) => t.id === selectedTableId)
   const orders = selectedTable?.orders ?? []
@@ -254,15 +254,18 @@ export default function OrderPage() {
   // ─── 延長 (FloorPage.requestExtend と同等のロジックに準拠) ───
   const requestExtend = (minutes: 30 | 60) => {
     if (!selectedTable) return
-    // 既定の指名キャスト: 本指名最優先 → 担当先頭 → undefined (フリー)
-    const defaultCast =
-      selectedTable.mainNominationCastNames[0] ?? selectedTable.assignedCasts[0]
-    setPendingExtend({ minutes, castName: defaultCast })
+    // 既定の指名キャスト: 本指名全員プリセット、本指名が無ければ担当先頭 1 名、それも無ければ空配列(フリー)。
+    // クロウさん追加要件で複数選択可（タップで追加/解除）に変更。
+    const defaults =
+      selectedTable.mainNominationCastNames.length > 0
+        ? [...selectedTable.mainNominationCastNames]
+        : selectedTable.assignedCasts.slice(0, 1)
+    setPendingExtend({ minutes, castNames: defaults })
   }
 
   const confirmExtend = () => {
     if (!selectedTable || !pendingExtend) return
-    extendTable(selectedTable, pendingExtend.minutes, pendingExtend.castName)
+    extendTable(selectedTable, pendingExtend.minutes, pendingExtend.castNames)
     setPendingExtend(null)
     // 注文画面に留まる（同卓のままセット番号が進む）→ ユーザーの追加注文を継続できる
     setSelectedCastNames([])
@@ -784,28 +787,41 @@ export default function OrderPage() {
                 </div>
               </div>
 
-              {/* C12: 本指名 → フリー変更不可。本指名キャストがいる場合はフリー選択肢を出さない */}
+              {/* C12: 本指名 → フリー変更不可。本指名キャストがいる場合はフリー選択肢を出さない
+                  クロウさん追加要件: バック帰属先は複数選択可（タップで追加/解除） */}
               <div>
-                <label className="text-xs text-gray-500 block mb-1.5">指名 (バック帰属先)</label>
+                <label className="text-xs text-gray-500 block mb-1.5">
+                  指名 (バック帰属先) {pendingExtend.castNames.length > 1 && <span className="text-gold ml-1">× {pendingExtend.castNames.length}名</span>}
+                </label>
                 <div className="flex gap-2 flex-wrap">
                   {!hasMain && (
                     <CastChip
                       name="フリー"
-                      selected={!pendingExtend.castName}
-                      onClick={() => setPendingExtend({ ...pendingExtend, castName: undefined })}
+                      selected={pendingExtend.castNames.length === 0}
+                      onClick={() => setPendingExtend({ ...pendingExtend, castNames: [] })}
                     />
                   )}
-                  {selectedTable.assignedCasts.map((name) => (
-                    <CastChip
-                      key={name}
-                      name={name}
-                      selected={pendingExtend.castName === name}
-                      onClick={() => setPendingExtend({ ...pendingExtend, castName: name })}
-                    />
-                  ))}
+                  {selectedTable.assignedCasts.map((name) => {
+                    const on = pendingExtend.castNames.includes(name)
+                    return (
+                      <CastChip
+                        key={name}
+                        name={name}
+                        selected={on}
+                        onClick={() =>
+                          setPendingExtend({
+                            ...pendingExtend,
+                            castNames: on
+                              ? pendingExtend.castNames.filter((n) => n !== name)
+                              : [...pendingExtend.castNames, name],
+                          })
+                        }
+                      />
+                    )
+                  })}
                 </div>
                 {hasMain && (
-                  <p className="text-[10px] text-gray-600 mt-1.5">※ 本指名がついている卓はフリーに変更できません</p>
+                  <p className="text-[10px] text-gray-600 mt-1.5">※ 本指名がついている卓はフリーに変更できません（複数指名は可）</p>
                 )}
               </div>
 
