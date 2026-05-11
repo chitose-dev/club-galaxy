@@ -345,8 +345,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   //   しても backend に反映されず、リロードや別端末で消える + 会計時に
   //   Fix B の独立計算が古い状態で行われる問題があった。
   //   updateTable 経由の変更は全て tablesApi.update(PATCH) で backend へ同期。
+  // Fix E (task ③ 反映バグ対策): 楽観的更新を localStorage キャッシュにも反映する。
+  //   そうしないと「タブレットで本指名トグル → そのままアプリ再起動」した場合、
+  //   起動時に古いキャッシュ→ API fetch の順で復元され、ごく短時間だが
+  //   旧状態が画面に出る上、API fetch 失敗時には旧状態のまま固定されてしまう。
   const updateTable = useCallback((id: number, patch: Partial<Table>) => {
-    setTables((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)))
+    setTables((prev) => {
+      const next = prev.map((t) => (t.id === id ? { ...t, ...patch } : t))
+      saveCache({ tables: next })
+      return next
+    })
     tablesApi.update(id, patch).catch(console.error)
   }, [])
 

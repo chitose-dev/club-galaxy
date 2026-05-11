@@ -280,8 +280,10 @@ export default function OrderPage() {
 
   const toggleDouhan = () => {
     if (!selectedTable) return
+    // JSON.stringify は undefined キーを落とすため、クリア時は false を送る
+    // (undefined を送ると PATCH body にキーが含まれず backend が更新しない)。
     updateTable(selectedTable.id, {
-      isDouhan: selectedTable.isDouhan ? undefined : true,
+      isDouhan: selectedTable.isDouhan ? false : true,
     })
   }
 
