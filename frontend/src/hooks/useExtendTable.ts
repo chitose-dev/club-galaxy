@@ -74,8 +74,11 @@ export function useExtendTable() {
         extensionHistory: [...(table.extensionHistory ?? []), newEntry],
         orders: newOrders,
         assignedCasts: continuing,
-        isDouhan: undefined,
-        isBanaiShimei: undefined,
+        // JSON.stringify は undefined キーを落とすため、PATCH で確実にクリアするには
+        // false を明示送出する必要がある（undefined だとバック側で値が残り、
+        // リロード後に同伴/場内指名フラグが復活してしまう）。
+        isDouhan: false,
+        isBanaiShimei: false,
       })
     },
     [updateTable, moveCast, chargeItems],
