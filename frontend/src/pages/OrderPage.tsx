@@ -2,14 +2,15 @@ import { useState, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../store'
 import type { MenuItem, CastMenuItem, OrderItem } from '../data/mock'
-import { displayOrderName, chargeItems } from '../data/mock'
-import { Minus, Plus, Trash2, CreditCard, Gift, UserMinus } from 'lucide-react'
+import { displayOrderName, chargeItems, EXTENSION_OPTIONS, getSetPriceForTime } from '../data/mock'
+import { Minus, Plus, Trash2, CreditCard, Gift, UserMinus, Clock as ClockIcon } from 'lucide-react'
 import ContextualHeader from '../components/ContextualHeader'
 import BottomActionBar from '../components/BottomActionBar'
 import CastChip from '../components/CastChip'
 import Modal from '../components/Modal'
 import { Input, Field as FormField } from '../components/Input'
-import { GoldButton, DangerButton, GhostButton } from '../components/Buttons'
+import { GoldButton, DangerButton, GhostButton, DarkButton } from '../components/Buttons'
+import { useExtendTable } from '../hooks/useExtendTable'
 
 // ビデオレビュー N6 (注1 15:50): ヘルプの再定義
 //   - 待機キャストが場内指名なしで入った状態
@@ -81,8 +82,9 @@ export default function OrderPage() {
   const {
     tables, casts, guestMenu, castMenu, storeSettings,
     addOrderToTable, removeOrderFromTable, setOrderBonus,
-    moveCast,
+    moveCast, updateTable,
   } = useStore()
+  const extendTable = useExtendTable()
   const [showAddCast, setShowAddCast] = useState(false)
   /** 追補03 R18: ボーナス設定対象の注文行 */
   const [bonusTarget, setBonusTarget] = useState<OrderItem | null>(null)
@@ -104,6 +106,8 @@ export default function OrderPage() {
   const [pendingCastDrinkItem, setPendingCastDrinkItem] = useState<MenuItem | null>(null)
   // ISSUE-005: 内訳の折りたたみ（デフォルト非表示）
   const [showBreakdown, setShowBreakdown] = useState(false)
+  // 延長確認モーダル: 指名キャスト未確定なら開いたまま選択
+  const [pendingExtend, setPendingExtend] = useState<{ minutes: 30 | 60; castName?: string } | null>(null)
 
   const selectedTable = tables.find((t) => t.id === selectedTableId)
   const orders = selectedTable?.orders ?? []
@@ -245,6 +249,40 @@ export default function OrderPage() {
     for (let i = 0; i < order.quantity; i++) {
       removeOrderFromTable(selectedTableId, itemId, castName)
     }
+  }
+
+  // ─── 延長 (FloorPage.requestExtend と同等のロジックに準拠) ───
+  const requestExtend = (minutes: 30 | 60) => {
+    if (!selectedTable) return
+    // 既定の指名キャスト: 本指名最優先 → 担当先頭 → undefined (フリー)
+    const defaultCast =
+      selectedTable.mainNominationCastNames[0] ?? selectedTable.assignedCasts[0]
+    setPendingExtend({ minutes, castName: defaultCast })
+  }
+
+  const confirmExtend = () => {
+    if (!selectedTable || !pendingExtend) return
+    extendTable(selectedTable, pendingExtend.minutes, pendingExtend.castName)
+    setPendingExtend(null)
+    // 注文画面に留まる（同卓のままセット番号が進む）→ ユーザーの追加注文を継続できる
+    setSelectedCastNames([])
+  }
+
+  // ─── 本指名 / 同伴 のトグル (task ③) ───
+  const toggleMainNomination = (castName: string) => {
+    if (!selectedTable) return
+    const current = selectedTable.mainNominationCastNames
+    const next = current.includes(castName)
+      ? current.filter((n) => n !== castName)
+      : [...current, castName]
+    updateTable(selectedTable.id, { mainNominationCastNames: next })
+  }
+
+  const toggleDouhan = () => {
+    if (!selectedTable) return
+    updateTable(selectedTable.id, {
+      isDouhan: selectedTable.isDouhan ? undefined : true,
+    })
   }
 
   const subtotal = orders.reduce((sum, o) => sum + o.menuItem.price * o.quantity, 0)
@@ -402,17 +440,32 @@ export default function OrderPage() {
                 : 'フリー'}
             </div>
           </div>
+
+          {/* task ③: 同伴フラグの卓単位トグル（バッジクリックで ON/OFF） */}
+          <button
+            onClick={toggleDouhan}
+            className={`mb-2 w-full text-[11px] py-1.5 rounded-md border transition-colors ${
+              selectedTable.isDouhan
+                ? 'bg-pink-500/20 border-pink-400/50 text-pink-200 font-bold'
+                : 'bg-white/5 border-white/10 text-gray-400 hover:text-pink-200 hover:border-pink-400/30'
+            }`}
+            title="この卓の同伴フラグを切り替え"
+          >
+            {selectedTable.isDouhan ? '☑ 同伴あり' : '☐ 同伴なし'}
+          </button>
+
           <div className="grid grid-cols-1 gap-1.5">
             <CastChip
               name="指名なし"
               selected={selectedCastNames.length === 0}
               onClick={() => setSelectedCastNames([])}
             />
-            {/* ISSUE-006: キャスト名の右に 本締め / 場内 / 同伴 バッジ + 卓番号バッジ */}
+            {/* ISSUE-006: キャスト名の右に 本締め / 場内 バッジ + 卓番号バッジ
+                task ③: 本締めバッジはクリックで本指名 ON/OFF できるトグルに昇格。
+                同伴は卓単位フラグなので上のトグルへ移動済み。 */}
             {selectedTable.assignedCasts.map((name: string) => {
               const isMain = selectedTable.mainNominationCastNames.includes(name)
               const isBanai = !!selectedTable.isBanaiShimei && !isMain
-              const isDouhanFlag = !!selectedTable.isDouhan
               return (
                 <div key={name} className="flex items-stretch gap-1">
                   <CastChip
@@ -422,14 +475,19 @@ export default function OrderPage() {
                     className="flex-1"
                   />
                   <div className="flex flex-col gap-0.5 items-end justify-center shrink-0 w-14">
-                    {isMain && (
-                      <span className="text-[9px] leading-tight px-1.5 py-0.5 rounded bg-amber-500/30 text-amber-200 font-bold tracking-tight">本締め</span>
-                    )}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggleMainNomination(name) }}
+                      className={`text-[9px] leading-tight px-1.5 py-0.5 rounded font-bold tracking-tight transition-colors ${
+                        isMain
+                          ? 'bg-amber-500/30 text-amber-200 hover:bg-amber-500/40'
+                          : 'bg-white/5 text-gray-500 hover:bg-amber-500/20 hover:text-amber-200'
+                      }`}
+                      title={isMain ? '本指名を解除' : '本指名にする'}
+                    >
+                      {isMain ? '★本指名' : '☆本指名'}
+                    </button>
                     {isBanai && (
                       <span className="text-[9px] leading-tight px-1.5 py-0.5 rounded bg-blue-500/30 text-blue-200 font-bold tracking-tight">場内</span>
-                    )}
-                    {isDouhanFlag && (
-                      <span className="text-[9px] leading-tight px-1.5 py-0.5 rounded bg-pink-500/30 text-pink-200 font-bold tracking-tight">同伴</span>
                     )}
                     <span className="text-[9px] leading-tight px-1.5 py-0.5 rounded bg-gold/20 text-gold font-bold tracking-tight tabular-nums">卓{selectedTable.number}</span>
                   </div>
@@ -539,7 +597,8 @@ export default function OrderPage() {
       </div>
 
       {/* spec.md §3.2.1: フッター左「注文小計」と右「注文印刷」を削除。
-          合計表示は右ペインの「合計（税込）」に集約済。中央の「利用明細へ」のみ残す。 */}
+          合計表示は右ペインの「合計（税込）」に集約済。中央の「利用明細へ」のみ残す。
+          task ②: 右側に「延長 +30分 / +60分」ボタンを追加し、注文画面に居たまま延長確定できる。 */}
       <BottomActionBar
         center={
           <DangerButton
@@ -549,6 +608,20 @@ export default function OrderPage() {
           >
             <CreditCard size={18} /> 利用明細へ
           </DangerButton>
+        }
+        right={
+          <div className="flex items-center gap-1.5">
+            {EXTENSION_OPTIONS.map((min) => (
+              <DarkButton
+                key={min}
+                onClick={() => requestExtend(min as 30 | 60)}
+                className="text-sm flex items-center gap-1"
+                title={`+${min}分 延長`}
+              >
+                <ClockIcon size={14} /> +{min}分
+              </DarkButton>
+            ))}
+          </div>
         }
       />
 
@@ -677,6 +750,72 @@ export default function OrderPage() {
             </FormField>
           </div>
         )}
+      </Modal>
+
+      {/* task ②: 延長確認モーダル (FloorPage と同じ pending 確認フロー) */}
+      <Modal
+        open={!!pendingExtend && !!selectedTable}
+        onClose={() => setPendingExtend(null)}
+        size="sm"
+        title={selectedTable ? `卓 ${selectedTable.number} 延長の確認` : '延長の確認'}
+        footer={
+          <>
+            <GhostButton onClick={() => setPendingExtend(null)} className="flex-1">キャンセル</GhostButton>
+            <GoldButton onClick={confirmExtend} className="flex-1">延長する</GoldButton>
+          </>
+        }
+      >
+        {pendingExtend && selectedTable && (() => {
+          const setUnit = selectedTable.startTime ? getSetPriceForTime(selectedTable.startTime) : 0
+          const setUnitAdjusted = Math.max(0, setUnit - (selectedTable.setDiscountPerSet ?? 0))
+          const fullSetCharge = setUnitAdjusted * selectedTable.guestCount
+          const extCharge = pendingExtend.minutes === 60 ? fullSetCharge : Math.round(fullSetCharge / 2)
+          const hasMain = selectedTable.mainNominationCastNames.length > 0
+          return (
+            <div className="space-y-3">
+              <div className="panel p-3 space-y-1.5">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">延長時間</span>
+                  <span className="font-bold">+{pendingExtend.minutes}分</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">延長料金 ({selectedTable.guestCount}名 × ¥{setUnitAdjusted.toLocaleString()})</span>
+                  <span className="font-bold text-gold tabular-nums">¥{extCharge.toLocaleString()}</span>
+                </div>
+              </div>
+
+              {/* C12: 本指名 → フリー変更不可。本指名キャストがいる場合はフリー選択肢を出さない */}
+              <div>
+                <label className="text-xs text-gray-500 block mb-1.5">指名 (バック帰属先)</label>
+                <div className="flex gap-2 flex-wrap">
+                  {!hasMain && (
+                    <CastChip
+                      name="フリー"
+                      selected={!pendingExtend.castName}
+                      onClick={() => setPendingExtend({ ...pendingExtend, castName: undefined })}
+                    />
+                  )}
+                  {selectedTable.assignedCasts.map((name) => (
+                    <CastChip
+                      key={name}
+                      name={name}
+                      selected={pendingExtend.castName === name}
+                      onClick={() => setPendingExtend({ ...pendingExtend, castName: name })}
+                    />
+                  ))}
+                </div>
+                {hasMain && (
+                  <p className="text-[10px] text-gray-600 mt-1.5">※ 本指名がついている卓はフリーに変更できません</p>
+                )}
+              </div>
+
+              <p className="text-xs text-amber-300/80 leading-relaxed">
+                ※ 延長確定時、本指名以外の担当キャストは待機に戻り、同伴・場内指名フラグは解除されます。
+                現在の注文明細はクリアされ、本指名料 + 延長料金が再計上されます。
+              </p>
+            </div>
+          )
+        })()}
       </Modal>
 
       {/* 追補02 R2: 「女の子を追加」 — 他卓対応中 or 待機中キャストを排他的に移動 */}
