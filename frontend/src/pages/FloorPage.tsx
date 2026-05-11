@@ -264,19 +264,23 @@ export default function FloorPage() {
   }
 
   // 延長確認ダイアログ用 (指示書§6.2.3: 確認ダイアログ必須 + 指名選択 G-9)
-  const [pendingExtend, setPendingExtend] = useState<{ minutes: 30 | 60; castName?: string } | null>(null)
+  const [pendingExtend, setPendingExtend] = useState<{ minutes: 30 | 60; castNames: string[] } | null>(null)
 
   const requestExtend = (minutes: 30 | 60) => {
     if (!selected) return
-    // デフォルト指名キャスト: 卓の担当先頭
-    // 追補02 R8-5: 本指名担当を優先、なければ担当リスト先頭
-    setPendingExtend({ minutes, castName: selected.mainNominationCastNames[0] ?? selected.assignedCasts[0] })
+    // デフォルト指名キャスト: 本指名担当を全員プリセット。本指名が無ければ担当先頭 1 名。
+    // 追補02 R8-5 / クロウさん追加要件: バック帰属を複数選択可能とする。
+    const defaults =
+      selected.mainNominationCastNames.length > 0
+        ? [...selected.mainNominationCastNames]
+        : selected.assignedCasts.slice(0, 1)
+    setPendingExtend({ minutes, castNames: defaults })
   }
 
   const confirmExtend = () => {
     if (!selected || !pendingExtend) return
     // 共通ロジックは useExtendTable に集約（OrderPage 側からも同じ処理を呼ぶ）
-    extendTable(selected, pendingExtend.minutes, pendingExtend.castName)
+    extendTable(selected, pendingExtend.minutes, pendingExtend.castNames)
     setPendingExtend(null)
     setShowExtend(false)
     // ISSUE-010: from クエリがあれば（UsageDetailPage の延長交渉ボタン経由）元画面に戻る
@@ -905,28 +909,41 @@ export default function FloorPage() {
                 )}
               </div>
 
-              {/* C12: 本指名 → フリー変更不可。本指名キャストがいる場合はフリー選択肢を出さない */}
+              {/* C12: 本指名 → フリー変更不可。本指名キャストがいる場合はフリー選択肢を出さない
+                  クロウさん追加要件: バック帰属先は複数選択可（タップで追加/解除） */}
               <div>
-                <label className="text-xs text-gray-500 block mb-1.5">指名 (バック帰属先)</label>
+                <label className="text-xs text-gray-500 block mb-1.5">
+                  指名 (バック帰属先) {pendingExtend.castNames.length > 1 && <span className="text-gold ml-1">× {pendingExtend.castNames.length}名</span>}
+                </label>
                 <div className="flex gap-2 flex-wrap">
                   {selected.mainNominationCastNames.length === 0 && (
                     <CastChip
                       name="フリー"
-                      selected={!pendingExtend.castName}
-                      onClick={() => setPendingExtend({ ...pendingExtend, castName: undefined })}
+                      selected={pendingExtend.castNames.length === 0}
+                      onClick={() => setPendingExtend({ ...pendingExtend, castNames: [] })}
                     />
                   )}
-                  {selected.assignedCasts.map((name) => (
-                    <CastChip
-                      key={name}
-                      name={name}
-                      selected={pendingExtend.castName === name}
-                      onClick={() => setPendingExtend({ ...pendingExtend, castName: name })}
-                    />
-                  ))}
+                  {selected.assignedCasts.map((name) => {
+                    const on = pendingExtend.castNames.includes(name)
+                    return (
+                      <CastChip
+                        key={name}
+                        name={name}
+                        selected={on}
+                        onClick={() =>
+                          setPendingExtend({
+                            ...pendingExtend,
+                            castNames: on
+                              ? pendingExtend.castNames.filter((n) => n !== name)
+                              : [...pendingExtend.castNames, name],
+                          })
+                        }
+                      />
+                    )
+                  })}
                 </div>
                 {selected.mainNominationCastNames.length > 0 && (
-                  <p className="text-[10px] text-gray-600 mt-1.5">※ 本指名がついている卓はフリーに変更できません</p>
+                  <p className="text-[10px] text-gray-600 mt-1.5">※ 本指名がついている卓はフリーに変更できません（複数指名は可）</p>
                 )}
               </div>
 

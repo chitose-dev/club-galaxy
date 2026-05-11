@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import { useStore } from '../store'
 import { getSetPriceForTime } from '../data/mock'
-import type { Table } from '../data/mock'
+import type { Table, ExtensionEntry } from '../data/mock'
 
 /**
  * 卓の延長確定処理（FloorPage / OrderPage 共通フック）。
@@ -16,20 +16,24 @@ import type { Table } from '../data/mock'
 export function useExtendTable() {
   const { updateTable, moveCast, chargeItems } = useStore()
   return useCallback(
-    (table: Table, minutes: 30 | 60, castName: string | undefined) => {
+    (table: Table, minutes: 30 | 60, castNames: ReadonlyArray<string>) => {
       const setUnit = table.startTime ? getSetPriceForTime(table.startTime) : 0
       const setUnitAdjusted = Math.max(0, setUnit - (table.setDiscountPerSet ?? 0))
       const fullSetCharge = setUnitAdjusted * table.guestCount
       const charge = minutes === 60 ? fullSetCharge : Math.round(fullSetCharge / 2)
       const entryId = Date.now()
       const orderId = 2000 + entryId
-      const newEntry = {
+      // 注文行の castName は単一フィールドのため代表 1 名を入れる（バック計算は集計側で
+      // ExtensionEntry.nominatedCastNames を読み、均等按分する想定）。
+      const primaryCast = castNames[0]
+      const newEntry: ExtensionEntry = {
         id: entryId,
         minutes,
         timestamp: new Date().toISOString(),
-        nominatedCastName: castName,
+        nominatedCastName: primaryCast,           // 後方互換
+        nominatedCastNames: [...castNames],       // 新規: 複数指名
         orderMenuItemId: orderId,
-      } as const
+      }
       const extensionOrder = {
         menuItem: {
           id: orderId,
@@ -41,7 +45,7 @@ export function useExtendTable() {
           subcategory: 'warimono' as const,
         },
         quantity: 1,
-        castName,
+        castName: primaryCast,
       }
       const continuing = table.mainNominationCastNames
       const leaving = table.assignedCasts.filter((n) => !continuing.includes(n))

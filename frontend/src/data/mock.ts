@@ -40,8 +40,13 @@ export interface ExtensionEntry {
   id: number
   minutes: 30 | 60
   timestamp: string  // ISO
-  /** 延長料金を紐付けたキャスト名 (延長時に指名したキャスト) */
+  /**
+   * @deprecated 延長料金を紐付けたキャスト名（旧: 単一指名）。
+   * 後方互換のため残置。新規書込みは nominatedCastNames[0] と同じ値が入る。
+   */
   nominatedCastName?: string
+  /** 延長時に指名した全キャスト（複数選択対応、空配列ならフリー） */
+  nominatedCastNames?: string[]
   /** このエントリで追加された注文ID(取消時に一緒に削除するため) */
   orderMenuItemId?: number
 }
