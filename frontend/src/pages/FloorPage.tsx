@@ -15,6 +15,7 @@ import {
 } from '../data/mock'
 import { getNominationBadge } from '../utils/nomination'
 import { getSetLabel } from '../utils/setCountLabel'
+import { useExtendTable } from '../hooks/useExtendTable'
 import { Clock, Users, Plus, Printer, ChevronRight, FileText, CreditCard, Undo2, X } from 'lucide-react'
 import BottomActionBar from '../components/BottomActionBar'
 import { GoldButton, DangerButton, GhostButton, DarkButton } from '../components/Buttons'
@@ -75,39 +76,35 @@ const defaultStartTime = () => {
   return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
 }
 
-/** spec.md §2.2.4: 残時間は「現在いるセット」単位で再計算する。
- *  1セット目（60分）が終わって EX1（30分 or 60分）に入った瞬間、
- *  EX1 の長さで残時間が再カウントされる。
- *  各セット長を順に積み上げ、経過時間が含まれるセットを特定して残りを返す。
- *  全セット終了後は負値（END 表示用）。 */
+/** spec.md §2.2.4: 残時間は「現在いるセット」単位で表示する。
+ *  - 延長履歴あり → 直近の延長を「現在のセット」とみなし、その timestamp を起点に
+ *    minutes 分のカウントダウンで残時間を出す（30/60 分のフルカウントで再スタート）。
+ *  - 延長履歴なし → 1 セット目。startTime から SET_DURATION_MINUTES 分のカウントダウン。
+ *  → 1 セット目超過後に延長を打っても、新セットは追加した 30/60 分まるまる残る挙動になる
+ *    （旧実装は startTime からの累積で計算していたため、超過分が新セットを食って
+ *    支払い分より残時間が短く出るバグがあった）。
+ *  setCount 引数は将来の 22:00 自動セット切替に備えて残置（現状未使用）。 */
 function calcRemainingMinutes(
   startTime: string,
-  setCount: number,
+  _setCount: number,
   timeAdjustment: number = 0,
-  extensionHistory: ReadonlyArray<{ minutes: 30 | 60 }> = [],
+  extensionHistory: ReadonlyArray<{ minutes: 30 | 60; timestamp: string }> = [],
 ): number {
-  const [h, m] = startTime.split(':').map(Number)
   const now = new Date()
+  if (extensionHistory.length > 0) {
+    const last = extensionHistory[extensionHistory.length - 1]
+    const exStart = new Date(last.timestamp).getTime()
+    const elapsed = (now.getTime() - exStart) / 60_000
+    return Math.ceil(last.minutes - elapsed) + timeAdjustment
+  }
+  const [h, m] = startTime.split(':').map(Number)
   const startDate = new Date()
   startDate.setHours(h, m, 0, 0)
   if (startDate.getTime() > now.getTime() + 60 * 60 * 1000) {
     startDate.setDate(startDate.getDate() - 1)
   }
   const elapsed = (now.getTime() - startDate.getTime()) / 60_000
-  // 各セットの長さ: 通常セット setCount 個 + EX セット extensionHistory.length 個
-  const setDurations = [
-    ...Array<number>(Math.max(1, setCount)).fill(SET_DURATION_MINUTES),
-    ...extensionHistory.map((e) => e.minutes),
-  ]
-  let cum = 0
-  for (const d of setDurations) {
-    if (elapsed < cum + d) {
-      return Math.ceil(cum + d - elapsed) + timeAdjustment
-    }
-    cum += d
-  }
-  // 全セット終了後（END）
-  return Math.ceil(cum - elapsed) + timeAdjustment
+  return Math.ceil(SET_DURATION_MINUTES - elapsed) + timeAdjustment
 }
 
 function calcElapsedMinutes(startTime: string): number {
@@ -128,7 +125,8 @@ function flColor(rate: number) {
 }
 
 export default function FloorPage() {
-  const { tables, casts, setCasts, updateTable, flMetrics, storeSettings, moveCast, resetTable, addBillingRecord } = useStore()
+  const { tables, casts, setCasts, updateTable, flMetrics, storeSettings, resetTable, addBillingRecord } = useStore()
+  const extendTable = useExtendTable()
   const { user } = useAuth()
   // ISSUE-010: 延長交渉モーダル経由（UsageDetailPage → /floor?action=extend&from=...）の戻り遷移先
   const [searchParams] = useSearchParams()
@@ -277,81 +275,8 @@ export default function FloorPage() {
 
   const confirmExtend = () => {
     if (!selected || !pendingExtend) return
-    const { minutes, castName } = pendingExtend
-    // ビデオレビュー B7: 延長料金は固定額ではなく、時間帯セット料金 × 人数 で計算
-    //   例: 8 名様、20:00〜セット (4,000円/名) → +60分延長で ¥32,000
-    //   30 分延長は半額相当
-    const setUnit = selected.startTime ? getSetPriceForTime(selected.startTime) : 0
-    const setUnitAdjusted = Math.max(0, setUnit - (selected.setDiscountPerSet ?? 0))
-    const fullSetCharge = setUnitAdjusted * selected.guestCount
-    const charge = minutes === 60 ? fullSetCharge : Math.round(fullSetCharge / 2)
-    const entryId = Date.now()
-    const orderId = 2000 + entryId  // 延長料金は注文IDの2000番台
-    const newEntry = {
-      id: entryId,
-      minutes,
-      timestamp: new Date().toISOString(),
-      nominatedCastName: castName,
-      orderMenuItemId: orderId,
-    } as const
-    // 延長料金注文（ビデオレビュー B7: 人数連動）
-    const extensionOrder = {
-      menuItem: {
-        id: orderId,
-        name: `延長 +${minutes}分`,
-        price: charge,
-        cost: 0,
-        castBack: 0,
-        category: 'guest' as const,
-        subcategory: 'warimono' as const,
-      },
-      quantity: 1,
-      castName,  // 指名キャスト帰属
-    }
-
-    // ISSUE-004 反映:
-    //   - 本指名キャストのみ assignedCasts に継承、それ以外は待機戻し（フリー・場内指名は継承しない）
-    //   - 同伴・場内指名フラグは解除
-    //   - orders はクリア（デフォルト動作）→ 本指名料を再計上 + 延長料金を追加
-    const continuing = selected.mainNominationCastNames
-    const leaving = selected.assignedCasts.filter((n) => !continuing.includes(n))
-    for (const name of leaving) {
-      moveCast(name, null)
-    }
-    const shimei = chargeItems.find((c) => c.id === 'shimei')
-    const newOrders: Table['orders'] = []
-    // クロウレビュー対応: ハードコード `901 + idx` を Date.now() ベース採番に変更
-    //   extensionOrder.menuItem.id (= 2000 + entryId) と衝突しないよう十分大きな値域
-    let nextChargeId = Date.now()
-    if (shimei) {
-      continuing.forEach((name) => {
-        newOrders.push({
-          menuItem: {
-            id: nextChargeId++,
-            name: shimei.label,
-            price: shimei.price,
-            cost: shimei.cost ?? 300,
-            castBack: 0,
-            category: 'guest' as const,
-            subcategory: 'warimono' as const,
-          },
-          quantity: 1,
-          castName: name,
-        })
-      })
-    }
-    newOrders.push(extensionOrder)
-
-    const extendPatch = {
-      status: 'occupied' as const,
-      extensionHistory: [...(selected.extensionHistory ?? []), newEntry],
-      orders: newOrders,
-      assignedCasts: continuing,
-      isDouhan: undefined,
-      isBanaiShimei: undefined,
-    }
-    // Fix D: updateTable が backend 同期するので明示的な tablesApi.update は不要
-    updateTable(selected.id, extendPatch)
+    // 共通ロジックは useExtendTable に集約（OrderPage 側からも同じ処理を呼ぶ）
+    extendTable(selected, pendingExtend.minutes, pendingExtend.castName)
     setPendingExtend(null)
     setShowExtend(false)
     // ISSUE-010: from クエリがあれば（UsageDetailPage の延長交渉ボタン経由）元画面に戻る
@@ -664,7 +589,6 @@ export default function FloorPage() {
                 </div>
                 <div className="panel p-3">
                   <div className="text-gray-500 text-xs mb-1">セット数</div>
-                  {/* ビデオレビュー C9-C11: 1セット目 / EX1半 / EX1 / EX2半 / EX2 表記 */}
                   <div className="font-medium">{getSetLabel(selected)}</div>
                 </div>
               </div>

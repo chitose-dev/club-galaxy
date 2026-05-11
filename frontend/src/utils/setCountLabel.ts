@@ -11,7 +11,7 @@
 
 export interface SetLabelInput {
   setCount: number
-  extensionHistory?: Array<{ minutes: 30 | 60 }>
+  extensionHistory?: ReadonlyArray<{ minutes: 30 | 60 }>
 }
 
 export function getSetLabel(t: SetLabelInput): string {
