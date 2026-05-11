@@ -21,7 +21,7 @@ import { Clock as ClockIcon } from 'lucide-react'
  * UsageDetailPage の [延長] → ExtensionInheritanceModal で「次へ」を押すと
  * このページに遷移する。location.state に ExtensionInheritanceConfig を載せる。
  *
- * 表示は点票準拠（時間帯 → セット情報 → メニュー → 証券 → タックス → 合計）。
+ * 表示は点票準拠（時間帯 → セット情報 → メニュー → 小計 → TAX → 合計）。
  * [確定して延長] でテーブルへ ExtensionEntry を追加し、
  * mainNominationCastNames / assignedCasts を継承選択どおりに更新して /table/:id に戻る。
  */
@@ -195,14 +195,14 @@ export default function ExtensionConfirmPage() {
             </div>
           </section>
 
-          {/* 証券 / タックス / 合計 */}
+          {/* 小計 / TAX / 合計 */}
           <section className="border-t border-white/10 pt-2 space-y-1 text-sm">
             <div className="flex justify-between">
-              <span className="text-gray-400">証券（税抜小計）</span>
+              <span className="text-gray-400">小計</span>
               <span className="tabular-nums">¥{subtotalEx.toLocaleString()}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-400">タックス ({Math.round(storeSettings.taxRate * 100)}%)</span>
+              <span className="text-gray-400">TAX ({Math.round(storeSettings.taxRate * 100)}%)</span>
               <span className="tabular-nums">¥{taxEx.toLocaleString()}</span>
             </div>
             <div className="flex justify-between border-t border-white/10 pt-2 items-baseline">

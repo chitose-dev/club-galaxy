@@ -197,14 +197,14 @@ export default function UsageDetailPage() {
             </div>
             {showBreakdown && (
               <div className="space-y-1 pt-2 border-t border-white/10">
-                {/* spec.md §4.1.2: 「ドリンク・フード」表記を「証券（税抜小計）」に統一。
+                {/* spec.md §4.1.2: 「ドリンク・フード」表記を「小計」に統一。
                     指名料も含むため "ドリンク・フード" は不正確。 */}
                 <div className="flex justify-between text-sm text-gray-400">
-                  <span>証券（税抜小計）</span>
+                  <span>小計</span>
                   <span className="tabular-nums">¥{subtotal.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between text-sm text-gray-400">
-                  <span>タックス ({Math.round(storeSettings.taxRate * 100)}%)</span>
+                  <span>TAX ({Math.round(storeSettings.taxRate * 100)}%)</span>
                   <span className="tabular-nums">¥{tax.toLocaleString()}</span>
                 </div>
               </div>
