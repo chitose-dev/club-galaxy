@@ -223,7 +223,9 @@ export default function UsageDetailPage() {
               <ClockIcon size={15} /> 延長
             </DarkButton>
             <DarkButton
-              onClick={() => navigate(`/order?table=${table.id}`)}
+              onClick={() => navigate(
+                `/order?table=${table.id}&from=${encodeURIComponent(`/table/${table.id}`)}`,
+              )}
               className="text-sm flex items-center gap-1"
             >
               <FileText size={15} /> 注文を追加

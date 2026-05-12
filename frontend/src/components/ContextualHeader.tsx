@@ -28,13 +28,15 @@ interface Props {
   title: string
   backTo?: string
   showBack?: boolean
+  /** タイトル直後（左寄せエリア）に置く追加ノード。卓選択プルダウン等を戻るボタン側に並べたい場合に使う。 */
+  leftExtra?: ReactNode
   right?: ReactNode
   /** 画面識別用アクセントカラー。左端のストライプと帯のグラデに反映。 */
   accent?: PageAccent
 }
 
-/** 下層ページ用のサブヘッダー (← 戻る / タイトル / 右側スロット) */
-export default function ContextualHeader({ title, backTo, showBack = true, right, accent = 'neutral' }: Props) {
+/** 下層ページ用のサブヘッダー (← 戻る / タイトル / leftExtra / 右側スロット) */
+export default function ContextualHeader({ title, backTo, showBack = true, leftExtra, right, accent = 'neutral' }: Props) {
   const accentColor = accentMap[accent]
   const style: CSSProperties =
     accent === 'neutral'
@@ -48,9 +50,10 @@ export default function ContextualHeader({ title, backTo, showBack = true, right
       className="flex items-center justify-between gap-3 px-4 py-3 border-b border-gold/30 bg-primary"
       style={style}
     >
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 min-w-0">
         {showBack && <BackButton to={backTo} />}
-        <h2 className="text-lg font-semibold text-white tracking-wide">{title}</h2>
+        <h2 className="text-lg font-semibold text-white tracking-wide shrink-0">{title}</h2>
+        {leftExtra && <div className="flex items-center gap-2 min-w-0">{leftExtra}</div>}
       </div>
       {right && <div className="flex items-center gap-2">{right}</div>}
     </div>
