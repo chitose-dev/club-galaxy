@@ -6,6 +6,7 @@ import BottomActionBar from '../components/BottomActionBar'
 import { DarkButton, GhostButton, GoldButton } from '../components/Buttons'
 import { Printer } from 'lucide-react'
 import {
+  displayOrderName,
   getSetPriceForTime,
   getSetPriceLabel,
   SET_DURATION_MINUTES,
@@ -98,7 +99,14 @@ export default function ExtensionConfirmPage() {
       : (storeSettings.extensionPrice60Min ?? 0)
     return sum + unit * table.guestCount
   }, 0)
-  const subtotalEx = baseSetFee + pastExFee + exSetFee + shimeiCharge + banaiCharge
+  // 注文小計（ドリンク・チャージ等）。これが抜けていたため合計が実料金より
+  // 少なく表示されていた。
+  const orderEntries = table.orders ?? []
+  const orderSubtotal = orderEntries.reduce(
+    (sum, o) => sum + (o.menuItem?.price ?? 0) * o.quantity,
+    0,
+  )
+  const subtotalEx = baseSetFee + pastExFee + exSetFee + shimeiCharge + banaiCharge + orderSubtotal
   const taxEx = Math.round(subtotalEx * storeSettings.taxRate)
   const totalEx = subtotalEx + taxEx
 
@@ -165,12 +173,15 @@ export default function ExtensionConfirmPage() {
 
   return (
     <div className="flex flex-col min-h-full">
-      <ContextualHeader accent="floor" title={`卓 ${table.number} 延長確認 (${exLabel})`} />
+      <div className="no-print">
+        <ContextualHeader accent="floor" title={`卓 ${table.number} 延長確認 (${exLabel})`} />
+      </div>
 
       <div className="flex-1 overflow-y-auto p-4">
-        {/* 画面表示用カード。サーマル印刷時はグローバル @media print rule で
-            兄弟の thermal-receipt のみ表示し、こちらは hide される。 */}
-        <div className="max-w-3xl mx-auto panel p-4 space-y-4">
+        {/* 画面表示用カード。`no-print` クラスで印刷時は確実に非表示にする。
+            （旧 main > div > div:not(:has(.print-receipt)) ルールが実際の DOM
+              構造にマッチしておらず印刷プレビューに画面 UI が出ていた問題の修正） */}
+        <div className="max-w-3xl mx-auto panel p-4 space-y-4 no-print">
           {/* 表頭：卓 / 時間帯 */}
           <div className="flex justify-between items-baseline border-b border-white/10 pb-2">
             <span className="text-base font-bold">卓 {table.number}</span>
@@ -209,7 +220,9 @@ export default function ExtensionConfirmPage() {
           <section>
             <h3 className="text-xs text-gray-400 tracking-wider mb-2">メニュー（全明細）</h3>
             <div className="space-y-3 text-sm">
-              {/* 1セット目（入店から60分）。料金は時間帯セット単価ベース。 */}
+              {/* 1セット目（入店から60分）。料金は時間帯セット単価ベース。
+                  注文（ドリンク・チャージ等）も 1セット目ブロックに各行で表示し、
+                  合計に含めて表示する。 */}
               {table.startTime && (() => {
                 const baseUnit = getSetPriceForTime(table.startTime)
                 const baseFee = baseUnit * table.guestCount
@@ -223,6 +236,15 @@ export default function ExtensionConfirmPage() {
                       <span>セット料金（{getSetPriceLabel(table.startTime)}）</span>
                       <span className="tabular-nums">¥{baseUnit.toLocaleString()} × {table.guestCount}名 = ¥{baseFee.toLocaleString()}</span>
                     </div>
+                    {orderEntries.map((o, i) => (
+                      <div
+                        key={`order-${o.menuItem?.id ?? i}-${o.castName ?? ''}-${i}`}
+                        className="flex justify-between"
+                      >
+                        <span className="truncate">{displayOrderName(o)}{o.quantity > 1 ? ` × ${o.quantity}` : ''}</span>
+                        <span className="tabular-nums">¥{((o.menuItem?.price ?? 0) * o.quantity).toLocaleString()}</span>
+                      </div>
+                    ))}
                   </div>
                 )
               })()}
@@ -351,6 +373,15 @@ export default function ExtensionConfirmPage() {
               <span>¥ {baseSetFee.toLocaleString()}</span>
             </div>
           )}
+          {orderEntries.map((o, i) => (
+            <div
+              key={`t-order-${o.menuItem?.id ?? i}-${o.castName ?? ''}-${i}`}
+              className="t-line"
+            >
+              <span>{displayOrderName(o)}{o.quantity > 1 ? ` × ${o.quantity}` : ''}</span>
+              <span>¥ {((o.menuItem?.price ?? 0) * o.quantity).toLocaleString()}</span>
+            </div>
+          ))}
           {pastExEntries.map((ent, i) => {
             const unit = ent.minutes === 30 ? ext30Unit : ext60Unit
             return (
@@ -398,22 +429,24 @@ export default function ExtensionConfirmPage() {
         </div>
       </div>
 
-      <BottomActionBar
-        center={
-          <>
-            <GhostButton onClick={() => navigate(`/table/${table.id}`)} className="flex-1 max-w-[180px]">戻る</GhostButton>
-            {/* ⑤ 交渉票印刷: 確定前後どちらでも押せる。window.print() でブラウザ印刷ダイアログ起動。 */}
-            <DarkButton
-              onClick={() => window.print()}
-              className="flex-1 max-w-[180px] flex items-center justify-center gap-1.5"
-              title="交渉票を印刷"
-            >
-              <Printer size={15} /> 交渉票を印刷
-            </DarkButton>
-            <GoldButton onClick={handleConfirm} className="flex-1 max-w-[220px]">確定して延長</GoldButton>
-          </>
-        }
-      />
+      <div className="no-print">
+        <BottomActionBar
+          center={
+            <>
+              <GhostButton onClick={() => navigate(`/table/${table.id}`)} className="flex-1 max-w-[180px]">戻る</GhostButton>
+              {/* ⑤ 交渉票印刷: 確定前後どちらでも押せる。window.print() でブラウザ印刷ダイアログ起動。 */}
+              <DarkButton
+                onClick={() => window.print()}
+                className="flex-1 max-w-[180px] flex items-center justify-center gap-1.5"
+                title="交渉票を印刷"
+              >
+                <Printer size={15} /> 交渉票を印刷
+              </DarkButton>
+              <GoldButton onClick={handleConfirm} className="flex-1 max-w-[220px]">確定して延長</GoldButton>
+            </>
+          }
+        />
+      </div>
     </div>
   )
 }
