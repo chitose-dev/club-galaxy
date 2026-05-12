@@ -329,72 +329,92 @@ export default function ExtensionConfirmPage() {
           )}
         </div>
 
-        {/* サーマル印刷専用ブロック。普段は .print-only で hidden、@media print で表示。
-            EPSON TM-m30III-H 系 80mm 幅前提のレイアウト。print-receipt クラスで
-            グローバル @media print rule に拾わせ、兄弟（画面用カード）を hide させる。
-            内容: 中間チェック票形式（タイトル【】囲み・内訳・合計・延長予算目安）。 */}
-        <div className="print-only print-receipt thermal-receipt" aria-hidden>
-          <div className="t-title">【ご延長確認】</div>
-          <div className="t-title">【ただいまの料金】</div>
-          <div className="t-eng">INTERIM CHECK SHEET</div>
-          <div className="t-dashed" />
-          <div className="t-row">
-            <span>卓番: {table.number}</span>
-            <span>現在時刻: {nowHHmm}</span>
-          </div>
-          <div className="t-dashed" />
-          <div className="t-section">【只今の料金】</div>
-          <div className="t-sub">(内訳)</div>
-          {table.startTime && (
-            <div className="t-line">
-              <span>1セット目 ({SET_DURATION_MINUTES}分)</span>
-              <span>¥ {baseSetFee.toLocaleString()}</span>
+        {/* 交渉票印刷ブロック。BillingPage 領収書と同じ
+            「.print-only > .print-receipt 白背景 div」パターンに統一。
+            グローバル @media print rule に乗るので追加 CSS は不要。 */}
+        <div className="print-only" aria-hidden>
+          <div
+            className="bg-white text-black p-4 print-receipt"
+            style={{ fontFamily: 'sans-serif' }}
+          >
+            <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '16px' }}>
+              【ご延長確認】
             </div>
-          )}
-          {pastExEntries.map((ent, i) => {
-            const unit = ent.minutes === 30 ? ext30Unit : ext60Unit
-            return (
-              <div key={`t-past-${ent.id}`} className="t-line">
-                <span>EX{i + 1} ({ent.minutes}分)</span>
-                <span>¥ {(unit * table.guestCount).toLocaleString()}</span>
+            <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '16px' }}>
+              【ただいまの料金】
+            </div>
+            <div style={{ textAlign: 'center', fontSize: '11px', letterSpacing: '0.05em', marginBottom: '4px' }}>
+              INTERIM CHECK SHEET
+            </div>
+            <div style={{ borderTop: '1px dashed #000', margin: '6px 0' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+              <span>卓番: {table.number}</span>
+              <span>現在時刻: {nowHHmm}</span>
+            </div>
+            <div style={{ borderTop: '1px dashed #000', margin: '6px 0' }} />
+            <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '14px', marginBottom: '2px' }}>
+              【只今の料金】
+            </div>
+            <div style={{ fontSize: '11px', marginBottom: '4px' }}>（内訳）</div>
+            {table.startTime && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                <span>セット（{SET_DURATION_MINUTES}分）</span>
+                <span>¥{baseSetFee.toLocaleString()}</span>
               </div>
-            )
-          })}
-          <div className="t-line">
-            <span>{exLabel} ({config.minutes}分・今回)</span>
-            <span>¥ {exSetFee.toLocaleString()}</span>
-          </div>
-          {shimeiCharge > 0 && (
-            <div className="t-line">
-              <span>本指名料 ({newShimei.length}名)</span>
-              <span>¥ {shimeiCharge.toLocaleString()}</span>
+            )}
+            {pastExEntries.map((ent, i) => {
+              const unit = ent.minutes === 30 ? ext30Unit : ext60Unit
+              return (
+                <div
+                  key={`t-past-${ent.id}`}
+                  style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}
+                >
+                  <span>EX{i + 1}（{ent.minutes}分）</span>
+                  <span>¥{(unit * table.guestCount).toLocaleString()}</span>
+                </div>
+              )
+            })}
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+              <span>{exLabel}（{config.minutes}分・今回）</span>
+              <span>¥{exSetFee.toLocaleString()}</span>
             </div>
-          )}
-          {banaiCharge > 0 && (
-            <div className="t-line">
-              <span>場内指名料 ({config.keptBanaiCastNames.length}名)</span>
-              <span>¥ {banaiCharge.toLocaleString()}</span>
+            {shimeiCharge > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                <span>本指名料（{newShimei.length}名）</span>
+                <span>¥{shimeiCharge.toLocaleString()}</span>
+              </div>
+            )}
+            {banaiCharge > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                <span>場内指名料（{config.keptBanaiCastNames.length}名）</span>
+                <span>¥{banaiCharge.toLocaleString()}</span>
+              </div>
+            )}
+            <div style={{ borderTop: '1px dashed #000', margin: '6px 0' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '15px' }}>
+              <span>合計 (Total)</span>
+              <span>¥{totalEx.toLocaleString()}</span>
             </div>
-          )}
-          <div className="t-dashed" />
-          <div className="t-total">
-            <span>合計 (Total)</span>
-            <span>¥ {totalEx.toLocaleString()}</span>
+            <div style={{ fontSize: '11px' }}>（税サ別）</div>
+            <div style={{ borderTop: '1px dashed #000', margin: '6px 0' }} />
+            <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '14px', marginBottom: '2px' }}>
+              【ご延長予算（目安）】
+            </div>
+            <div style={{ fontSize: '12px', marginBottom: '4px' }}>
+              ご延長の確認をさせていただきます。
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+              <span>30分の場合</span>
+              <span>¥{budgetIf30.toLocaleString()}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+              <span>60分の場合</span>
+              <span>¥{budgetIf60.toLocaleString()}</span>
+            </div>
+            <div style={{ fontSize: '11px', marginTop: '4px' }}>※ドリンク、指名料は別途</div>
+            <div style={{ fontSize: '11px' }}>※税サ別</div>
+            <div style={{ borderTop: '1px dashed #000', margin: '6px 0' }} />
           </div>
-          <div className="t-sub">(税込)</div>
-          <div className="t-dashed" />
-          <div className="t-section">【ご延長予算（目安）】</div>
-          <div className="t-note">ご延長の確認をさせていただきます。</div>
-          <div className="t-line">
-            <span>30分の場合</span>
-            <span>¥ {budgetIf30.toLocaleString()}</span>
-          </div>
-          <div className="t-line">
-            <span>60分の場合</span>
-            <span>¥ {budgetIf60.toLocaleString()}</span>
-          </div>
-          <div className="t-footnote">※ドリンク、指名料は別途</div>
-          <div className="t-footnote">※税サ込</div>
         </div>
       </div>
 
