@@ -13,6 +13,10 @@ import type {
  *          completedAt の YYYY-MM-DD で日別にまとめて subtotalBeforeTax を合算
  * - backs: receiptSnapshot.orders がある場合、orders[].menuItem.backType の出現数を
  *          BackType 別に集計。orders が無いレコードはスキップ
+ * - extensionBackAmount: billingRecords の extensionHistorySnapshot を走査し、
+ *          各 ExtensionEntry の nominatedCastNames に castName が含まれていれば
+ *          shimeiBackRate を nominatedCastNames.length で均等割り（端数切り捨て）
+ *          した金額を加算。nominatedCastNames が空（フリー延長）の entry は対象外。
  *
  * sampleDailyWork (Record<number, DailyWork[]>) のダミーを置換するための実装。
  */
@@ -21,6 +25,9 @@ export function computeDailyWork(
   castName: string,
   attendanceRecords: AttendanceRecord[],
   billingRecords: BillingRecord[],
+  /** cast.backRates['本指名'] の値。延長指名バック按分の単価として使う。
+   *  未指定（旧 caller）の場合は 0 扱いで延長バックは加算されない。 */
+  shimeiBackRate: number = 0,
 ): DailyWork[] {
   // date をキーにマップで集計
   const byDate = new Map<string, DailyWork>()
@@ -86,6 +93,30 @@ export function computeDailyWork(
       if (!bt) continue
       dw.backs[bt] = (dw.backs[bt] ?? 0) + (order.quantity ?? 1)
     }
+  }
+
+  // 延長指名バック按分: billing.extensionHistorySnapshot を走査して
+  // 当該キャストが nominatedCastNames に含まれている entry の本指名バックを
+  // キャスト人数で均等割り（端数切り捨て）して加算する。
+  // castNamesSnapshot ベースでは判定しない（万一 mainNomination が assigned から
+  // 外れているレコードでも、nominatedCastNames に居れば帰属対象）。
+  for (const billing of billingRecords) {
+    const snapshot = billing.extensionHistorySnapshot
+    if (!snapshot || snapshot.length === 0) continue
+    const date =
+      billing.date ??
+      (billing.completedAt ? billing.completedAt.slice(0, 10) : null)
+    if (!date) continue
+    let share = 0
+    for (const entry of snapshot) {
+      const names = entry.nominatedCastNames ?? []
+      if (names.length === 0) continue // フリー延長は誰にも付与しない
+      if (!names.includes(castName)) continue
+      share += Math.floor(shimeiBackRate / names.length)
+    }
+    if (share === 0) continue
+    const dw = ensure(date)
+    dw.extensionBackAmount = (dw.extensionBackAmount ?? 0) + share
   }
 
   // date 昇順にソート
