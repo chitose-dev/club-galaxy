@@ -110,11 +110,22 @@ export default function ExtensionConfirmPage() {
   const taxEx = Math.round(subtotalEx * storeSettings.taxRate)
   const totalEx = subtotalEx + taxEx
 
-  // 「ご延長予算（目安）」用: 今回確定後にさらに 30/60 分延長したらどうなるかの参考値。
+  // 印刷物「只今の料金」用: 今回 EX 分(exSetFee)を除いた現時点の確定料金。
+  // 顧客に「今いくら」「もし延長したらいくら」を提示する用途。
+  const currentSubtotal = baseSetFee + pastExFee + shimeiCharge + banaiCharge + orderSubtotal
+  const currentTax = Math.round(currentSubtotal * storeSettings.taxRate)
+  const currentTotal = currentSubtotal + currentTax
+
+  // 「ご延長予算（目安）」: 「今の料金（TAX 抜き）+ 30/60 分追加料金」に
+  // TAX を後付けして提示する。currentSubtotal がベース。
   const ext30Unit = storeSettings.extensionPrice30Min ?? 0
   const ext60Unit = storeSettings.extensionPrice60Min ?? 0
-  const budgetIf30 = totalEx + Math.round(ext30Unit * table.guestCount * (1 + storeSettings.taxRate))
-  const budgetIf60 = totalEx + Math.round(ext60Unit * table.guestCount * (1 + storeSettings.taxRate))
+  const budgetIf30 = Math.round(
+    (currentSubtotal + ext30Unit * table.guestCount) * (1 + storeSettings.taxRate),
+  )
+  const budgetIf60 = Math.round(
+    (currentSubtotal + ext60Unit * table.guestCount) * (1 + storeSettings.taxRate),
+  )
 
   // 印刷時刻（現在時刻）。サーマル印刷の「現在時刻」欄に使う。
   const nowHHmm = (() => {
@@ -391,10 +402,7 @@ export default function ExtensionConfirmPage() {
               </div>
             )
           })}
-          <div className="t-line">
-            <span>{exLabel} ({config.minutes}分・今回)</span>
-            <span>¥ {exSetFee.toLocaleString()}</span>
-          </div>
+          {/* 「只今の料金」は今回確定しようとしている EX を含めない（現在までの確定料金） */}
           {shimeiCharge > 0 && (
             <div className="t-line">
               <span>本指名料 ({newShimei.length}名)</span>
@@ -407,10 +415,14 @@ export default function ExtensionConfirmPage() {
               <span>¥ {banaiCharge.toLocaleString()}</span>
             </div>
           )}
+          <div className="t-line">
+            <span>TAX ({Math.round(storeSettings.taxRate * 100)}%)</span>
+            <span>¥ {currentTax.toLocaleString()}</span>
+          </div>
           <div className="t-dashed" />
           <div className="t-total">
             <span>合計 (Total)</span>
-            <span>¥ {totalEx.toLocaleString()}</span>
+            <span>¥ {currentTotal.toLocaleString()}</span>
           </div>
           <div className="t-sub">(税込)</div>
           <div className="t-dashed" />
