@@ -341,6 +341,9 @@ export default function BillingPage() {
       subtotalBeforeTax: subtotalAll,
       castNamesSnapshot: [...table.assignedCasts],
       salesAttributionByCast,
+      // 延長指名バック按分の集計元（computeDailyWork が参照）。
+      // ExtensionEntry をディープコピーして会計後の状態変更から切り離す。
+      extensionHistorySnapshot: (table.extensionHistory ?? []).map((e) => ({ ...e })),
       // 再印刷用スナップショット
       receiptSnapshot: {
         receiptNumber: receiptNumberForRecord,
@@ -395,6 +398,8 @@ export default function BillingPage() {
         subtotalBeforeTax: mSubtotal,
         castNamesSnapshot: [...mt.assignedCasts],
         salesAttributionByCast: mAttribution,
+        // 合算対象卓 (shadow) も卓単位で延長履歴を保持し按分対象に含める。
+        extensionHistorySnapshot: (mt.extensionHistory ?? []).map((e) => ({ ...e })),
         // shadow レコードには receiptSnapshot を付けない (代表卓 1 枚で印字済)
       })
     }

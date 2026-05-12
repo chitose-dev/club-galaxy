@@ -273,6 +273,12 @@ export interface BillingRecord {
   voidedAt?: string
   voidedBy?: string
   voidReason?: string
+  /** 延長履歴のスナップショット（バック按分集計用）。
+   *  会計確定時に Table.extensionHistory をコピーして保存する。
+   *  computeDailyWork が nominatedCastNames を参照して本指名バックを
+   *  キャスト均等割り（端数切り捨て）で extensionBackAmount に集計する。
+   *  nominatedCastNames が空（フリー延長）の entry はバック付与なし。 */
+  extensionHistorySnapshot?: ExtensionEntry[]
 }
 
 /** 領収書再印刷用に必要な会計スナップショット */
@@ -299,6 +305,11 @@ export interface DailyWork {
   hours: number
   backs: Partial<Record<BackType, number>>
   sales: number // その日の個人売上小計
+  /** 延長指名のバック合計（円）。computeDailyWork が
+   *  billingRecords[i].extensionHistorySnapshot から
+   *  cast.backRates['本指名'] を nominatedCastNames.length で均等割り
+   *  （端数切り捨て）して集計する。フリー延長（nominatedCastNames=[]）は加算しない。 */
+  extensionBackAmount?: number
 }
 
 export interface DailyPayRequest {

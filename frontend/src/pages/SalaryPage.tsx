@@ -49,7 +49,11 @@ export default function SalaryPage() {
   const cast = casts.find((c) => c.id === selectedCastId)
   // 実データ集計: computeDailyWork で attendanceRecords + billingRecords から日次 DailyWork を生成
   const selectedCastName = casts.find((c) => c.id === selectedCastId)?.name ?? ''
-  const dailyWork: DailyWork[] = computeDailyWork(selectedCastId, selectedCastName, attendanceRecords, billingRecords)
+  // 延長指名バック按分の単価は本指名 backRate を流用する仕様（mock.ts コメント参照）
+  const selectedCastShimeiRate = cast?.backRates['本指名'] ?? 0
+  const dailyWork: DailyWork[] = computeDailyWork(
+    selectedCastId, selectedCastName, attendanceRecords, billingRecords, selectedCastShimeiRate,
+  )
 
   const filteredWork = useMemo(() => {
     // API データの date は ISO 形式 (YYYY-MM-DD)、mock は M/D 形式が混在し得るため両対応。
@@ -450,7 +454,9 @@ export default function SalaryPage() {
           <button
             onClick={() => {
               const now = new Date()
-              const work = computeDailyWork(cast.id, cast.name, attendanceRecords, billingRecords)
+              const work = computeDailyWork(
+                cast.id, cast.name, attendanceRecords, billingRecords, cast.backRates['本指名'] ?? 0,
+              )
               // 先月売上の計算
               const prevMonth = now.getMonth() === 0 ? 12 : now.getMonth()
               const prevMonthSales = work

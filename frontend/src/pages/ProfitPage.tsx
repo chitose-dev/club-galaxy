@@ -410,7 +410,9 @@ function CastTrendView() {
 
   const buckets = useMemo(() => {
     if (!cast) return []
-    const work = computeDailyWork(cast.id, cast.name, attendanceRecords, billingRecords)
+    const work = computeDailyWork(
+      cast.id, cast.name, attendanceRecords, billingRecords, cast.backRates['本指名'] ?? 0,
+    )
     // dailyWork の date は 'M/D' 形式 → 今年扱い
     const today = new Date()
     const currentYear = today.getFullYear()
