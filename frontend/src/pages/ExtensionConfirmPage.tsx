@@ -84,9 +84,35 @@ export default function ExtensionConfirmPage() {
   const banaiUnit = 500 // 場内指名 1 件の標準単価
   const shimeiCharge = newShimei.length * shimeiUnit
   const banaiCharge = config.keptBanaiCastNames.length * banaiUnit
-  const subtotalEx = exSetFee + shimeiCharge + banaiCharge
+
+  // 通し計算: 1セット目 + 過去確定 EX + 今回確定 EX + 指名料系を全部合算する。
+  // 旧実装は今回 EX 分だけで小計を出していたため、画面の合計が実料金より少なかった。
+  const baseSetUnit = table.startTime ? getSetPriceForTime(table.startTime) : 0
+  const baseSetFee = baseSetUnit * table.guestCount * Math.max(1, table.setCount || 1)
+  // 過去 EX 各エントリは entry.minutes に応じた現行 storeSettings 単価で計算（過去
+  // 単価は履歴未保存のため概算）。
+  const pastExEntries = table.extensionHistory ?? []
+  const pastExFee = pastExEntries.reduce((sum, e) => {
+    const unit = e.minutes === 30
+      ? (storeSettings.extensionPrice30Min ?? 0)
+      : (storeSettings.extensionPrice60Min ?? 0)
+    return sum + unit * table.guestCount
+  }, 0)
+  const subtotalEx = baseSetFee + pastExFee + exSetFee + shimeiCharge + banaiCharge
   const taxEx = Math.round(subtotalEx * storeSettings.taxRate)
   const totalEx = subtotalEx + taxEx
+
+  // 「ご延長予算（目安）」用: 今回確定後にさらに 30/60 分延長したらどうなるかの参考値。
+  const ext30Unit = storeSettings.extensionPrice30Min ?? 0
+  const ext60Unit = storeSettings.extensionPrice60Min ?? 0
+  const budgetIf30 = totalEx + Math.round(ext30Unit * table.guestCount * (1 + storeSettings.taxRate))
+  const budgetIf60 = totalEx + Math.round(ext60Unit * table.guestCount * (1 + storeSettings.taxRate))
+
+  // 印刷時刻（現在時刻）。サーマル印刷の「現在時刻」欄に使う。
+  const nowHHmm = (() => {
+    const d = new Date()
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  })()
 
   // 売上帰属プレビュー（spec.md §5.5: 本指名で均等按分。フリーは帰属なし）
   const attributionPreview: { name: string; amount: number }[] = useMemo(() => {
@@ -142,9 +168,9 @@ export default function ExtensionConfirmPage() {
       <ContextualHeader accent="floor" title={`卓 ${table.number} 延長確認 (${exLabel})`} />
 
       <div className="flex-1 overflow-y-auto p-4">
-        {/* print-receipt: グローバル @media print スタイルで背景白・文字黒に反転される対象。
-            このクラスが無いとダークテーマがそのまま印刷されてプレビュー真っ黒になる。 */}
-        <div className="max-w-3xl mx-auto panel p-4 space-y-4 print-receipt">
+        {/* 画面表示用カード。サーマル印刷時はグローバル @media print rule で
+            兄弟の thermal-receipt のみ表示し、こちらは hide される。 */}
+        <div className="max-w-3xl mx-auto panel p-4 space-y-4">
           {/* 表頭：卓 / 時間帯 */}
           <div className="flex justify-between items-baseline border-b border-white/10 pb-2">
             <span className="text-base font-bold">卓 {table.number}</span>
@@ -201,20 +227,22 @@ export default function ExtensionConfirmPage() {
                 )
               })()}
 
-              {/* 過去の EX エントリ（直近の延長 = 今回ではない、確定済のもの）。 */}
-              {(table.extensionHistory ?? []).map((ent, i) => {
+              {/* 過去の EX エントリ（直近の延長 = 今回ではない、確定済のもの）。
+                  料金はエントリの minutes に対応する現行 storeSettings 単価 × 人数。 */}
+              {pastExEntries.map((ent, i) => {
                 const prevEnd = (() => {
                   if (!table.startTime) return '-'
                   let acc = SET_DURATION_MINUTES
                   for (let j = 0; j < i; j++) {
-                    acc += (table.extensionHistory ?? [])[j].minutes
+                    acc += pastExEntries[j].minutes
                   }
                   return addMinutes(table.startTime, acc)
                 })()
                 const exEndPast = table.startTime
                   ? addMinutes(prevEnd, ent.minutes)
                   : '-'
-                const pastFee = config.extensionPrice * table.guestCount
+                const pastUnit = ent.minutes === 30 ? ext30Unit : ext60Unit
+                const pastFee = pastUnit * table.guestCount
                 const pastNames = ent.nominatedCastNames ?? (ent.nominatedCastName ? [ent.nominatedCastName] : [])
                 return (
                   <div key={`past-ex-${ent.id}`} className="border-l-2 border-white/20 pl-3">
@@ -223,7 +251,7 @@ export default function ExtensionConfirmPage() {
                     </div>
                     <div className="flex justify-between">
                       <span>延長料金（EX{i + 1}）</span>
-                      <span className="tabular-nums text-gray-300">¥{pastFee.toLocaleString()}</span>
+                      <span className="tabular-nums text-gray-300">¥{pastUnit.toLocaleString()} × {table.guestCount}名 = ¥{pastFee.toLocaleString()}</span>
                     </div>
                     {pastNames.length > 0 && (
                       <div className="text-xs text-gray-500 mt-0.5">
@@ -299,6 +327,74 @@ export default function ExtensionConfirmPage() {
               通常セット料金: ¥{getSetPriceForTime(table.startTime).toLocaleString()}（{getSetPriceLabel(table.startTime)}）
             </div>
           )}
+        </div>
+
+        {/* サーマル印刷専用ブロック。普段は .print-only で hidden、@media print で表示。
+            EPSON TM-m30III-H 系 80mm 幅前提のレイアウト。print-receipt クラスで
+            グローバル @media print rule に拾わせ、兄弟（画面用カード）を hide させる。
+            内容: 中間チェック票形式（タイトル【】囲み・内訳・合計・延長予算目安）。 */}
+        <div className="print-only print-receipt thermal-receipt" aria-hidden>
+          <div className="t-title">【ご延長確認】</div>
+          <div className="t-title">【ただいまの料金】</div>
+          <div className="t-eng">INTERIM CHECK SHEET</div>
+          <div className="t-dashed" />
+          <div className="t-row">
+            <span>卓番: {table.number}</span>
+            <span>現在時刻: {nowHHmm}</span>
+          </div>
+          <div className="t-dashed" />
+          <div className="t-section">【只今の料金】</div>
+          <div className="t-sub">(内訳)</div>
+          {table.startTime && (
+            <div className="t-line">
+              <span>1セット目 ({SET_DURATION_MINUTES}分)</span>
+              <span>¥ {baseSetFee.toLocaleString()}</span>
+            </div>
+          )}
+          {pastExEntries.map((ent, i) => {
+            const unit = ent.minutes === 30 ? ext30Unit : ext60Unit
+            return (
+              <div key={`t-past-${ent.id}`} className="t-line">
+                <span>EX{i + 1} ({ent.minutes}分)</span>
+                <span>¥ {(unit * table.guestCount).toLocaleString()}</span>
+              </div>
+            )
+          })}
+          <div className="t-line">
+            <span>{exLabel} ({config.minutes}分・今回)</span>
+            <span>¥ {exSetFee.toLocaleString()}</span>
+          </div>
+          {shimeiCharge > 0 && (
+            <div className="t-line">
+              <span>本指名料 ({newShimei.length}名)</span>
+              <span>¥ {shimeiCharge.toLocaleString()}</span>
+            </div>
+          )}
+          {banaiCharge > 0 && (
+            <div className="t-line">
+              <span>場内指名料 ({config.keptBanaiCastNames.length}名)</span>
+              <span>¥ {banaiCharge.toLocaleString()}</span>
+            </div>
+          )}
+          <div className="t-dashed" />
+          <div className="t-total">
+            <span>合計 (Total)</span>
+            <span>¥ {totalEx.toLocaleString()}</span>
+          </div>
+          <div className="t-sub">(税込)</div>
+          <div className="t-dashed" />
+          <div className="t-section">【ご延長予算（目安）】</div>
+          <div className="t-note">ご延長の確認をさせていただきます。</div>
+          <div className="t-line">
+            <span>30分の場合</span>
+            <span>¥ {budgetIf30.toLocaleString()}</span>
+          </div>
+          <div className="t-line">
+            <span>60分の場合</span>
+            <span>¥ {budgetIf60.toLocaleString()}</span>
+          </div>
+          <div className="t-footnote">※ドリンク、指名料は別途</div>
+          <div className="t-footnote">※税サ込</div>
         </div>
       </div>
 
