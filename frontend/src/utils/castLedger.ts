@@ -58,7 +58,10 @@ export function printCastLedger(params: CastLedgerParams): void {
         (sum, k) => sum + (w.backs[k] ?? 0) * (cast.backRates?.[k] ?? 0),
         0,
       )
-      const pTotal = backTotal
+      // 延長指名バック按分（PR #63 で computeDailyWork が均等割りした金額）。
+      // 日経表 P 合計に含めないと延長分が給与計算に反映されない。
+      const extensionBack = w.extensionBackAmount ?? 0
+      const pTotal = backTotal + extensionBack
       const dailyGross = hourly + pTotal
       const tax = Math.floor(dailyGross * 0.1)
       const total = dailyGross - tax
@@ -90,7 +93,9 @@ export function printCastLedger(params: CastLedgerParams): void {
       (sum, k) => sum + (w.backs[k] ?? 0) * (cast.backRates?.[k] ?? 0),
       0,
     )
-    return s + hourly + backTotal
+    // 月計にも延長指名バックを加算（日次の pTotal と整合させる）。
+    const extensionBack = w.extensionBackAmount ?? 0
+    return s + hourly + backTotal + extensionBack
   }, 0)
   const totalTax = Math.floor(totalGross * 0.1)
   const totalNet = totalGross - totalTax
