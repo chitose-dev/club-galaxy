@@ -104,8 +104,6 @@ export default function OrderPage() {
   // ISSUE-002 補修: 本指名卓でキャスト未選択 + キャストドリンクをタップした時の確認モーダル
   //   alert ではなく Modal で「本指名キャスト全員に追加するか？」を確認
   const [pendingCastDrinkItem, setPendingCastDrinkItem] = useState<MenuItem | null>(null)
-  // ISSUE-005: 内訳の折りたたみ（デフォルト非表示）
-  const [showBreakdown, setShowBreakdown] = useState(false)
   // 延長確認モーダル: 指名キャスト未確定なら開いたまま選択
   const [pendingExtend, setPendingExtend] = useState<{ minutes: 30 | 60; castNames: string[] } | null>(null)
 
@@ -299,7 +297,9 @@ export default function OrderPage() {
     : 0
   const adjustedSetPrice = Math.max(0, setPrice - (selectedTable?.setDiscountPerSet ?? 0))
   const setSubtotal = selectedTable ? adjustedSetPrice * selectedTable.guestCount * selectedTable.setCount : 0
-  const grandTotal = subtotal + setSubtotal + Math.round((subtotal + setSubtotal) * storeSettings.taxRate)
+  const subtotalBeforeTax = subtotal + setSubtotal
+  const tax = Math.round(subtotalBeforeTax * storeSettings.taxRate)
+  const grandTotal = subtotalBeforeTax + tax
 
   // spec.md §3.2.1: 「注文印刷」ボタン削除に伴い handlePrintOrder も削除。
   if (!selectedTable) {
@@ -317,7 +317,7 @@ export default function OrderPage() {
     <div className="flex flex-col h-full">
       <ContextualHeader
         accent="order"
-        title={`注文入力 — 卓 ${selectedTable.number}`}
+        title="注文入力"
         backTo="/floor"
         right={
           <select
@@ -330,7 +330,7 @@ export default function OrderPage() {
           >
             {occupiedTables.map((t) => (
               <option key={t.id} value={t.id}>
-                卓 {t.number} ({t.assignedCasts.join(',') || '-'})
+                卓{t.number} | {t.guestCount}名 | {t.assignedCasts.join(', ') || '-'}
               </option>
             ))}
           </select>
@@ -516,6 +516,14 @@ export default function OrderPage() {
 
         {/* ── Column 4: 注文明細 ── */}
         <div className="overflow-y-auto p-3">
+          {/* ③ セット料金バナー: 注文明細ヘッダーの直上に固定表示。
+              卓基本料金が一目で分かるよう「{n}名 | {単価}円 | 計:{合計}円」を 1 行に。 */}
+          <div className="mb-2 panel-gold/40 border border-gold/30 rounded-md px-2 py-1.5 text-xs text-gold flex items-center justify-between bg-gold/5">
+            <span className="font-bold tracking-wider">セット料金</span>
+            <span className="tabular-nums">
+              {selectedTable.guestCount}名 | ¥{adjustedSetPrice.toLocaleString()} | 計:¥{setSubtotal.toLocaleString()}
+            </span>
+          </div>
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs text-gray-400 tracking-wider">注文明細</span>
             <span className="text-[10px] text-gray-500">{orders.length} 品</span>
@@ -573,30 +581,20 @@ export default function OrderPage() {
             </div>
           )}
 
-          {/* subtotal inside column 4 — ISSUE-005: 合計を最大フォントで強調、内訳は折りたたみ */}
-          <div className="mt-3 panel-gold p-3 space-y-2">
-            <div className="flex justify-between items-baseline">
+          {/* ② 金額ペイン常時展開: トグル削除、小計 → TAX → 合計(税込) の縦並びを常に表示。 */}
+          <div className="mt-3 panel-gold p-3 space-y-1">
+            <div className="flex justify-between text-xs">
+              <span className="text-gray-300">小計</span>
+              <span className="tabular-nums">¥{subtotalBeforeTax.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-gray-300">TAX ({Math.round(storeSettings.taxRate * 100)}%)</span>
+              <span className="tabular-nums">¥{tax.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between items-baseline pt-2 border-t border-gold/30">
               <span className="text-sm font-bold text-gold">合計 (税込)</span>
               <span className="text-3xl font-bold text-gold tabular-nums">¥{grandTotal.toLocaleString()}</span>
             </div>
-            {showBreakdown && (
-              <div className="space-y-1 pt-2 border-t border-gold/30">
-                <div className="flex justify-between text-xs">
-                  <span className="text-gray-300">セット料金</span>
-                  <span className="tabular-nums">¥{setSubtotal.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between text-xs">
-                  <span className="text-gray-300">注文小計</span>
-                  <span className="tabular-nums">¥{subtotal.toLocaleString()}</span>
-                </div>
-              </div>
-            )}
-            <button
-              onClick={() => setShowBreakdown(!showBreakdown)}
-              className="w-full text-[11px] text-gray-400 hover:text-gold py-0.5 transition-colors"
-            >
-              {showBreakdown ? '▲ 内訳を隠す' : '▼ 内訳を表示'}
-            </button>
           </div>
         </div>
       </div>

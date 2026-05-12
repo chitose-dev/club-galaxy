@@ -28,8 +28,6 @@ export default function UsageDetailPage() {
   const [searchParams] = useSearchParams()
   const from = searchParams.get('from') || undefined
   const { tables, removeOrderFromTable, storeSettings } = useStore()
-  // ISSUE-005: 内訳の折りたたみ（デフォルト非表示で合計を強調）
-  const [showBreakdown, setShowBreakdown] = useState(false)
   // spec.md §5.2: 延長押下 → キャスト継承選択モーダル → 確定で /table/:id/extend へ
   const [showExtModal, setShowExtModal] = useState(false)
 
@@ -189,32 +187,20 @@ export default function UsageDetailPage() {
               })}
             </div>
           )}
-          {/* ISSUE-005: 合計を最大フォントで強調、内訳は折りたたみ（デフォルト非表示） */}
-          <div className="mt-4 pt-3 border-t border-white/10 space-y-2">
-            <div className="flex justify-between items-baseline">
+          {/* ② 金額ペイン常時展開: トグル削除、小計 → TAX → 合計(税込) の縦並びを常に表示。 */}
+          <div className="mt-4 pt-3 border-t border-white/10 space-y-1">
+            <div className="flex justify-between text-sm text-gray-400">
+              <span>小計</span>
+              <span className="tabular-nums">¥{subtotal.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between text-sm text-gray-400">
+              <span>TAX ({Math.round(storeSettings.taxRate * 100)}%)</span>
+              <span className="tabular-nums">¥{tax.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between items-baseline pt-2 border-t border-white/10">
               <span className="text-base text-gold font-bold">合計 (税込)</span>
               <span className="text-4xl tabular-nums font-bold text-gold">¥{total.toLocaleString()}</span>
             </div>
-            {showBreakdown && (
-              <div className="space-y-1 pt-2 border-t border-white/10">
-                {/* spec.md §4.1.2: 「ドリンク・フード」表記を「小計」に統一。
-                    指名料も含むため "ドリンク・フード" は不正確。 */}
-                <div className="flex justify-between text-sm text-gray-400">
-                  <span>小計</span>
-                  <span className="tabular-nums">¥{subtotal.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between text-sm text-gray-400">
-                  <span>TAX ({Math.round(storeSettings.taxRate * 100)}%)</span>
-                  <span className="tabular-nums">¥{tax.toLocaleString()}</span>
-                </div>
-              </div>
-            )}
-            <button
-              onClick={() => setShowBreakdown(!showBreakdown)}
-              className="w-full text-xs text-gray-400 hover:text-gold py-1 transition-colors"
-            >
-              {showBreakdown ? '▲ 内訳を隠す' : '▼ 内訳を表示（小計・TAX）'}
-            </button>
           </div>
         </div>
       </div>
