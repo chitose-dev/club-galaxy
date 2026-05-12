@@ -318,8 +318,10 @@ export default function OrderPage() {
       <ContextualHeader
         accent="order"
         title="注文入力"
-        backTo="/floor"
-        right={
+        // 遷移元を `?from=...` で受け取り戻り先を決める。
+        // 指定なし or 不正値はホール画面を default にする。
+        backTo={searchParams.get('from') || '/floor'}
+        leftExtra={
           <select
             value={selectedTableId}
             onChange={(e) => {
@@ -516,11 +518,12 @@ export default function OrderPage() {
 
         {/* ── Column 4: 注文明細 ── */}
         <div className="overflow-y-auto p-3">
-          {/* ③ セット料金バナー: 注文明細ヘッダーの直上に固定表示。
-              卓基本料金が一目で分かるよう「{n}名 | {単価}円 | 計:{合計}円」を 1 行に。 */}
-          <div className="mb-2 panel-gold/40 border border-gold/30 rounded-md px-2 py-1.5 text-xs text-gold flex items-center justify-between bg-gold/5">
-            <span className="font-bold tracking-wider">セット料金</span>
-            <span className="tabular-nums">
+          {/* セット料金バナー: 卓基本料金を一目で。視認性を最優先して
+              フォント・パディングを十分に大きく確保する（運用中のオーナーが
+              遠目でも金額を確認できるサイズ感）。 */}
+          <div className="mb-3 panel-gold border-2 border-gold/50 rounded-lg px-4 py-3 text-gold flex items-center justify-between bg-gold/10">
+            <span className="text-lg font-bold tracking-wider">セット料金</span>
+            <span className="text-lg font-bold tabular-nums">
               {selectedTable.guestCount}名 | ¥{adjustedSetPrice.toLocaleString()} | 計:¥{setSubtotal.toLocaleString()}
             </span>
           </div>

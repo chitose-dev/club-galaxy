@@ -660,7 +660,7 @@ export default function FloorPage() {
             )}
 
             <div className="flex gap-2 mt-3">
-              <DarkButton onClick={() => { const id = selected.id; setSelected(null); navigate(`/order?table=${id}`) }} className="flex-1 text-sm flex items-center justify-center gap-1.5">
+              <DarkButton onClick={() => { const id = selected.id; setSelected(null); navigate(`/order?table=${id}&from=${encodeURIComponent('/floor')}`) }} className="flex-1 text-sm flex items-center justify-center gap-1.5">
                 <FileText size={15} /> 注文
               </DarkButton>
               <GoldButton onClick={() => { const id = selected.id; setSelected(null); navigate(`/billing?table=${id}`) }} className="flex-1 text-sm flex items-center justify-center gap-1.5">
