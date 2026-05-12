@@ -49,7 +49,8 @@ export default function ExtensionInheritanceModal({ open, table, onClose, onConf
 
   // チェック状態（初期値: 全 ON）
   const [keptShimei, setKeptShimei] = useState<Set<string>>(new Set(currentShimei))
-  const [keptBanai, setKeptBanai] = useState<Set<string>>(new Set(currentBanai))
+  // 場内指名の継承は明示オプトイン（必要なものだけユーザーがチェック ON）。
+  const [keptBanai, setKeptBanai] = useState<Set<string>>(new Set())
   const [addedShimei, setAddedShimei] = useState<Set<string>>(new Set())
   const [minutes, setMinutes] = useState<30 | 60>(60)
 
@@ -59,11 +60,8 @@ export default function ExtensionInheritanceModal({ open, table, onClose, onConf
   useEffect(() => {
     if (!table) return
     setKeptShimei(new Set(table.mainNominationCastNames))
-    setKeptBanai(
-      table.isBanaiShimei
-        ? new Set(table.assignedCasts)
-        : new Set(table.assignedCasts.filter((n) => !table.mainNominationCastNames.includes(n))),
-    )
+    // 場内指名の継承は明示オプトイン（モーダルを開き直すたびに全 OFF にリセット）。
+    setKeptBanai(new Set())
     setAddedShimei(new Set())
     setMinutes(60)
     // eslint-disable-next-line react-hooks/exhaustive-deps

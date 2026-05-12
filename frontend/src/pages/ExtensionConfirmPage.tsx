@@ -3,7 +3,8 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { useStore } from '../store'
 import ContextualHeader from '../components/ContextualHeader'
 import BottomActionBar from '../components/BottomActionBar'
-import { GhostButton, GoldButton } from '../components/Buttons'
+import { DarkButton, GhostButton, GoldButton } from '../components/Buttons'
+import { Printer } from 'lucide-react'
 import {
   getSetPriceForTime,
   getSetPriceLabel,
@@ -172,26 +173,87 @@ export default function ExtensionConfirmPage() {
             </div>
           </section>
 
-          {/* メニュー */}
+          {/* ⑤ メニュー（全明細）: 1セット目 / EX1 / EX2 / ... / 今回の延長 を
+              区切り見出しで時系列に表示する。過去 EX のキャスト情報は
+              ExtensionEntry.nominatedCastNames から復元、未保存（旧データ）
+              の場合は空表示で許容。料金は当該 EX の minutes と現行 extensionPrice
+              から概算（過去料金は履歴に保存していないため厳密値ではない）。 */}
           <section>
-            <h3 className="text-xs text-gray-400 tracking-wider mb-2">メニュー</h3>
-            <div className="space-y-1 text-sm">
-              <div className="flex justify-between">
-                <span>セット料金（{exLabel}）</span>
-                <span className="tabular-nums">¥{exSetFee.toLocaleString()}</span>
+            <h3 className="text-xs text-gray-400 tracking-wider mb-2">メニュー（全明細）</h3>
+            <div className="space-y-3 text-sm">
+              {/* 1セット目（入店から60分）。料金は時間帯セット単価ベース。 */}
+              {table.startTime && (() => {
+                const baseUnit = getSetPriceForTime(table.startTime)
+                const baseFee = baseUnit * table.guestCount
+                const baseEnd = addMinutes(table.startTime, SET_DURATION_MINUTES)
+                return (
+                  <div className="border-l-2 border-gold/30 pl-3">
+                    <div className="text-xs text-gold tracking-wider mb-1">
+                      1セット目（{table.startTime} 〜 {baseEnd}, {SET_DURATION_MINUTES}分）
+                    </div>
+                    <div className="flex justify-between">
+                      <span>セット料金（{getSetPriceLabel(table.startTime)}）</span>
+                      <span className="tabular-nums">¥{baseUnit.toLocaleString()} × {table.guestCount}名 = ¥{baseFee.toLocaleString()}</span>
+                    </div>
+                  </div>
+                )
+              })()}
+
+              {/* 過去の EX エントリ（直近の延長 = 今回ではない、確定済のもの）。 */}
+              {(table.extensionHistory ?? []).map((ent, i) => {
+                const prevEnd = (() => {
+                  if (!table.startTime) return '-'
+                  let acc = SET_DURATION_MINUTES
+                  for (let j = 0; j < i; j++) {
+                    acc += (table.extensionHistory ?? [])[j].minutes
+                  }
+                  return addMinutes(table.startTime, acc)
+                })()
+                const exEndPast = table.startTime
+                  ? addMinutes(prevEnd, ent.minutes)
+                  : '-'
+                const pastFee = config.extensionPrice * table.guestCount
+                const pastNames = ent.nominatedCastNames ?? (ent.nominatedCastName ? [ent.nominatedCastName] : [])
+                return (
+                  <div key={`past-ex-${ent.id}`} className="border-l-2 border-white/20 pl-3">
+                    <div className="text-xs text-gray-400 tracking-wider mb-1">
+                      EX{i + 1}（{prevEnd} 〜 {exEndPast}, {ent.minutes}分）
+                    </div>
+                    <div className="flex justify-between">
+                      <span>延長料金（EX{i + 1}）</span>
+                      <span className="tabular-nums text-gray-300">¥{pastFee.toLocaleString()}</span>
+                    </div>
+                    {pastNames.length > 0 && (
+                      <div className="text-xs text-gray-500 mt-0.5">
+                        指名: {pastNames.join(', ')}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+
+              {/* 今回の延長（確定対象 = EX{exIndex}）。 */}
+              <div className="border-l-2 border-accent/60 pl-3">
+                <div className="text-xs text-accent tracking-wider mb-1">
+                  {exLabel}（{exStart} 〜 {exEnd}, {config.minutes}分）★今回の延長
+                </div>
+                <div className="flex justify-between">
+                  <span>セット料金（{exLabel}）</span>
+                  <span className="tabular-nums">¥{config.extensionPrice.toLocaleString()} × {table.guestCount}名 = ¥{exSetFee.toLocaleString()}</span>
+                </div>
+                {newShimei.map((name) => (
+                  <div key={`shimei-${name}`} className="flex justify-between">
+                    <span>本指名 {name}</span>
+                    <span className="tabular-nums">¥{shimeiUnit.toLocaleString()}</span>
+                  </div>
+                ))}
+                {config.keptBanaiCastNames.map((name) => (
+                  <div key={`banai-${name}`} className="flex justify-between">
+                    <span>場内指名 {name}</span>
+                    <span className="tabular-nums">¥{banaiUnit.toLocaleString()}</span>
+                  </div>
+                ))}
               </div>
-              {newShimei.map((name) => (
-                <div key={`shimei-${name}`} className="flex justify-between">
-                  <span>本指名 {name}</span>
-                  <span className="tabular-nums">¥{shimeiUnit.toLocaleString()}</span>
-                </div>
-              ))}
-              {config.keptBanaiCastNames.map((name) => (
-                <div key={`banai-${name}`} className="flex justify-between">
-                  <span>場内指名 {name}</span>
-                  <span className="tabular-nums">¥{banaiUnit.toLocaleString()}</span>
-                </div>
-              ))}
             </div>
           </section>
 
@@ -242,6 +304,14 @@ export default function ExtensionConfirmPage() {
         center={
           <>
             <GhostButton onClick={() => navigate(`/table/${table.id}`)} className="flex-1 max-w-[180px]">戻る</GhostButton>
+            {/* ⑤ 交渉票印刷: 確定前後どちらでも押せる。window.print() でブラウザ印刷ダイアログ起動。 */}
+            <DarkButton
+              onClick={() => window.print()}
+              className="flex-1 max-w-[180px] flex items-center justify-center gap-1.5"
+              title="交渉票を印刷"
+            >
+              <Printer size={15} /> 交渉票を印刷
+            </DarkButton>
             <GoldButton onClick={handleConfirm} className="flex-1 max-w-[220px]">確定して延長</GoldButton>
           </>
         }
