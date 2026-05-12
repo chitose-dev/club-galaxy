@@ -142,7 +142,9 @@ export default function ExtensionConfirmPage() {
       <ContextualHeader accent="floor" title={`卓 ${table.number} 延長確認 (${exLabel})`} />
 
       <div className="flex-1 overflow-y-auto p-4">
-        <div className="max-w-3xl mx-auto panel p-4 space-y-4">
+        {/* print-receipt: グローバル @media print スタイルで背景白・文字黒に反転される対象。
+            このクラスが無いとダークテーマがそのまま印刷されてプレビュー真っ黒になる。 */}
+        <div className="max-w-3xl mx-auto panel p-4 space-y-4 print-receipt">
           {/* 表頭：卓 / 時間帯 */}
           <div className="flex justify-between items-baseline border-b border-white/10 pb-2">
             <span className="text-base font-bold">卓 {table.number}</span>
