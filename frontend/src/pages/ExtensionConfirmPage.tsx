@@ -73,9 +73,9 @@ export default function ExtensionConfirmPage() {
     ...config.addedShimeiCastNames.filter((n) => !config.keptShimeiCastNames.includes(n)),
   ]
 
-  // EX 番号（延長確定後の表示用）
+  // EX 番号（延長確定後の表示用） — PDF指示: 30 分は "EX(n)半"、60 分は "EX(n)"。
   const exIndex = (table.extensionHistory ?? []).length + 1
-  const exLabel = `EX${exIndex}`
+  const exLabel = config.minutes === 30 ? `EX(${exIndex})半` : `EX(${exIndex})`
   const exStart = calcCurrentSetEnd(table)
   const exEnd = addMinutes(exStart, config.minutes)
 
@@ -185,7 +185,7 @@ export default function ExtensionConfirmPage() {
   return (
     <div className="flex flex-col min-h-full">
       <div className="no-print">
-        <ContextualHeader accent="floor" title={`卓 ${table.number} 延長確認 (${exLabel})`} />
+        <ContextualHeader accent="floor" title={`${table.number}卓 延長確認 (${exLabel})`} />
       </div>
 
       <div className="flex-1 overflow-y-auto p-4">
@@ -195,7 +195,7 @@ export default function ExtensionConfirmPage() {
         <div className="max-w-3xl mx-auto panel p-4 space-y-4 no-print">
           {/* 表頭：卓 / 時間帯 */}
           <div className="flex justify-between items-baseline border-b border-white/10 pb-2">
-            <span className="text-base font-bold">卓 {table.number}</span>
+            <span className="text-base font-bold">{table.number}卓</span>
             <span className="text-sm tabular-nums tracking-wider text-gray-300 flex items-center gap-1">
               <ClockIcon size={14} /> {exStart} 〜 {exEnd}
             </span>
@@ -241,7 +241,7 @@ export default function ExtensionConfirmPage() {
                 return (
                   <div className="border-l-2 border-gold/30 pl-3">
                     <div className="text-xs text-gold tracking-wider mb-1">
-                      1セット目（{table.startTime} 〜 {baseEnd}, {SET_DURATION_MINUTES}分）
+                      1Set目（{table.startTime} 〜 {baseEnd}, {SET_DURATION_MINUTES}分）
                     </div>
                     <div className="flex justify-between">
                       <span>セット料金（{getSetPriceLabel(table.startTime)}）</span>
@@ -277,13 +277,14 @@ export default function ExtensionConfirmPage() {
                 const pastUnit = ent.minutes === 30 ? ext30Unit : ext60Unit
                 const pastFee = pastUnit * table.guestCount
                 const pastNames = ent.nominatedCastNames ?? (ent.nominatedCastName ? [ent.nominatedCastName] : [])
+                const pastLabel = ent.minutes === 30 ? `EX(${i + 1})半` : `EX(${i + 1})`
                 return (
                   <div key={`past-ex-${ent.id}`} className="border-l-2 border-white/20 pl-3">
                     <div className="text-xs text-gray-400 tracking-wider mb-1">
-                      EX{i + 1}（{prevEnd} 〜 {exEndPast}, {ent.minutes}分）
+                      {pastLabel}（{prevEnd} 〜 {exEndPast}, {ent.minutes}分）
                     </div>
                     <div className="flex justify-between">
-                      <span>延長料金（EX{i + 1}）</span>
+                      <span>延長料金（{pastLabel}）</span>
                       <span className="tabular-nums text-gray-300">¥{pastUnit.toLocaleString()} × {table.guestCount}名 = ¥{pastFee.toLocaleString()}</span>
                     </div>
                     {pastNames.length > 0 && (
@@ -380,7 +381,7 @@ export default function ExtensionConfirmPage() {
           <div className="t-sub">(内訳)</div>
           {table.startTime && (
             <div className="t-line">
-              <span>1セット目 ({SET_DURATION_MINUTES}分)</span>
+              <span>1Set目 ({SET_DURATION_MINUTES}分)</span>
               <span>¥ {baseSetFee.toLocaleString()}</span>
             </div>
           )}
@@ -395,9 +396,10 @@ export default function ExtensionConfirmPage() {
           ))}
           {pastExEntries.map((ent, i) => {
             const unit = ent.minutes === 30 ? ext30Unit : ext60Unit
+            const lab = ent.minutes === 30 ? `EX(${i + 1})半` : `EX(${i + 1})`
             return (
               <div key={`t-past-${ent.id}`} className="t-line">
-                <span>EX{i + 1} ({ent.minutes}分)</span>
+                <span>{lab} ({ent.minutes}分)</span>
                 <span>¥ {(unit * table.guestCount).toLocaleString()}</span>
               </div>
             )
