@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { storeCollection } from '../firebase'
 import { sendError, throwBadRequest } from '../lib/errors'
-import type { Cast, DailyWork, DailyPayment, Deduction } from '../types'
+import type { BackType, Cast, DailyWork, DailyPayment, Deduction } from '../types'
 
 export const exportRouter = Router()
 
@@ -121,7 +121,45 @@ exportRouter.get('/payroll-csv', async (req, res) => {
 })
 
 // GET /api/export/cast-ledger/:castId — ?month=YYYY-MM
-// 列: 日, 時間, 日給, FD, 本D, Fカク, 本カク, 本カクW, 同伴, 本指名, 場内指名, ボトルバック, その他, P合計, 日給合計, ホステス税(-10%), 総支給額
+// 列: 日, 時間, 日給, Fドリンク, 本ドリンク, Fカクテル, 本カクテル, 本カクW,
+//      同伴, 本指, 場内, ボトルバック, その他, P合計, 日給合計, ホステス税, 総支給額
+// ドリンク系セルは `12杯/4800円`、それ以外のバック系セルは `1/4000円` 形式（0 件は空欄）。
+// 欄外/参考情報（先月売上 P 数、①②等）は別画面で参照するため CSV には含めない。
+type LedgerBackCol = {
+  key: BackType
+  label: string
+  /** ドリンク系（FD/本D/Fカク/本カク/本カクW）は本数を「杯」表記 */
+  isDrink: boolean
+}
+
+const LEDGER_BACK_COLUMNS: readonly LedgerBackCol[] = [
+  { key: 'FD', label: 'Fドリンク', isDrink: true },
+  { key: '本D', label: '本ドリンク', isDrink: true },
+  { key: 'Fカク', label: 'Fカク', isDrink: true },
+  { key: '本カク', label: '本カク', isDrink: true },
+  { key: '本カクW', label: '本カクW', isDrink: true },
+  { key: '同伴', label: '同伴', isDrink: false },
+  { key: '本指名', label: '本指', isDrink: false },
+  { key: '場内指名', label: '場内', isDrink: false },
+  { key: 'ボトルバック', label: 'ボトルバック', isDrink: false },
+  { key: 'その他', label: 'その他', isDrink: false },
+]
+
+/** バック単価が設定されている場合は `本カク(バック400円)` 形式で見出しを返す */
+function backColumnHeader(col: LedgerBackCol, rate: number | undefined): string {
+  if (typeof rate === 'number' && rate > 0) {
+    return `${col.label}(バック${rate}円)`
+  }
+  return col.label
+}
+
+/** バックセルの本数 / バック額を `12杯/4800円` 形式で返す（0 件は空欄） */
+function backCellValue(col: LedgerBackCol, count: number, rate: number | undefined): string {
+  if (!count || count <= 0) return ''
+  const amount = count * (rate ?? 0)
+  return col.isDrink ? `${count}杯/${amount}円` : `${count}/${amount}円`
+}
+
 exportRouter.get('/cast-ledger/:castId', async (req, res) => {
   try {
     const castId = Number(req.params.castId)
@@ -131,20 +169,23 @@ exportRouter.get('/cast-ledger/:castId', async (req, res) => {
     const from = `${month}-01`
     const to = `${month}-31`
 
-    const dwSnap = await storeCollection('dailyWork')
-      .where('castId', '==', castId)
-      .where('businessDate', '>=', from)
-      .where('businessDate', '<=', to)
-      .get()
+    const [dwSnap, castDoc] = await Promise.all([
+      storeCollection('dailyWork')
+        .where('castId', '==', castId)
+        .where('businessDate', '>=', from)
+        .where('businessDate', '<=', to)
+        .get(),
+      storeCollection('casts').doc(String(castId)).get(),
+    ])
     const dailyWork = dwSnap.docs
       .map((d) => d.data() as DailyWork)
       .sort((a, b) => a.businessDate.localeCompare(b.businessDate))
+    const backRates = ((castDoc.data() as Cast | undefined)?.backRates) ?? {}
 
     const header = [
       '日', '時間', '日給',
-      'FD', '本D', 'Fカク', '本カク', '本カクW',
-      '同伴', '本指名', '場内指名', 'ボトルバック', 'その他',
-      'P合計', '日給合計', 'ホステス税(-10%)', '総支給額',
+      ...LEDGER_BACK_COLUMNS.map((c) => backColumnHeader(c, backRates[c.key])),
+      'P合計', '日給合計', 'ホステス税', '総支給額',
     ]
     const rows: (string | number | null | undefined)[][] = [header]
 
@@ -153,24 +194,16 @@ exportRouter.get('/cast-ledger/:castId', async (req, res) => {
       const hours = ((w.workMinutes ?? 0) / 60).toFixed(2)
       const hourlyPay = w.hourlyPay ?? 0
       const backs = w.backs ?? {}
-      const fd = backs['FD'] ?? 0
-      const honD = backs['本D'] ?? 0
-      const fKaku = backs['Fカク'] ?? 0
-      const honKaku = backs['本カク'] ?? 0
-      const honKakuW = backs['本カクW'] ?? 0
-      const douhan = backs['同伴'] ?? 0
-      const honShimei = backs['本指名'] ?? 0
-      const banaiShimei = backs['場内指名'] ?? 0
-      const bottleBack = backs['ボトルバック'] ?? 0
-      const sonota = backs['その他'] ?? 0
+      const backCells = LEDGER_BACK_COLUMNS.map((c) =>
+        backCellValue(c, backs[c.key] ?? 0, backRates[c.key]),
+      )
       const pTotal = w.backTotal ?? 0
       const grossDaily = hourlyPay + pTotal
       const hostessTax = Math.floor(grossDaily * 0.1)
       const totalPay = grossDaily - hostessTax
       rows.push([
         day, hours, hourlyPay,
-        fd, honD, fKaku, honKaku, honKakuW,
-        douhan, honShimei, banaiShimei, bottleBack, sonota,
+        ...backCells,
         pTotal, grossDaily, hostessTax, totalPay,
       ])
     }
