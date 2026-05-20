@@ -207,9 +207,100 @@ export default function BillingPage() {
   }
 
   // PDF C: 分割発行モーダルは「卓 → empty」遷移後の early return パスでも
-  // 描画する必要があるため、JSX をヘルパ関数にして両 return から呼び出す。
-  // function 宣言は巻き上げ対象だが、参照される helper (openSplitIssue 等) が
-  // const なので関数本体実行時点まで評価を遅延させる目的でも function 化する。
+  // 描画する必要があるため、関連 const helper + JSX 生成 function を
+  // すべて early return より「前」に集約する。
+  // const は巻き上げされないので、早期 return より後ろに置くと TDZ で
+  // ランタイムエラーになる。
+
+  // 分割発行モーダルを開く。会計直後 / 履歴いずれからも呼べる。
+  // splitSlots は guestCount 件のスロットで初期化、初期金額は人数割（端数は最終枠）。
+  const openSplitIssue = (ctx: {
+    billingRecordId: string
+    tableNumber: string
+    total: number
+    consumptionTax: number
+    receiptNumber: number
+    guestCount: number
+  }) => {
+    const n = Math.max(1, ctx.guestCount)
+    const each = Math.floor(ctx.total / n)
+    const slots: SplitSlot[] = Array.from({ length: n }).map((_, i) => ({
+      amount: String(i === n - 1 ? ctx.total - each * (n - 1) : each),
+      recipientName: '',
+      purpose: '飲食代として',
+    }))
+    setSplitSlots(slots)
+    setSplitContext({
+      billingRecordId: ctx.billingRecordId,
+      tableNumber: ctx.tableNumber,
+      total: ctx.total,
+      consumptionTax: ctx.consumptionTax,
+      receiptNumber: ctx.receiptNumber,
+      guestCount: n,
+      storeSettingsSnapshot: {
+        storeName: storeSettings.storeName,
+        storeAddress: storeSettings.storeAddress,
+        storePhone: storeSettings.storePhone,
+      },
+    })
+    setShowSplitIssue(true)
+  }
+
+  // 分割スロット 1 枚を「発行 & 印刷」する。
+  // 既存の receiptPrintBlock を splitPrintOverride で動的差し替えし、
+  // 印刷後に IssuedReceipt を保存する。
+  const issueAndPrintSplit = (index: number) => {
+    if (!splitContext) return
+    const slot = splitSlots[index]
+    if (!slot) return
+    const amount = Math.max(0, Math.floor(Number(slot.amount) || 0))
+    if (amount <= 0) {
+      alert('金額が 0 円です。0 円より大きい金額を入力してください。')
+      return
+    }
+    setSplitPrintOverride({
+      recipientName: slot.recipientName,
+      purpose: slot.purpose,
+      amount,
+    })
+    document.body.classList.add('print-summary-mode')
+    setTimeout(() => {
+      window.print()
+      document.body.classList.remove('print-summary-mode')
+      setSplitPrintOverride(null)
+      addIssuedReceipt({
+        id: `${splitContext.billingRecordId}-${Date.now()}-${index}`,
+        billingRecordId: splitContext.billingRecordId,
+        tableNumber: splitContext.tableNumber,
+        sequenceIndex: index + 1,
+        amount,
+        recipientName: slot.recipientName,
+        purpose: slot.purpose,
+        issuedAt: new Date().toISOString(),
+        issuedBy: user?.displayName ?? 'スタッフ',
+        storeSettingsSnapshot: { ...splitContext.storeSettingsSnapshot },
+      })
+    }, 80)
+  }
+
+  const updateSplitSlot = (index: number, patch: Partial<SplitSlot>) => {
+    setSplitSlots((prev) => prev.map((s, i) => i === index ? { ...s, ...patch } : s))
+  }
+  const addSplitSlot = () => {
+    if (!splitContext) return
+    if (splitSlots.length >= splitContext.guestCount) return
+    setSplitSlots((prev) => [...prev, { amount: '0', recipientName: '', purpose: '飲食代として' }])
+  }
+  const removeSplitSlot = (index: number) => {
+    setSplitSlots((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  // 当該 BillingRecord で既に発行済みの領収書（一覧表示用）
+  const issuedForCurrent = splitContext
+    ? issuedReceipts.filter((r) => r.billingRecordId === splitContext.billingRecordId)
+    : []
+
+  // モーダル本体は function 宣言にして両 return から呼べるようにする。
   function renderSplitIssueModal() { return (
     <Modal
       open={showSplitIssue && !!splitContext}
@@ -710,96 +801,10 @@ export default function BillingPage() {
     setTimeout(() => doPrint(mode), 30)
   }
 
-  // PDF C: 分割発行モーダルを開く。会計直後 / 履歴いずれからも呼べる。
-  // splitSlots は guestCount 件のスロットで初期化、初期金額は人数割（端数は最終枠）。
-  const openSplitIssue = (ctx: {
-    billingRecordId: string
-    tableNumber: string
-    total: number
-    consumptionTax: number
-    receiptNumber: number
-    guestCount: number
-  }) => {
-    const n = Math.max(1, ctx.guestCount)
-    const each = Math.floor(ctx.total / n)
-    const slots: SplitSlot[] = Array.from({ length: n }).map((_, i) => ({
-      amount: String(i === n - 1 ? ctx.total - each * (n - 1) : each),
-      recipientName: '',
-      purpose: '飲食代として',
-    }))
-    setSplitSlots(slots)
-    setSplitContext({
-      billingRecordId: ctx.billingRecordId,
-      tableNumber: ctx.tableNumber,
-      total: ctx.total,
-      consumptionTax: ctx.consumptionTax,
-      receiptNumber: ctx.receiptNumber,
-      guestCount: n,
-      storeSettingsSnapshot: {
-        storeName: storeSettings.storeName,
-        storeAddress: storeSettings.storeAddress,
-        storePhone: storeSettings.storePhone,
-      },
-    })
-    setShowSplitIssue(true)
-  }
-
-  // 分割スロット 1 枚を「発行 & 印刷」する。
-  // 既存の receiptPrintBlock を splitPrintOverride で動的差し替えし、
-  // 印刷後に IssuedReceipt を保存する。
-  const issueAndPrintSplit = (index: number) => {
-    if (!splitContext) return
-    const slot = splitSlots[index]
-    if (!slot) return
-    const amount = Math.max(0, Math.floor(Number(slot.amount) || 0))
-    if (amount <= 0) {
-      alert('金額が 0 円です。0 円より大きい金額を入力してください。')
-      return
-    }
-    setSplitPrintOverride({
-      recipientName: slot.recipientName,
-      purpose: slot.purpose,
-      amount,
-    })
-    // 印刷ダイアログ起動 → ダイアログ閉じた直後にオーバーライド解除 + 記録保存
-    document.body.classList.add('print-summary-mode')
-    setTimeout(() => {
-      window.print()
-      document.body.classList.remove('print-summary-mode')
-      setSplitPrintOverride(null)
-      addIssuedReceipt({
-        id: `${splitContext.billingRecordId}-${Date.now()}-${index}`,
-        billingRecordId: splitContext.billingRecordId,
-        tableNumber: splitContext.tableNumber,
-        sequenceIndex: index + 1,
-        amount,
-        recipientName: slot.recipientName,
-        purpose: slot.purpose,
-        issuedAt: new Date().toISOString(),
-        issuedBy: user?.displayName ?? 'スタッフ',
-        storeSettingsSnapshot: { ...splitContext.storeSettingsSnapshot },
-      })
-    }, 80)
-  }
-
-  // 分割スロットの編集
-  const updateSplitSlot = (index: number, patch: Partial<SplitSlot>) => {
-    setSplitSlots((prev) => prev.map((s, i) => i === index ? { ...s, ...patch } : s))
-  }
-  const addSplitSlot = () => {
-    if (!splitContext) return
-    // クロウ指示: 「人数分まで」は guestCount を上限とする。
-    if (splitSlots.length >= splitContext.guestCount) return
-    setSplitSlots((prev) => [...prev, { amount: '0', recipientName: '', purpose: '飲食代として' }])
-  }
-  const removeSplitSlot = (index: number) => {
-    setSplitSlots((prev) => prev.filter((_, i) => i !== index))
-  }
-
-  // 当該 BillingRecord で既に発行済みの領収書（一覧表示用）
-  const issuedForCurrent = splitContext
-    ? issuedReceipts.filter((r) => r.billingRecordId === splitContext.billingRecordId)
-    : []
+  // PDF C: 上記 split 関連 helper は早期 return より「前」(line ~210 付近) に
+  //         移動済み。const は巻き上げされないため、empty-table 早期 return
+  //         パスで renderSplitIssueModal() が参照しようとすると TDZ になる。
+  //         旧位置のブロックは空にして履歴を残す。
 
 
   return (
