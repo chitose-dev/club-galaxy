@@ -4,6 +4,7 @@ import { useAuth } from '../auth'
 import { type BackType, type DailyWork, type UserAccount, type AttendanceRecord } from '../data/mock'
 import { computeDailyWork } from '../utils/dailyWork'
 import { calcHourlyPay } from '../utils/payroll'
+import { calcMonthlyGuaranteeShortfall } from '../utils/saleGuarantee'
 import { Plus, Trash2 } from 'lucide-react'
 import { openPrintWindow } from '../utils/print'
 import { getPaymentDate, formatPaymentDate } from '../utils/paymentDate'
@@ -77,7 +78,10 @@ export default function SalaryPage() {
   }, [dailyWork, period])
 
   const totalHours = filteredWork.reduce((s, w) => s + w.hours, 0)
-  const totalSales = filteredWork.reduce((s, w) => s + w.sales, 0)
+  // 売上は給与計算からは独立した参考値（PDF F で月単位保証に切替えたため、
+  // 半月の売上合計は給与に直接効かない）。表示用途のために残す可能性に備えるが、
+  // 現状の SalaryPage には使用箇所なし。
+  // const totalSales = filteredWork.reduce((s, w) => s + w.sales, 0)
 
   const totalBackAmount = useMemo(() => {
     if (!cast) return 0
@@ -120,15 +124,37 @@ export default function SalaryPage() {
   // 追補03 R25: 時給計算は 15 分単位 + ルーズタイム 15 分を適用
   const hourlyAndBackTotal = cast ? calcHourlyPay(cast.hourlyRate, totalHours) + totalBackAmount : 0
 
-  // ビデオレビュー N5 (ホ2 03:14): 売上保証ロジックを正式実装
-  //   給与 = MAX(時給+バック合計, 月小型売上 × 保証率)
-  //   - 出勤少 / 売上多 → 売上保証で得
-  //   - 出勤多 / 売上少 → 時給+バックの方が大きい
-  const guaranteeBase = cast ? Math.floor(totalSales * cast.guaranteeRate) : 0
-  const taxablePre = Math.max(hourlyAndBackTotal, guaranteeBase)
+  // PDF/Word 確定仕様: 売上保証は **月単位** で計算し、不足差額は
+  //   翌月15日支払い（= 'second' = 16〜月末期間の支払い）に上乗せする。
+  //   旧 N5 の「半月単位 MAX」は廃止（半月単位だと月の前後で発動条件が異なり
+  //   先方仕様と齟齬する）。
+  //
+  //   実装:
+  //     - 当月の DailyWork 全件で月通常給与 + 月売上 × 保証率 を比較
+  //     - period='second' のとき差額（>0）を「売上保証差額」として加算
+  //     - period='first' は通常給与のみ（差額は持ち越し）
+  const monthlyWork = useMemo(() => {
+    const now = new Date()
+    const curYear = now.getFullYear()
+    const curMonth = now.getMonth() + 1
+    return dailyWork.filter((w) => {
+      if (w.date.includes('-')) {
+        return w.date.startsWith(`${curYear}-${String(curMonth).padStart(2, '0')}`)
+      }
+      const [m] = w.date.split('/')
+      return parseInt(m, 10) === curMonth
+    })
+  }, [dailyWork])
+  const monthlyShortfallBreakdown = useMemo(
+    () => cast ? calcMonthlyGuaranteeShortfall(monthlyWork, cast) : null,
+    [monthlyWork, cast],
+  )
+  const guaranteeShortfall =
+    period === 'second' ? (monthlyShortfallBreakdown?.shortfall ?? 0) : 0
+  const taxablePre = hourlyAndBackTotal + guaranteeShortfall
   const grossSalary = Math.floor(taxablePre * 0.9)                                // 支給額 (10% ホステス税控除後)
   const hostessTax = taxablePre - grossSalary                                     // ホステス税
-  const guaranteeApplied = guaranteeBase > hourlyAndBackTotal                     // 売上保証が発動したか
+  const guaranteeApplied = guaranteeShortfall > 0                                 // 売上保証差額が上乗せされたか
   const netSalary = grossSalary - dailyPayTotal - deductionTotal                  // 最終振込
 
   const getDayBackAmount = (w: DailyWork): number => {
@@ -300,9 +326,17 @@ export default function SalaryPage() {
                 <div className="text-sm font-bold text-gold tabular-nums">¥{netSalary.toLocaleString()}</div>
               </div>
             </div>
-            {guaranteeApplied && (
+            {/* PDF F: 売上保証は月単位で計算し、翌月15日支払い (= 'second') に
+                上乗せする。'first' 期間（1-15日／当月末払い）には反映しない。 */}
+            {guaranteeApplied && monthlyShortfallBreakdown && (
               <div className="text-[11px] text-emerald-400 mt-1 text-center bg-emerald-500/10 border border-emerald-500/30 rounded px-2 py-1">
-                ✓ 売上保証適用 (時給+バック ¥{hourlyAndBackTotal.toLocaleString()} → 保証 ¥{guaranteeBase.toLocaleString()} = 売上×{(cast.guaranteeRate * 100).toFixed(0)}%)
+                ✓ 売上保証差額 ¥{monthlyShortfallBreakdown.shortfall.toLocaleString()} を「その他」項目として加算
+                （月通常給与 ¥{monthlyShortfallBreakdown.monthlyRegularSalary.toLocaleString()} {'<'} 保証 ¥{monthlyShortfallBreakdown.guaranteeBase.toLocaleString()} = 月売上×{cast ? (cast.guaranteeRate * 100).toFixed(0) : 0}%）
+              </div>
+            )}
+            {period === 'first' && monthlyShortfallBreakdown && monthlyShortfallBreakdown.shortfall > 0 && (
+              <div className="text-[11px] text-gray-400 mt-1 text-center bg-white/5 border border-white/10 rounded px-2 py-1">
+                ⓘ 当月の売上保証差額 ¥{monthlyShortfallBreakdown.shortfall.toLocaleString()} は **翌月15日支払い**（後半期間）に上乗せされます
               </div>
             )}
           </div>
@@ -424,7 +458,7 @@ export default function SalaryPage() {
           </div>
         )}
 
-        {/* Salary calculation (指示書§4.1 準拠) */}
+        {/* Salary calculation (指示書§4.1 + PDF F 売上保証差額) */}
         <div className="panel p-4 mb-4 space-y-2">
           <h3 className="text-sm font-bold mb-2 text-gray-400">給与計算</h3>
           <div className="flex justify-between text-sm">
@@ -433,7 +467,17 @@ export default function SalaryPage() {
           </div>
           <div className="text-xs text-gray-600 ml-2 tabular-nums">
             ¥{cast?.hourlyRate.toLocaleString()} x {totalHours}h + バック ¥{totalBackAmount.toLocaleString()}
+            {guaranteeShortfall > 0 && (
+              <> + その他（売上保証差額）¥{guaranteeShortfall.toLocaleString()}</>
+            )}
           </div>
+          {/* PDF F: 売上保証差額は給与明細上「その他」項目として独立行で見える形にする。 */}
+          {guaranteeShortfall > 0 && (
+            <div className="flex justify-between text-sm text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded px-2 py-1">
+              <span>その他: 売上保証差額</span>
+              <span className="tabular-nums">+¥{guaranteeShortfall.toLocaleString()}</span>
+            </div>
+          )}
           <div className="flex justify-between text-sm text-red-400">
             <span>ホステス税 (-10%)</span>
             <span className="tabular-nums">-¥{hostessTax.toLocaleString()}</span>
@@ -462,9 +506,10 @@ export default function SalaryPage() {
             <span className="font-bold text-2xl text-gold tabular-nums">¥{netSalary.toLocaleString()}</span>
           </div>
           <div className="text-xs text-gray-600">= 支給額 - 日払い - 天引き</div>
-          {guaranteeBase > taxablePre && cast && (
+          {/* PDF F: 月単位の売上保証集計を参考表示。'first' 期間でも判定可能。 */}
+          {cast && monthlyShortfallBreakdown && monthlyShortfallBreakdown.shortfall > 0 && (
             <div className="text-[10px] text-amber-400/70 mt-1 border-t border-amber-500/20 pt-2">
-              ※参考(要件定義書MAX式): 売上¥{totalSales.toLocaleString()} × 保証{(cast.guaranteeRate * 100).toFixed(0)}% = ¥{guaranteeBase.toLocaleString()} (今の式では未使用)
+              ※当月集計（参考）: 月通常給与 ¥{monthlyShortfallBreakdown.monthlyRegularSalary.toLocaleString()} {'<'} 保証額 ¥{monthlyShortfallBreakdown.guaranteeBase.toLocaleString()}（月売上 ¥{monthlyShortfallBreakdown.monthlyTotalSales.toLocaleString()} × {(cast.guaranteeRate * 100).toFixed(0)}%）→ 差額 ¥{monthlyShortfallBreakdown.shortfall.toLocaleString()} は翌月15日支払いに上乗せ
             </div>
           )}
         </div>
@@ -498,7 +543,9 @@ export default function SalaryPage() {
               <p>キャスト名: ${cast.name}</p>
               <p>対象期間: ${period === 'first' ? '1日〜15日' : '16日〜末日'}</p>
               <table>
-                <tr><th>税引前 (時給+バック)</th><td>¥${taxablePre.toLocaleString()}</td></tr>
+                <tr><th>時給+バック</th><td>¥${hourlyAndBackTotal.toLocaleString()}</td></tr>
+                ${guaranteeShortfall > 0 ? `<tr><th>その他: 売上保証差額</th><td>+¥${guaranteeShortfall.toLocaleString()}</td></tr>` : ''}
+                <tr><th>税引前 (合計)</th><td>¥${taxablePre.toLocaleString()}</td></tr>
                 <tr><th>ホステス税(-10%)</th><td>-¥${hostessTax.toLocaleString()}</td></tr>
                 <tr><th>支給額</th><td>¥${grossSalary.toLocaleString()}</td></tr>
                 <tr><th>日払い済</th><td>-¥${dailyPayTotal.toLocaleString()}</td></tr>
