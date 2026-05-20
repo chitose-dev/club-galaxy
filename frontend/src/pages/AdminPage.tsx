@@ -173,6 +173,18 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
   const isBottleSubcategory = (sub: GuestMenuItem['subcategory']): boolean =>
     sub === 'champagne' || sub === 'whisky' || sub === 'shochu' || sub === 'brandy' || sub === 'wine'
 
+  /** PDF G: bottleBackBasePerUnit 入力文字列をデータ保存値に正規化する。
+   *  - 空欄 → undefined（保存時にフィールド自体を持たせない=未設定扱い）
+   *  - NaN / 非数 → undefined（誤入力で 0 やゴミ値を保存させない）
+   *  - 負値 → 0 に丸め（input min=0 で通常入らないが防御的に）
+   *  - 小数 → 整数に切り捨て */
+  const parseBottleBackBase = (value: string): number | undefined => {
+    if (value.trim() === '') return undefined
+    const n = Number(value)
+    if (!Number.isFinite(n)) return undefined
+    return Math.max(0, Math.floor(n))
+  }
+
   /**
    * ISSUE-001: 商品名 prefix から指名種別 (free/honshimei) を自動判定し、
    *  cast メニュー登録時の subcategory + backType をデフォルトセット。
@@ -205,10 +217,10 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
     const existingIds = [...guestMenu.map((m) => m.id), ...castMenu.map((m) => m.id)]
     const nextId = Math.max(...existingIds, 0) + 1
     if (addKind === 'guest') {
-      // PDF G: bottle 系のサブカテゴリで bottleBackBasePerUnit が入力されていれば
-      // 保存する。0 円ボトル + 任意バック基準額の運用に対応するため。
-      const bottleBase = isBottleSubcategory(addGuestSub) && addBottleBackBase.trim() !== ''
-        ? Math.max(0, Number(addBottleBackBase))
+      // PDF G: bottle 系のサブカテゴリでのみ bottleBackBasePerUnit を保存。
+      // 入力文字列は parseBottleBackBase で NaN / 空欄を吸収する。
+      const bottleBase = isBottleSubcategory(addGuestSub)
+        ? parseBottleBackBase(addBottleBackBase)
         : undefined
       setGuestMenu((prev) => [
         ...prev,
@@ -536,9 +548,8 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
                     </div>
                     <button
                       onClick={() => {
-                        const newBase = editBottleBackBase.trim() === ''
-                          ? undefined
-                          : Math.max(0, Number(editBottleBackBase))
+                        // PDF G: 編集側も parseBottleBackBase で NaN / 空欄を吸収。
+                        const newBase = parseBottleBackBase(editBottleBackBase)
                         setGuestMenu((prev) => prev.map((m) => {
                           if (m.id !== item.id) return m
                           const next: GuestMenuItem = { ...m, price: Number(editPrice), cost: Number(editCost) }

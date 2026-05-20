@@ -210,6 +210,10 @@ export interface GuestMenuItem extends AuditFields {
   category: 'guest'
   subcategory: string
   archived?: boolean
+  /** PDF G: 0 円ボトル等で「ボトルバック計算用の単価」を上書きしたい場合に設定。
+   *  未指定なら price を基準にする。dailyWork.ts は
+   *  `menuItem.bottleBackBasePerUnit ?? menuItem.price` を読む（A2 と整合）。 */
+  bottleBackBasePerUnit?: number
 }
 
 export interface CastMenuItem extends AuditFields {
