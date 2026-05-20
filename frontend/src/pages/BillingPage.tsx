@@ -3,7 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useStore } from '../store'
 import { useAuth } from '../auth'
 import { getSetPriceForTime, getSetPriceLabel, displayOrderName } from '../data/mock'
-import type { DiscountLog, BillingRecord } from '../data/mock'
+import type { DiscountLog, BillingRecord, IssuedReceipt } from '../data/mock'
 import { getNominationLabel } from '../utils/nomination'
 import { Printer, CheckCircle, ArrowLeft, CreditCard } from 'lucide-react'
 import ContextualHeader from '../components/ContextualHeader'
@@ -20,7 +20,7 @@ type PaymentMethod = 'cash' | 'card' | 'mixed'
 type BillingTab = 'total' | 'individual' | 'audit' | 'history'
 
 export default function BillingPage() {
-  const { tables, resetTable, discountLogs, addDiscountLog, addBillingRecord, billingRecords, storeSettings, getNextReceiptNumber, casts, chargeItems } = useStore()
+  const { tables, resetTable, discountLogs, addDiscountLog, addBillingRecord, billingRecords, issuedReceipts, addIssuedReceipt, storeSettings, getNextReceiptNumber, casts, chargeItems } = useStore()
   const { user } = useAuth()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -51,6 +51,29 @@ export default function BillingPage() {
     nominationLabel: string; startTime: string | null;
     cashAmount: number; cardAmount: number;
     receiptNumber: number; receiptName: string; receiptPurpose: string;
+    /** PDF C: 領収書分割発行用。会計時の人数と元 BillingRecord.id を保持。 */
+    guestCount: number; billingRecordId: string;
+  } | null>(null)
+
+  // PDF C: 領収書分割発行モーダル状態。
+  // - showSplitIssue: モーダル開閉
+  // - splitSlots: 1..guestCount の各スロットの宛名/但し書き/金額入力
+  // - splitContext: 対象会計の情報スナップショット（履歴からも呼べるようにする）
+  const [showSplitIssue, setShowSplitIssue] = useState(false)
+  type SplitSlot = { amount: string; recipientName: string; purpose: string }
+  const [splitSlots, setSplitSlots] = useState<SplitSlot[]>([])
+  const [splitContext, setSplitContext] = useState<{
+    billingRecordId: string
+    tableNumber: string
+    total: number
+    consumptionTax: number
+    receiptNumber: number
+    guestCount: number
+    storeSettingsSnapshot: { storeName: string; storeAddress: string; storePhone: string }
+  } | null>(null)
+  // 1 スロット印刷用に動的オーバーライド（receiptPrintBlock を再利用するため）
+  const [splitPrintOverride, setSplitPrintOverride] = useState<{
+    recipientName: string; purpose: string; amount: number
   } | null>(null)
 
   const receiptRef = useRef<HTMLDivElement>(null)
@@ -68,7 +91,15 @@ export default function BillingPage() {
     //   - 「領収書」見出しを右上 + No
     //   - 年月日 / 担当不要 / ○○様 ¥金額 / うち消費税 / 但書「飲食代として」
     //   - 印影スペース / 左下に CLUB GALAXY・住所・電話番号
-    const stampRequired = lastBillingData.total > 50000
+    // PDF C: splitPrintOverride が指定されている間は、宛名/但し書き/金額を
+    // それで差し替えて 1 枚ずつ印刷する。stamp 判定 / 消費税表示は金額に
+    // 連動するため、override.amount を使って再計算する。
+    const displayReceiptName = splitPrintOverride?.recipientName ?? lastBillingData.receiptName
+    const displayReceiptPurpose = splitPrintOverride?.purpose ?? lastBillingData.receiptPurpose
+    const displayTotal = splitPrintOverride?.amount ?? lastBillingData.total
+    // 消費税内訳は会計総額ベースで決まるため、override の場合は表示しない方が安全。
+    const displayConsumptionTax = splitPrintOverride ? null : lastBillingData.consumptionTax
+    const stampRequired = displayTotal > 50000
 
     return (
     <div className="print-only">
@@ -82,7 +113,7 @@ export default function BillingPage() {
             </div>
             <div className="text-base">
               <span className="inline-block min-w-[160px] border-b border-black px-2">
-                {lastBillingData.receiptName || '　上様　'}
+                {displayReceiptName || '　上様　'}
               </span>
               <span className="ml-1">様</span>
             </div>
@@ -97,16 +128,18 @@ export default function BillingPage() {
         {/* 中央: 金額大表示 */}
         <div className="flex justify-center my-3">
           <div className="text-3xl font-bold tracking-wider">
-            ¥ {lastBillingData.total.toLocaleString()} －
+            ¥ {displayTotal.toLocaleString()} －
           </div>
         </div>
 
         <div className="text-sm text-center mb-3">
-          但し、{lastBillingData.receiptPurpose || '飲食代'}として
+          但し、{displayReceiptPurpose || '飲食代'}として
         </div>
-        <div className="text-xs text-center text-gray-600 mb-3">
-          うち消費税 (10%): ¥{lastBillingData.consumptionTax.toLocaleString()}
-        </div>
+        {displayConsumptionTax !== null && (
+          <div className="text-xs text-center text-gray-600 mb-3">
+            うち消費税 (10%): ¥{displayConsumptionTax.toLocaleString()}
+          </div>
+        )}
 
         {/* 下部: 左に店舗情報 / 右に印紙 */}
         <div className="flex justify-between items-end pt-3 border-t border-dashed border-gray-400">
@@ -354,8 +387,10 @@ export default function BillingPage() {
     //   代表卓レコード = 領収書番号と支払方法を持つ "main" レコード。
     //   合算対象卓レコード = 各卓の subtotal/setFee/orders/nominatedCastId
     //     を持つ "shadow" レコード (paymentMethod は 'mixed'、total は卓単位の税込小計)。
+    // PDF C: 分割発行で参照するため、BillingRecord.id を変数化する。
+    const billingId = String(Date.now())
     addBillingRecord({
-      id: String(Date.now()),
+      id: billingId,
       tableNumber: table.number,
       total: finalTotal,
       paymentMethod,
@@ -475,6 +510,9 @@ export default function BillingPage() {
       receiptNumber: receiptNumberForRecord,
       receiptName,
       receiptPurpose,
+      // PDF C: 分割発行モーダル初期化用
+      guestCount: table.guestCount,
+      billingRecordId: billingId,
     })
 
     // 追補02 R13-4: 合算対象卓は会計確定と同時に精算済 (resetTable で空き状態へ) に
@@ -537,10 +575,106 @@ export default function BillingPage() {
       receiptNumber: s.receiptNumber,
       receiptName: s.receiptName,
       receiptPurpose: s.receiptPurpose,
+      // 履歴復元時は guestCount を知らないため、発行枚数の上限は orders 件数や
+      // 安全な数値で代用する。分割発行は会計直後の方が現実的だが、履歴側でも
+      // 動作するように 1 以上の正の整数で埋める。
+      guestCount: Math.max(1, (record.castNamesSnapshot?.length ?? 1)),
+      billingRecordId: record.id,
     })
     // ポップアップは出さず、直接印刷フローに乗せる
     setTimeout(() => doPrint(mode), 30)
   }
+
+  // PDF C: 分割発行モーダルを開く。会計直後 / 履歴いずれからも呼べる。
+  // splitSlots は guestCount 件のスロットで初期化、初期金額は人数割（端数は最終枠）。
+  const openSplitIssue = (ctx: {
+    billingRecordId: string
+    tableNumber: string
+    total: number
+    consumptionTax: number
+    receiptNumber: number
+    guestCount: number
+  }) => {
+    const n = Math.max(1, ctx.guestCount)
+    const each = Math.floor(ctx.total / n)
+    const slots: SplitSlot[] = Array.from({ length: n }).map((_, i) => ({
+      amount: String(i === n - 1 ? ctx.total - each * (n - 1) : each),
+      recipientName: '',
+      purpose: '飲食代として',
+    }))
+    setSplitSlots(slots)
+    setSplitContext({
+      billingRecordId: ctx.billingRecordId,
+      tableNumber: ctx.tableNumber,
+      total: ctx.total,
+      consumptionTax: ctx.consumptionTax,
+      receiptNumber: ctx.receiptNumber,
+      guestCount: n,
+      storeSettingsSnapshot: {
+        storeName: storeSettings.storeName,
+        storeAddress: storeSettings.storeAddress,
+        storePhone: storeSettings.storePhone,
+      },
+    })
+    setShowSplitIssue(true)
+  }
+
+  // 分割スロット 1 枚を「発行 & 印刷」する。
+  // 既存の receiptPrintBlock を splitPrintOverride で動的差し替えし、
+  // 印刷後に IssuedReceipt を保存する。
+  const issueAndPrintSplit = (index: number) => {
+    if (!splitContext) return
+    const slot = splitSlots[index]
+    if (!slot) return
+    const amount = Math.max(0, Math.floor(Number(slot.amount) || 0))
+    if (amount <= 0) {
+      alert('金額が 0 円です。0 円より大きい金額を入力してください。')
+      return
+    }
+    setSplitPrintOverride({
+      recipientName: slot.recipientName,
+      purpose: slot.purpose,
+      amount,
+    })
+    // 印刷ダイアログ起動 → ダイアログ閉じた直後にオーバーライド解除 + 記録保存
+    document.body.classList.add('print-summary-mode')
+    setTimeout(() => {
+      window.print()
+      document.body.classList.remove('print-summary-mode')
+      setSplitPrintOverride(null)
+      addIssuedReceipt({
+        id: `${splitContext.billingRecordId}-${Date.now()}-${index}`,
+        billingRecordId: splitContext.billingRecordId,
+        tableNumber: splitContext.tableNumber,
+        sequenceIndex: index + 1,
+        amount,
+        recipientName: slot.recipientName,
+        purpose: slot.purpose,
+        issuedAt: new Date().toISOString(),
+        issuedBy: user?.displayName ?? 'スタッフ',
+        storeSettingsSnapshot: { ...splitContext.storeSettingsSnapshot },
+      })
+    }, 80)
+  }
+
+  // 分割スロットの編集
+  const updateSplitSlot = (index: number, patch: Partial<SplitSlot>) => {
+    setSplitSlots((prev) => prev.map((s, i) => i === index ? { ...s, ...patch } : s))
+  }
+  const addSplitSlot = () => {
+    if (!splitContext) return
+    // クロウ指示: 「人数分まで」は guestCount を上限とする。
+    if (splitSlots.length >= splitContext.guestCount) return
+    setSplitSlots((prev) => [...prev, { amount: '0', recipientName: '', purpose: '飲食代として' }])
+  }
+  const removeSplitSlot = (index: number) => {
+    setSplitSlots((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  // 当該 BillingRecord で既に発行済みの領収書（一覧表示用）
+  const issuedForCurrent = splitContext
+    ? issuedReceipts.filter((r) => r.billingRecordId === splitContext.billingRecordId)
+    : []
 
 
   return (
@@ -577,9 +711,49 @@ export default function BillingPage() {
       {billingTab === 'history' ? (
         <BillingHistoryView
           records={billingRecords}
+          issuedReceipts={issuedReceipts}
           isOwner={user?.role === 'owner'}
           onReprint={(record) => reprintFromHistory(record, 'summary')}
           onReprintDetailed={(record) => reprintFromHistory(record, 'detailed')}
+          onSplitIssue={(record) => {
+            if (!record.receiptSnapshot) {
+              alert('この会計レコードは分割発行用のデータを保持していません')
+              return
+            }
+            // 履歴側からの分割発行: lastBillingData を復元（印刷フローのため）
+            // しつつ、openSplitIssue を直接呼ぶ。doPrint はトリガしない。
+            const s = record.receiptSnapshot
+            setLastBillingData({
+              tableNumber: record.tableNumber,
+              castNames: record.castNamesSnapshot ?? [],
+              total: record.total,
+              paymentMethod: record.paymentMethod,
+              subtotal: s.subtotal,
+              setFee: s.setFee,
+              tax: s.tax,
+              consumptionTax: s.consumptionTax,
+              cardFee: record.cardFee ?? 0,
+              discount: s.discount,
+              orders: s.orders,
+              nominationLabel: s.nominationLabel,
+              startTime: s.startTime,
+              cashAmount: record.cashAmount ?? 0,
+              cardAmount: record.cardAmount ?? 0,
+              receiptNumber: s.receiptNumber,
+              receiptName: s.receiptName,
+              receiptPurpose: s.receiptPurpose,
+              guestCount: Math.max(1, record.castNamesSnapshot?.length ?? 1),
+              billingRecordId: record.id,
+            })
+            openSplitIssue({
+              billingRecordId: record.id,
+              tableNumber: record.tableNumber,
+              total: record.total,
+              consumptionTax: s.consumptionTax,
+              receiptNumber: s.receiptNumber,
+              guestCount: Math.max(1, record.castNamesSnapshot?.length ?? 1),
+            })
+          }}
         />
       ) : billingTab === 'audit' ? (
         <AuditLogView logs={discountLogs} />
@@ -1085,6 +1259,20 @@ export default function BillingPage() {
                 <Printer size={16} /> 明細再印刷
               </button>
             </div>
+            {/* PDF C: 領収書を 1 組から人数分まで複数枚発行できる導線。 */}
+            <button
+              onClick={() => openSplitIssue({
+                billingRecordId: lastBillingData.billingRecordId,
+                tableNumber: lastBillingData.tableNumber,
+                total: lastBillingData.total,
+                consumptionTax: lastBillingData.consumptionTax,
+                receiptNumber: lastBillingData.receiptNumber,
+                guestCount: lastBillingData.guestCount,
+              })}
+              className="w-full btn-dark py-2.5 flex items-center justify-center gap-2 text-sm"
+            >
+              <Printer size={14} /> 領収書を分割発行（人数分まで）
+            </button>
             <p className="text-[11px] text-gray-500 text-center">※ 印刷後もこのポップアップから何度でも再印刷できます</p>
           </div>
         )}
@@ -1099,20 +1287,124 @@ export default function BillingPage() {
         onPrintDetailed={() => doPrint('detailed')}
         onPrintSummary={() => doPrint('summary')}
       />
+
+      {/* PDF C: 領収書 分割発行モーダル — 人数分まで複数枚、金額任意、合計不一致許容、発行履歴を残す */}
+      <Modal
+        open={showSplitIssue && !!splitContext}
+        onClose={() => { setShowSplitIssue(false); setSplitContext(null); setSplitSlots([]) }}
+        size="lg"
+        title="領収書 分割発行"
+        footer={
+          <GhostButton onClick={() => { setShowSplitIssue(false); setSplitContext(null); setSplitSlots([]) }} className="flex-1">閉じる</GhostButton>
+        }
+      >
+        {splitContext && (() => {
+          const totalIssued = splitSlots.reduce((s, x) => s + Math.max(0, Math.floor(Number(x.amount) || 0)), 0)
+          const remainder = splitContext.total - totalIssued
+          // 上限: splitContext.guestCount（直近会計 / 履歴いずれも openSplitIssue で固定済み）
+          const maxSlots = splitContext.guestCount
+          return (
+            <div className="space-y-3">
+              <div className="text-xs text-gray-400 space-y-0.5">
+                <div>卓 {splitContext.tableNumber} / 伝票No. {splitContext.receiptNumber}</div>
+                <div className="flex gap-3 tabular-nums">
+                  <span>会計総額: <span className="text-gold font-bold">¥{splitContext.total.toLocaleString()}</span></span>
+                  <span>発行合計: <span className={totalIssued > splitContext.total ? 'text-red-400 font-bold' : 'text-blue-300 font-bold'}>¥{totalIssued.toLocaleString()}</span></span>
+                  <span>未発行: <span className={remainder < 0 ? 'text-red-400 font-bold' : 'text-gray-300 font-bold'}>¥{remainder.toLocaleString()}</span></span>
+                </div>
+                <div className="text-[10px] text-gray-500">※ 発行合計が会計総額と一致しないケースも許容（例: 一部のみ領収書発行）</div>
+              </div>
+              <div className="space-y-2">
+                {splitSlots.map((slot, i) => (
+                  <div key={i} className="panel p-3 space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-gold font-bold">枚目 #{i + 1}</span>
+                      {splitSlots.length > 1 && (
+                        <button
+                          onClick={() => removeSplitSlot(i)}
+                          className="text-xs text-red-400 hover:text-red-300"
+                        >
+                          枠を削除
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <Field label="宛名">
+                        <Input
+                          type="text"
+                          value={slot.recipientName}
+                          onChange={(e) => updateSplitSlot(i, { recipientName: e.target.value })}
+                          placeholder="空欄=上様"
+                        />
+                      </Field>
+                      <Field label="但し書き">
+                        <Input
+                          type="text"
+                          value={slot.purpose}
+                          onChange={(e) => updateSplitSlot(i, { purpose: e.target.value })}
+                        />
+                      </Field>
+                      <Field label="金額 (円)">
+                        <Input
+                          type="number"
+                          value={slot.amount}
+                          onChange={(e) => updateSplitSlot(i, { amount: e.target.value })}
+                          className="tabular-nums"
+                        />
+                      </Field>
+                    </div>
+                    <button
+                      onClick={() => issueAndPrintSplit(i)}
+                      className="w-full btn-gold py-2 text-xs flex items-center justify-center gap-1.5"
+                    >
+                      <Printer size={13} /> この枠を発行 & 印刷
+                    </button>
+                  </div>
+                ))}
+                {splitSlots.length < maxSlots && (
+                  <button
+                    onClick={addSplitSlot}
+                    className="w-full btn-dark py-2 text-xs text-gray-400 hover:text-white"
+                  >
+                    + 枠を追加（最大 {maxSlots} 枚 / 人数分）
+                  </button>
+                )}
+              </div>
+              {issuedForCurrent.length > 0 && (
+                <div className="panel p-3">
+                  <h4 className="text-xs text-gray-400 tracking-wider mb-2">この会計の発行履歴（{issuedForCurrent.length} 件）</h4>
+                  <div className="space-y-1 text-xs">
+                    {issuedForCurrent.map((r) => (
+                      <div key={r.id} className="flex justify-between text-gray-300 tabular-nums">
+                        <span>#{r.sequenceIndex} {r.recipientName || '上様'} / {r.purpose}</span>
+                        <span>¥{r.amount.toLocaleString()} <span className="text-gray-500">({new Date(r.issuedAt).toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit' })} {r.issuedBy})</span></span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })()}
+      </Modal>
     </div>
   )
 }
 
 function BillingHistoryView({
   records,
+  issuedReceipts,
   isOwner,
   onReprint,
   onReprintDetailed,
+  onSplitIssue,
 }: {
   records: BillingRecord[]
+  issuedReceipts: IssuedReceipt[]
   isOwner: boolean
   onReprint: (record: BillingRecord) => void
   onReprintDetailed: (record: BillingRecord) => void
+  onSplitIssue: (record: BillingRecord) => void
 }) {
   const { voidBillingRecord } = useStore()
   const [voidTarget, setVoidTarget] = useState<BillingRecord | null>(null)
@@ -1209,6 +1501,14 @@ function BillingHistoryView({
                   >
                     <Printer size={12} /> 明細再印刷
                   </button>
+                  {/* PDF C: 分割発行モーダルを開く。再印刷データがあれば履歴からでも可能。 */}
+                  <button
+                    onClick={() => onSplitIssue(r)}
+                    disabled={!reprintable || isVoided}
+                    className="flex-1 btn-dark py-2 text-xs flex items-center justify-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Printer size={12} /> 分割発行
+                  </button>
                   {isOwner && (
                     <button
                       onClick={() => { setVoidTarget(r); setVoidReason(''); setVoidError('') }}
@@ -1219,6 +1519,16 @@ function BillingHistoryView({
                     </button>
                   )}
                 </div>
+                {/* PDF C: 当該会計の発行履歴件数を見出しの直下に出す（数だけ） */}
+                {(() => {
+                  const cnt = issuedReceipts.filter((ir) => ir.billingRecordId === r.id).length
+                  if (cnt === 0) return null
+                  return (
+                    <p className="text-[10px] text-gray-500 mt-1 text-center">
+                      📄 領収書 {cnt} 件発行済（分割発行モーダルで内訳閲覧）
+                    </p>
+                  )
+                })()}
                 {!reprintable && (
                   <p className="text-[10px] text-gray-600 mt-1 text-center">※ 再印刷データなし</p>
                 )}

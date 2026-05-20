@@ -27,6 +27,7 @@ import {
   type SetPrice,
   type OrderItem,
   type DiscountLog,
+  type IssuedReceipt,
   type BillingRecord,
   type DailyPayRequest,
   type BottleKeep,
@@ -65,6 +66,8 @@ interface Store {
   setPrices: SetPrice[]
   chargeItems: SetPrice[]
   discountLogs: DiscountLog[]
+  /** PDF C: 分割発行された領収書履歴。新→古順で蓄積。 */
+  issuedReceipts: IssuedReceipt[]
   billingRecords: BillingRecord[]
   dailyPayRequests: DailyPayRequest[]
   bottleKeeps: BottleKeep[]
@@ -86,6 +89,8 @@ interface Store {
   setOrderBonus: (tableId: number, menuItemId: number, castName: string | undefined, bonus: { bonusCastName?: string; bonusAmount?: number }) => void
   resetTable: (id: number) => void
   addDiscountLog: (log: DiscountLog) => void
+  /** PDF C: 分割発行された領収書を 1 件記録する。 */
+  addIssuedReceipt: (receipt: IssuedReceipt) => void
   addBillingRecord: (record: BillingRecord) => void
   /** 未収管理用の部分更新。owner only。楽観的に local state に反映してから API。 */
   updateBillingRecord: (id: string, patch: Partial<Pick<BillingRecord,
@@ -202,6 +207,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [setPricesState, setSetPricesRaw] = useState<SetPrice[]>(cache.setPrices ?? initialSetPrices)
   const [chargeItemsState, setChargeItemsRaw] = useState<SetPrice[]>(cache.chargeItems ?? initialChargeItems)
   const [discountLogs, setDiscountLogs] = useState<DiscountLog[]>([])
+  // PDF C: 分割発行領収書履歴。最新を先頭に push する（履歴表示時に降順で出すため）。
+  const [issuedReceipts, setIssuedReceipts] = useState<IssuedReceipt[]>([])
   const [billingRecords, setBillingRecords] = useState<BillingRecord[]>([])
   const [dailyPayRequests, setDailyPayRequests] = useState<DailyPayRequest[]>([])
   const [bottleKeeps, setBottleKeeps] = useState<BottleKeep[]>([])
@@ -478,6 +485,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     billingApi.createDiscount(log).catch(console.error)
   }, [])
 
+  // PDF C: 分割発行された領収書を記録。新→古順にしたいので unshift。
+  // バックエンド API は別 PR で追加する想定（現状はローカルのみ）。
+  const addIssuedReceipt = useCallback((receipt: IssuedReceipt) => {
+    setIssuedReceipts((prev) => [receipt, ...prev])
+  }, [])
+
   const addBillingRecord = useCallback((record: BillingRecord) => {
     setBillingRecords((prev) => [...prev, record])
     billingApi.create(record).catch(console.error)
@@ -701,6 +714,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setPrices: setPricesState,
         chargeItems: chargeItemsState,
         discountLogs,
+        issuedReceipts,
         billingRecords,
         dailyPayRequests,
         bottleKeeps,
@@ -713,6 +727,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setOrderBonus,
         resetTable,
         addDiscountLog,
+        addIssuedReceipt,
         addBillingRecord,
         updateBillingRecord,
         voidBillingRecord,

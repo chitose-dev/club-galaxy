@@ -217,6 +217,45 @@ export interface SetPrice {
 
 // ─── 会計関連 ───
 
+/**
+ * PDF C: 領収書の任意分割発行記録。
+ *
+ * 1 つの会計（BillingRecord）から人数分まで複数枚の領収書を発行できる仕様。
+ * 各領収書は金額・宛名・但し書きが独立で、発行金額の合計が会計総額と
+ * 一致しないケース（一部の客だけ領収書をもらう等）も許容する。
+ *
+ * 発行履歴は監査・再印刷の両方を見据えて完全スナップショットで保存:
+ * - 金額/宛名/但し書き/発行日時/発行者/元会計ID/枝番
+ * - 店舗情報（storeName/Address/Phone）も発行時の値を固定で残す
+ */
+export interface IssuedReceipt {
+  /** 一意 ID（タイムスタンプベース、または UUID 相当） */
+  id: string
+  /** 元の BillingRecord.id への参照 */
+  billingRecordId: string
+  /** 元の会計に紐付く卓番（表示用、検索容易化のため重複保持） */
+  tableNumber: string
+  /** 1 つの会計内での枝番（1..N, N=guestCount まで）。表示順保持。 */
+  sequenceIndex: number
+  /** 発行金額（円、自由入力） */
+  amount: number
+  /** 宛名（空欄なら「上様」相当） */
+  recipientName: string
+  /** 但し書き（空欄なら「飲食代として」相当） */
+  purpose: string
+  /** 発行日時（ISO 8601） */
+  issuedAt: string
+  /** 発行者（ログインユーザー displayName ?? 'スタッフ'） */
+  issuedBy: string
+  /** 発行時の店舗情報スナップショット（PDF: 店舗情報は設定変更可、
+   *  記録時点の値を残しておく方が監査・再印刷で安全）。 */
+  storeSettingsSnapshot: {
+    storeName: string
+    storeAddress: string
+    storePhone: string
+  }
+}
+
 export interface DiscountLog {
   id: number
   tableNumber: string
