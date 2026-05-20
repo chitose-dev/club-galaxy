@@ -14,9 +14,10 @@ import { calcChampagneSplit, getBackTypeForCategory } from './champagneSplit'
  *          completedAt の YYYY-MM-DD で日別にまとめて subtotalBeforeTax を合算
  * - backs: receiptSnapshot.orders がある場合、orders[].menuItem.backType の出現数を
  *          BackType 別に集計。orders が無いレコードはスキップ。
- *          ボトルバックの件数も従来通り計上するが、金額の正本は
- *          `bottleBackAmount`（A2 で導入）なので、給与計算では
- *          backs['ボトルバック'] × rate の旧路線は使わないこと。
+ *          ただし 'ボトルバック' は件数加算自体を行わない（A2 修正）。
+ *          金額の正本は `bottleBackAmount` のみで、件数を持たせると同卓の
+ *          フリー/場内/ヘルプに「ボトルバック: 1件 (¥0)」が残る不整合表示
+ *          が出るため、本ループでは bottle 行を完全に除外する。
  * - extensionBackAmount: billingRecords の extensionHistorySnapshot を走査し、
  *          各 ExtensionEntry の nominatedCastNames に castName が含まれていれば
  *          shimeiBackRate を nominatedCastNames.length で均等割り（端数切り捨て）

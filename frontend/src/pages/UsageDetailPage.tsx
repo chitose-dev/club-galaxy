@@ -10,7 +10,7 @@ import {
   getSetPriceLabel,
   SET_DURATION_MINUTES,
 } from '../data/mock'
-import { getSetLabel } from '../utils/setCountLabel'
+import { getSetLabel, getCurrentSetTimeRange } from '../utils/setCountLabel'
 import ExtensionInheritanceModal from '../components/ExtensionInheritanceModal'
 import { FileText, CreditCard, Trash2, ArrowLeft, Clock as ClockIcon } from 'lucide-react'
 
@@ -118,10 +118,25 @@ export default function UsageDetailPage() {
               <span className="text-sm text-gray-400">人数</span>
               <span className="text-sm">{guestCount} 名</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-400">入店時刻</span>
-              <span className="text-sm tabular-nums">{table.startTime ?? '-'}</span>
-            </div>
+            {/* PDF: 入店時刻には終わる時間まで表示。現セット（1Set目 or 最新 EX）の
+                開始〜終了レンジを併記する。 */}
+            {(() => {
+              const range = getCurrentSetTimeRange({
+                startTime: table.startTime,
+                setCount: table.setCount,
+                extensionHistory: table.extensionHistory,
+              })
+              return (
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-400">入店時刻</span>
+                  <span className="text-sm tabular-nums">
+                    {range.startHHMM && range.endHHMM
+                      ? `${range.startHHMM}〜${range.endHHMM}まで`
+                      : (table.startTime ?? '-')}
+                  </span>
+                </div>
+              )
+            })()}
           </div>
 
           <div className="panel p-4 space-y-2">

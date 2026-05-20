@@ -75,7 +75,8 @@ export default function ExtensionConfirmPage() {
 
   // EX 番号（延長確定後の表示用）
   const exIndex = (table.extensionHistory ?? []).length + 1
-  const exLabel = `EX${exIndex}`
+  // PDF/Word 仕様: 30 分は "EX(n)半"、60 分は "EX(n)"。
+  const exLabel = config.minutes === 30 ? `EX(${exIndex})半` : `EX(${exIndex})`
   const exStart = calcCurrentSetEnd(table)
   const exEnd = addMinutes(exStart, config.minutes)
 
@@ -185,7 +186,7 @@ export default function ExtensionConfirmPage() {
   return (
     <div className="flex flex-col min-h-full">
       <div className="no-print">
-        <ContextualHeader accent="floor" title={`卓 ${table.number} 延長確認 (${exLabel})`} />
+        <ContextualHeader accent="floor" title={`${table.number}卓 延長確認 (${exLabel})`} />
       </div>
 
       <div className="flex-1 overflow-y-auto p-4">
@@ -241,7 +242,7 @@ export default function ExtensionConfirmPage() {
                 return (
                   <div className="border-l-2 border-gold/30 pl-3">
                     <div className="text-xs text-gold tracking-wider mb-1">
-                      1セット目（{table.startTime} 〜 {baseEnd}, {SET_DURATION_MINUTES}分）
+                      1Set目（{table.startTime} 〜 {baseEnd}, {SET_DURATION_MINUTES}分）
                     </div>
                     <div className="flex justify-between">
                       <span>セット料金（{getSetPriceLabel(table.startTime)}）</span>
@@ -277,13 +278,14 @@ export default function ExtensionConfirmPage() {
                 const pastUnit = ent.minutes === 30 ? ext30Unit : ext60Unit
                 const pastFee = pastUnit * table.guestCount
                 const pastNames = ent.nominatedCastNames ?? (ent.nominatedCastName ? [ent.nominatedCastName] : [])
+                const pastLabel = ent.minutes === 30 ? `EX(${i + 1})半` : `EX(${i + 1})`
                 return (
                   <div key={`past-ex-${ent.id}`} className="border-l-2 border-white/20 pl-3">
                     <div className="text-xs text-gray-400 tracking-wider mb-1">
-                      EX{i + 1}（{prevEnd} 〜 {exEndPast}, {ent.minutes}分）
+                      {pastLabel}（{prevEnd} 〜 {exEndPast}, {ent.minutes}分）
                     </div>
                     <div className="flex justify-between">
-                      <span>延長料金（EX{i + 1}）</span>
+                      <span>延長料金（{pastLabel}）</span>
                       <span className="tabular-nums text-gray-300">¥{pastUnit.toLocaleString()} × {table.guestCount}名 = ¥{pastFee.toLocaleString()}</span>
                     </div>
                     {pastNames.length > 0 && (
@@ -334,6 +336,9 @@ export default function ExtensionConfirmPage() {
               <span className="text-base text-gold font-bold">合計（税込）</span>
               <span className="text-2xl tabular-nums font-bold text-gold">¥{totalEx.toLocaleString()}</span>
             </div>
+            {/* PDF: 延長交渉プリントの内訳には「ドリンクは別途、税サ込み」と表示。
+                画面表示にも同じ注記を出して印刷と齟齬がないようにする。 */}
+            <div className="text-xs text-gray-400 mt-1">※ドリンクは別途、税サ込み</div>
           </section>
 
           {/* 帰属先（バック） */}
@@ -372,7 +377,7 @@ export default function ExtensionConfirmPage() {
           <div className="t-eng">INTERIM CHECK SHEET</div>
           <div className="t-dashed" />
           <div className="t-row">
-            <span>卓番: {table.number}</span>
+            <span>{table.number}卓</span>
             <span>現在時刻: {nowHHmm}</span>
           </div>
           <div className="t-dashed" />
@@ -380,7 +385,7 @@ export default function ExtensionConfirmPage() {
           <div className="t-sub">(内訳)</div>
           {table.startTime && (
             <div className="t-line">
-              <span>1セット目 ({SET_DURATION_MINUTES}分)</span>
+              <span>1Set目 ({SET_DURATION_MINUTES}分)</span>
               <span>¥ {baseSetFee.toLocaleString()}</span>
             </div>
           )}
@@ -395,9 +400,10 @@ export default function ExtensionConfirmPage() {
           ))}
           {pastExEntries.map((ent, i) => {
             const unit = ent.minutes === 30 ? ext30Unit : ext60Unit
+            const pastLabel = ent.minutes === 30 ? `EX(${i + 1})半` : `EX(${i + 1})`
             return (
               <div key={`t-past-${ent.id}`} className="t-line">
-                <span>EX{i + 1} ({ent.minutes}分)</span>
+                <span>{pastLabel} ({ent.minutes}分)</span>
                 <span>¥ {(unit * table.guestCount).toLocaleString()}</span>
               </div>
             )
@@ -436,8 +442,8 @@ export default function ExtensionConfirmPage() {
             <span>60分の場合</span>
             <span>¥ {budgetIf60.toLocaleString()}</span>
           </div>
-          <div className="t-footnote">※ドリンク、指名料は別途</div>
-          <div className="t-footnote">※税サ込</div>
+          {/* PDF: 「ドリンクは別途、税サ込み」を 1 行で印字。 */}
+          <div className="t-footnote">※ドリンクは別途、税サ込み</div>
         </div>
       </div>
 

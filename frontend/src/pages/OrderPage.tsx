@@ -11,6 +11,7 @@ import Modal from '../components/Modal'
 import { Input, Field as FormField } from '../components/Input'
 import { GoldButton, DangerButton, GhostButton, DarkButton } from '../components/Buttons'
 import { useExtendTable } from '../hooks/useExtendTable'
+import { getCurrentSetTimeRange } from '../utils/setCountLabel'
 
 // ビデオレビュー N6 (注1 15:50): ヘルプの再定義
 //   - 待機キャストが場内指名なしで入った状態
@@ -521,12 +522,28 @@ export default function OrderPage() {
           {/* セット料金バナー: 卓基本料金を一目で。視認性を最優先して
               フォント・パディングを十分に大きく確保する（運用中のオーナーが
               遠目でも金額を確認できるサイズ感）。 */}
-          <div className="mb-3 panel-gold border-2 border-gold/50 rounded-lg px-4 py-3 text-gold flex items-center justify-between bg-gold/10">
-            <span className="text-lg font-bold tracking-wider">セット料金</span>
-            <span className="text-lg font-bold tabular-nums">
-              {selectedTable.guestCount}名 | ¥{adjustedSetPrice.toLocaleString()} | 計:¥{setSubtotal.toLocaleString()}
-            </span>
-          </div>
+          {/* PDF: バナーは「1卓 / 3名 / Set 4000円 / 12:00〜1:00まで」形式に統一。
+              区切りは「/」、開始だけでなく終了時刻まで併記する。 */}
+          {(() => {
+            const range = getCurrentSetTimeRange({
+              startTime: selectedTable.startTime,
+              setCount: selectedTable.setCount,
+              extensionHistory: selectedTable.extensionHistory,
+            })
+            const timeStr = range.startHHMM && range.endHHMM
+              ? `${range.startHHMM}〜${range.endHHMM}まで`
+              : (selectedTable.startTime ?? '')
+            return (
+              <div className="mb-3 panel-gold border-2 border-gold/50 rounded-lg px-4 py-3 text-gold flex items-center justify-between bg-gold/10">
+                <span className="text-lg font-bold tabular-nums">
+                  {selectedTable.number}卓 / {selectedTable.guestCount}名 / Set ¥{adjustedSetPrice.toLocaleString()} / {timeStr}
+                </span>
+                <span className="text-sm font-bold tabular-nums">
+                  計 ¥{setSubtotal.toLocaleString()}
+                </span>
+              </div>
+            )
+          })()}
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs text-gray-400 tracking-wider">注文明細</span>
             <span className="text-[10px] text-gray-500">{orders.length} 品</span>
