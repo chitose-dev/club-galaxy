@@ -21,8 +21,9 @@ import { Input, Field } from '../components/Input'
 import NumberInput from '../components/NumberInput'
 import { Edit2, Trash2, MapPin, ArrowRightCircle, Pause, Play, GripVertical, FileText, Wallet } from 'lucide-react'
 import type { Cast, Table } from '../data/mock'
-import { formatRealtimeWorkRange } from '../utils/quarterHour'
+import { formatRealtimeWorkRange, roundClockInHHMM, roundClockOutHHMM, calcWorkHours } from '../utils/quarterHour'
 import PayslipPopup from '../components/PayslipPopup'
+import { useAuth } from '../auth'
 
 /**
  * ISSUE-007: 待機キャスト画面 — 2 カラム DnD レイアウト。
@@ -43,7 +44,8 @@ const isInLooseTime = (c: Cast): boolean => {
 }
 
 export default function WaitingCastPage() {
-  const { casts, setCasts, tables, moveCast, attendanceRecords, addAttendance, addDailyPayRequest, updateAttendance } = useStore()
+  const { casts, setCasts, tables, moveCast, attendanceRecords, addAttendance, addDailyPayRequest, updateAttendance, addAttendanceEditLog } = useStore()
+  const { user } = useAuth()
   const navigate = useNavigate()
 
   const [editing, setEditing] = useState<Cast | null>(null)
@@ -96,19 +98,30 @@ export default function WaitingCastPage() {
     if (!editClockInCast) return
     const rec = todayAttendanceByCastId.get(editClockInCast.id)
     if (!rec) return
-    const newClockIn = editClockInValue
-    if (!newClockIn || !/^\d{2}:\d{2}$/.test(newClockIn)) return
-    // clockOut があれば workHours を再計算
+    const raw = editClockInValue
+    if (!raw || !/^\d{2}:\d{2}$/.test(raw)) return
+    // PDF E: 修正値も 15 分単位で「切り上げ」に丸める（出勤側）
+    const newClockIn = roundClockInHHMM(raw)
+    const oldClockIn = rec.clockIn ?? null
+    // clockOut があれば workHours を再計算（丸め後の値で）
     let patch: Parameters<typeof updateAttendance>[1] = { clockIn: newClockIn }
     if (rec.clockOut) {
-      const [inH, inM] = newClockIn.split(':').map(Number)
-      const [outH, outM] = rec.clockOut.split(':').map(Number)
-      let totalMin = (outH * 60 + outM) - (inH * 60 + inM)
-      if (totalMin < 0) totalMin += 24 * 60
-      const workHours = Math.round((totalMin - (rec.breakMinutes ?? 0)) / 60 * 10) / 10
-      patch = { ...patch, workHours: Math.max(0, workHours) }
+      const workHours = calcWorkHours(newClockIn, rec.clockOut, rec.breakMinutes ?? 0)
+      patch = { ...patch, workHours }
     }
     updateAttendance(rec.id, patch)
+    // PDF E: 監査ログに修正履歴を残す
+    addAttendanceEditLog({
+      id: Date.now(),
+      recordId: rec.id,
+      castId: editClockInCast.id,
+      castName: editClockInCast.name,
+      field: 'clockIn',
+      before: oldClockIn,
+      after: newClockIn,
+      editedAt: new Date().toISOString(),
+      editedBy: user?.displayName ?? 'スタッフ',
+    })
     setEditClockInCast(null)
     setEditClockInValue('')
   }
@@ -151,20 +164,35 @@ export default function WaitingCastPage() {
         const now = new Date()
         const hh = String(now.getHours()).padStart(2, '0')
         const mm = String(now.getMinutes()).padStart(2, '0')
+        // PDF E: 出勤時刻は 15 分単位で「切り上げ」（店側保守的）
+        const roundedIn = roundClockInHHMM(`${hh}:${mm}`)
         addAttendance({
           id: Date.now(),
           staffId: cast.id,
           staffName: cast.name,
           staffType: 'cast',
           date: todayStr,
-          clockIn: `${hh}:${mm}`,
+          clockIn: roundedIn,
           clockOut: null,
           breakMinutes: 0,
           workHours: 0,
         })
       } else if (existing.clockOut) {
         // 再出勤: clockOut を解除して当日レコードを「出勤中」に戻す。
+        // 監査ログ: clockOut が消えた事実も残す。
+        const oldClockOut = existing.clockOut
         updateAttendance(existing.id, { clockOut: null })
+        addAttendanceEditLog({
+          id: Date.now(),
+          recordId: existing.id,
+          castId: cast.id,
+          castName: cast.name,
+          field: 'clockOut',
+          before: oldClockOut,
+          after: null,
+          editedAt: new Date().toISOString(),
+          editedBy: user?.displayName ?? 'スタッフ',
+        })
       }
     }
   }
@@ -195,16 +223,27 @@ export default function WaitingCastPage() {
         const now = new Date()
         const hh = String(now.getHours()).padStart(2, '0')
         const mm = String(now.getMinutes()).padStart(2, '0')
-        const clockOut = `${hh}:${mm}`
+        // PDF E: 退勤時刻は 15 分単位で「切り捨て」（店側保守的）
+        const clockOut = roundClockOutHHMM(`${hh}:${mm}`)
         if (isLoose) {
           updateAttendance(existing.id, { clockOut, workHours: 0 })
         } else {
-          const [inH, inM] = (existing.clockIn ?? `${hh}:${mm}`).split(':').map(Number)
-          let totalMin = (now.getHours() * 60 + now.getMinutes()) - (inH * 60 + inM)
-          if (totalMin < 0) totalMin += 24 * 60
-          const workHours = Math.round((totalMin - (existing.breakMinutes ?? 0)) / 60 * 10) / 10
-          updateAttendance(existing.id, { clockOut, workHours: Math.max(0, workHours) })
+          // PDF E: workHours は丸め後の clockIn/Out で計算する。
+          const inHHMM = existing.clockIn ?? `${hh}:${mm}`
+          const workHours = calcWorkHours(inHHMM, clockOut, existing.breakMinutes ?? 0)
+          updateAttendance(existing.id, { clockOut, workHours })
         }
+        addAttendanceEditLog({
+          id: Date.now(),
+          recordId: existing.id,
+          castId: cast.id,
+          castName: cast.name,
+          field: 'clockOut',
+          before: null,
+          after: clockOut,
+          editedAt: new Date().toISOString(),
+          editedBy: user?.displayName ?? 'スタッフ',
+        })
       }
     }
   }

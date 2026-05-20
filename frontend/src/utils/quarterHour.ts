@@ -64,6 +64,47 @@ export function getCurrentQuarterRange(now: Date = new Date()): { startHHMM: str
   }
 }
 
+/**
+ * 出勤時刻 HH:MM を 15 分単位で「切り上げ」て返す（PDF E）。
+ * 店側保守的（従業員不利方向）に丸める。例: "20:07" → "20:15"。
+ * ぴったり境界はそのまま（"20:00" → "20:00"）。
+ */
+export function roundClockInHHMM(hhmm: string): string {
+  const t = parseHHMM(hhmm)
+  if (!t) return hhmm
+  const totalMin = t.h * 60 + t.m
+  const rem = totalMin % QUARTER
+  if (rem === 0) return formatHHMM(t.h, t.m)
+  const ceiled = totalMin + (QUARTER - rem)
+  return formatHHMM(Math.floor(ceiled / 60), ceiled % 60)
+}
+
+/**
+ * 退勤時刻 HH:MM を 15 分単位で「切り捨て」て返す（PDF E）。
+ * 店側保守的（勤務時間短く計上）に丸める。例: "23:38" → "23:30"。
+ */
+export function roundClockOutHHMM(hhmm: string): string {
+  const t = parseHHMM(hhmm)
+  if (!t) return hhmm
+  const totalMin = t.h * 60 + t.m
+  const floored = totalMin - (totalMin % QUARTER)
+  return formatHHMM(Math.floor(floored / 60), floored % 60)
+}
+
+/**
+ * 出勤 (HH:MM) と退勤 (HH:MM) と休憩分から workHours (0.1 h 単位) を算出。
+ * 双方が 15 分単位に丸められた値である前提。深夜跨ぎは +24h で吸収。
+ */
+export function calcWorkHours(clockIn: string, clockOut: string, breakMinutes: number): number {
+  const start = parseHHMM(clockIn)
+  const end = parseHHMM(clockOut)
+  if (!start || !end) return 0
+  let totalMin = (end.h * 60 + end.m) - (start.h * 60 + start.m)
+  if (totalMin < 0) totalMin += 24 * 60
+  const net = Math.max(0, totalMin - (breakMinutes || 0))
+  return Math.round(net / 60 * 10) / 10
+}
+
 /** clockIn (HH:MM) と現在時刻から、勤怠リアルタイム表示用の
  *  「出勤時刻 〜 現在の 15 分枠終端」文字列を返す。
  *

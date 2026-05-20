@@ -35,7 +35,8 @@ import Modal from '../components/Modal'
 import { Input, Field } from '../components/Input'
 import { GoldButton, GhostButton } from '../components/Buttons'
 import PayslipPopup from '../components/PayslipPopup'
-import { formatRealtimeWorkRange } from '../utils/quarterHour'
+import { formatRealtimeWorkRange, roundClockInHHMM, roundClockOutHHMM, calcWorkHours } from '../utils/quarterHour'
+import { useAuth } from '../auth'
 
 type AdminTab =
   | 'menu' | 'cast' | 'price' | 'tables' | 'settings' | 'export' | 'users'
@@ -1510,11 +1511,12 @@ function AttendanceManager({
   const [showAdd, setShowAdd] = useState(false)
   const [staffId, setStaffId] = useState<number>(casts[0]?.id ?? 0)
   const [staffType, setStaffType] = useState<'cast' | 'boy'>('cast')
-  // PDF E: 給与明細ポップアップ / 日払い入力 / 15分リアルタイム再描画
+  // PDF E: 給与明細ポップアップ / 日払い入力 / 15分リアルタイム再描画 / 監査ログ
   const [payslipCast, setPayslipCast] = useState<Cast | null>(null)
   const [dailyPayCast, setDailyPayCast] = useState<Cast | null>(null)
   const [dailyPayAmount, setDailyPayAmount] = useState('')
-  const { addDailyPayRequest } = useStore()
+  const { addDailyPayRequest, addAttendanceEditLog, attendanceEditLogs } = useStore()
+  const { user } = useAuth()
   // 1 分ごとに再描画して 15 分枠の境界更新を反映
   const [, setNowTick] = useState(0)
   React.useEffect(() => {
@@ -1522,19 +1524,50 @@ function AttendanceManager({
     return () => clearInterval(id)
   }, [])
 
-  // PDF E: 出勤時刻を修正したら workHours を再計算する。
-  const handleClockInEdit = (record: AttendanceRecord, newClockIn: string) => {
-    if (!newClockIn || !/^\d{2}:\d{2}$/.test(newClockIn)) return
+  // PDF E: 出勤時刻を修正。15 分単位で丸め + workHours 再計算 + 監査ログ。
+  const handleClockInEdit = (record: AttendanceRecord, rawClockIn: string) => {
+    if (!rawClockIn || !/^\d{2}:\d{2}$/.test(rawClockIn)) return
+    const newClockIn = roundClockInHHMM(rawClockIn)
+    const oldClockIn = record.clockIn ?? null
+    if (oldClockIn === newClockIn) return  // 変化なしは何もしない
     let patch: Partial<AttendanceRecord> = { clockIn: newClockIn }
     if (record.clockOut) {
-      const [inH, inM] = newClockIn.split(':').map(Number)
-      const [outH, outM] = record.clockOut.split(':').map(Number)
-      let totalMin = (outH * 60 + outM) - (inH * 60 + inM)
-      if (totalMin < 0) totalMin += 24 * 60
-      const workHours = Math.round((totalMin - (record.breakMinutes ?? 0)) / 60 * 10) / 10
-      patch = { ...patch, workHours: Math.max(0, workHours) }
+      patch = { ...patch, workHours: calcWorkHours(newClockIn, record.clockOut, record.breakMinutes ?? 0) }
     }
     updateAttendance(record.id, patch)
+    addAttendanceEditLog({
+      id: Date.now(),
+      recordId: record.id,
+      castId: record.staffId,
+      castName: record.staffName,
+      field: 'clockIn',
+      before: oldClockIn,
+      after: newClockIn,
+      editedAt: new Date().toISOString(),
+      editedBy: user?.displayName ?? 'スタッフ',
+    })
+  }
+
+  // PDF E: 退勤時刻も同様に修正可能（過去レコード復活）。
+  const handleClockOutEdit = (record: AttendanceRecord, rawClockOut: string) => {
+    if (!rawClockOut || !/^\d{2}:\d{2}$/.test(rawClockOut)) return
+    const newClockOut = roundClockOutHHMM(rawClockOut)
+    const oldClockOut = record.clockOut ?? null
+    if (oldClockOut === newClockOut) return
+    const inHHMM = record.clockIn ?? newClockOut
+    const workHours = calcWorkHours(inHHMM, newClockOut, record.breakMinutes ?? 0)
+    updateAttendance(record.id, { clockOut: newClockOut, workHours })
+    addAttendanceEditLog({
+      id: Date.now(),
+      recordId: record.id,
+      castId: record.staffId,
+      castName: record.staffName,
+      field: 'clockOut',
+      before: oldClockOut,
+      after: newClockOut,
+      editedAt: new Date().toISOString(),
+      editedBy: user?.displayName ?? 'スタッフ',
+    })
   }
 
   const handleDailyPaySubmit = () => {
@@ -1573,13 +1606,14 @@ function AttendanceManager({
         if (s.date !== nowDate) continue
         if (s.scheduledClockIn > nowTime) continue
         // 実打刻 (R4-3: 実時刻を優先、scheduledClockIn は記録用に残す)
+        // PDF E: clockIn は 15 分単位で「切り上げ」
         addAttendance({
           id: Date.now() + s.id,
           staffId: s.staffId,
           staffName: s.staffName,
           staffType: s.staffType,
           date: s.date,
-          clockIn: nowTime,
+          clockIn: roundClockInHHMM(nowTime),
           clockOut: null,
           breakMinutes: 0,
           workHours: 0,
@@ -1597,13 +1631,14 @@ function AttendanceManager({
     const cast = casts.find((c) => c.id === staffId)
     const now = new Date()
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+    // PDF E: 出勤時刻は 15 分単位で「切り上げ」
     addAttendance({
       id: Date.now(),
       staffId,
       staffName: cast?.name ?? `ボーイ${staffId}`,
       staffType,
       date: todayStr,
-      clockIn: timeStr,
+      clockIn: roundClockInHHMM(timeStr),
       clockOut: null,
       breakMinutes: 0,
       workHours: 0,
@@ -1614,23 +1649,44 @@ function AttendanceManager({
   const handleClockOut = (record: AttendanceRecord) => {
     const now = new Date()
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-    const [inH, inM] = (record.clockIn ?? '0:0').split(':').map(Number)
-    const [outH, outM] = timeStr.split(':').map(Number)
-    let totalMin = (outH * 60 + outM) - (inH * 60 + inM)
-    if (totalMin < 0) totalMin += 24 * 60
-    const workHours = Math.round((totalMin - record.breakMinutes) / 60 * 10) / 10
-    updateAttendance(record.id, { clockOut: timeStr, workHours: Math.max(0, workHours) })
+    // PDF E: 退勤時刻は 15 分単位で「切り捨て」、workHours も丸め後で再計算
+    const clockOut = roundClockOutHHMM(timeStr)
+    const inHHMM = record.clockIn ?? clockOut
+    const workHours = calcWorkHours(inHHMM, clockOut, record.breakMinutes ?? 0)
+    updateAttendance(record.id, { clockOut, workHours })
+    addAttendanceEditLog({
+      id: Date.now(),
+      recordId: record.id,
+      castId: record.staffId,
+      castName: record.staffName,
+      field: 'clockOut',
+      before: record.clockOut ?? null,
+      after: clockOut,
+      editedAt: new Date().toISOString(),
+      editedBy: user?.displayName ?? 'スタッフ',
+    })
   }
 
   const handleBreakUpdate = (record: AttendanceRecord, minutes: number) => {
+    const oldMin = record.breakMinutes
     updateAttendance(record.id, { breakMinutes: minutes })
     if (record.clockOut && record.clockIn) {
-      const [inH, inM] = record.clockIn.split(':').map(Number)
-      const [outH, outM] = record.clockOut.split(':').map(Number)
-      let totalMin = (outH * 60 + outM) - (inH * 60 + inM)
-      if (totalMin < 0) totalMin += 24 * 60
-      const workHours = Math.round((totalMin - minutes) / 60 * 10) / 10
-      updateAttendance(record.id, { breakMinutes: minutes, workHours: Math.max(0, workHours) })
+      // PDF E: workHours は丸め済み clockIn/Out で再計算
+      const workHours = calcWorkHours(record.clockIn, record.clockOut, minutes)
+      updateAttendance(record.id, { breakMinutes: minutes, workHours })
+    }
+    if (oldMin !== minutes) {
+      addAttendanceEditLog({
+        id: Date.now(),
+        recordId: record.id,
+        castId: record.staffId,
+        castName: record.staffName,
+        field: 'breakMinutes',
+        before: oldMin ?? null,
+        after: minutes,
+        editedAt: new Date().toISOString(),
+        editedBy: user?.displayName ?? 'スタッフ',
+      })
     }
   }
 
@@ -1812,8 +1868,63 @@ function AttendanceManager({
         </button>
       )}
 
-      {/* PDF E: 「過去の出勤記録」一覧は不要との指示 → 削除。
-          月次集計は SalaryPage / 日経表 PDF から確認する運用に統一。 */}
+      {/* PDF E: 「過去の出勤記録」一覧 — クロウ指示で復活。
+          過去レコードからも出勤・退勤時刻を修正可能（15分丸め + 監査ログ）。
+          PDF spec の「過去の出勤記録、こちらは不要です」は当該キャストの
+          給与明細ポップアップ等での履歴表示の話で、運用画面側では修正導線が
+          必要との判断（修正履歴は別途監査ログに残る）。 */}
+      {attendanceRecords.filter((r) => r.date !== todayStr).length > 0 && (
+        <div className="mt-4">
+          <h3 className="text-sm font-bold text-gray-400 mb-2">過去の出勤記録（修正可）</h3>
+          <div className="space-y-1.5">
+            {attendanceRecords.filter((r) => r.date !== todayStr).map((r) => (
+              <div key={r.id} className="flex items-center gap-2 text-xs py-1.5 border-b border-white/5">
+                <span className="text-gray-400 w-24">{r.date}</span>
+                <span className="text-gray-200 flex-1 truncate">{r.staffName}</span>
+                <input
+                  type="time"
+                  value={r.clockIn ?? ''}
+                  onChange={(e) => handleClockInEdit(r, e.target.value)}
+                  className="bg-white/5 border border-white/10 rounded px-2 py-1 tabular-nums w-20"
+                  title="出勤時刻を修正 (15分丸め)"
+                />
+                <span className="text-gray-600">〜</span>
+                <input
+                  type="time"
+                  value={r.clockOut ?? ''}
+                  onChange={(e) => handleClockOutEdit(r, e.target.value)}
+                  className="bg-white/5 border border-white/10 rounded px-2 py-1 tabular-nums w-20"
+                  title="退勤時刻を修正 (15分丸め)"
+                />
+                <span className="text-gray-500 tabular-nums w-12 text-right">{r.workHours}h</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* PDF E: 勤怠修正監査ログ — 誰がいつ何を変更したか */}
+      {attendanceEditLogs.length > 0 && (
+        <div className="mt-4 panel p-3">
+          <h3 className="text-sm font-bold text-gray-400 mb-2">勤怠修正履歴（監査ログ）</h3>
+          <div className="space-y-1 text-[11px]">
+            {attendanceEditLogs.slice(0, 20).map((log) => (
+              <div key={log.id} className="flex gap-2 border-b border-white/5 py-1 tabular-nums">
+                <span className="text-gray-600 w-32 truncate">{new Date(log.editedAt).toLocaleString('ja-JP', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' })}</span>
+                <span className="text-gray-300 w-20 truncate">{log.castName}</span>
+                <span className="text-gold w-20">{log.field}</span>
+                <span className="text-gray-400 flex-1 truncate">
+                  {log.before === null ? '(空)' : String(log.before)} → {log.after === null ? '(空)' : String(log.after)}
+                </span>
+                <span className="text-gray-600 w-20 truncate">{log.editedBy}</span>
+              </div>
+            ))}
+            {attendanceEditLogs.length > 20 && (
+              <div className="text-gray-600 text-center pt-1">… 最新 20 件のみ表示</div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* PDF E: 給与明細ポップアップ */}
       <PayslipPopup
