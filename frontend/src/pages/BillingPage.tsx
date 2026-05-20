@@ -756,7 +756,12 @@ export default function BillingPage() {
                         <Input
                           type="number"
                           value={cashInputAmount}
-                          onChange={(e) => setCashInputAmount(e.target.value)}
+                          onChange={(e) => {
+                            // 現金額を変えると差額・手数料が変わり、旧 cardEndCut の
+                            // 値が新カード支払額に対して意味を失うので一旦解除する。
+                            setCashInputAmount(e.target.value)
+                            setCardEndCut(0)
+                          }}
                           placeholder="現金で受け取る金額"
                           className="tabular-nums"
                         />
@@ -767,7 +772,12 @@ export default function BillingPage() {
                         {[1000, 5000, 10000, 30000].map((qa) => (
                           <button
                             key={qa}
-                            onClick={() => setCashInputAmount(String((Number(cashInputAmount) || 0) + qa))}
+                            onClick={() => {
+                              // クイック加算でも現金が変わる → カード支払額が変わるため、
+                              // 旧 cardEndCut は解除する。
+                              setCashInputAmount(String((Number(cashInputAmount) || 0) + qa))
+                              setCardEndCut(0)
+                            }}
                             className="flex-1 text-xs panel py-1.5 hover:bg-white/10 rounded"
                           >
                             +{qa.toLocaleString()}
@@ -780,6 +790,9 @@ export default function BillingPage() {
                             const remainder = Math.max(0, preCardTotal - cur)
                             const trim = remainder % 1000
                             setCashInputAmount(String(cur + trim))
+                            // ハスカット後はカード残額(差額)が変わる → カード支払額の
+                            // 端数カット計算が古くなるので解除する。
+                            setCardEndCut(0)
                           }}
                           className="text-xs px-3 py-1.5 bg-amber-500/15 border border-amber-500/30 text-amber-300 rounded"
                           title="残額の 1000 円未満を現金に吸収して丸める"
@@ -1015,15 +1028,27 @@ export default function BillingPage() {
         }
       >
         <div className="space-y-2">
-          <p className="text-sm text-gray-400">卓 {table.number} の会計を確定しますか？</p>
+          <p className="text-sm text-gray-400">{table.number}卓 の会計を確定しますか？</p>
           <p className="text-2xl font-bold text-gold tabular-nums">¥{finalTotal.toLocaleString()}</p>
           {splitCount > 0 && <p className="text-sm text-gray-400 tabular-nums">割り勘: ¥{perPerson.toLocaleString()} x {splitCount}人</p>}
           <p className="text-sm text-gray-500">支払方法: {paymentLabel(paymentMethod)}</p>
+          {/* PDF D: 現金+カード時は「カード支払額（差額+手数料-端数カット）」を
+              実際にカードで決済する額として明示する。差額/手数料/端数カットは
+              内訳として併記し、会計画面と表記を揃える。 */}
           {paymentMethod === 'mixed' && mixedCardAmount > 0 && (
-            <p className="text-sm text-gray-500 tabular-nums">現金: ¥{mixedCashAmount.toLocaleString()} / カード: ¥{mixedCardAmount.toLocaleString()}</p>
+            <div className="text-sm space-y-0.5">
+              <p className="text-gray-500 tabular-nums">現金: ¥{mixedCashAmount.toLocaleString()}</p>
+              <p className="text-gold tabular-nums font-bold">カード支払額: ¥{mixedCardPaymentFinal.toLocaleString()}</p>
+              <p className="text-xs text-gray-500 tabular-nums">　└ 内訳: 差額 ¥{mixedCardAmount.toLocaleString()} + 手数料 ¥{mixedCardFee.toLocaleString()}{safeCardEndCut > 0 ? ` − 端数カット ¥${safeCardEndCut.toLocaleString()}` : ''}</p>
+            </div>
           )}
-          {(cardFee > 0 || mixedCardFee > 0) && <p className="text-sm text-blue-400 tabular-nums">カード手数料: ¥{(paymentMethod === 'mixed' ? mixedCardFee : cardFee).toLocaleString()}</p>}
+          {paymentMethod === 'card' && cardFee > 0 && (
+            <p className="text-sm text-blue-400 tabular-nums">カード手数料: ¥{cardFee.toLocaleString()}</p>
+          )}
           {discount > 0 && <p className="text-sm text-red-400 tabular-nums">値引き: -¥{discount.toLocaleString()} ({discountReason})</p>}
+          {paymentMethod === 'mixed' && safeCardEndCut > 0 && (
+            <p className="text-sm text-amber-300 tabular-nums">端数カット: -¥{safeCardEndCut.toLocaleString()} （値引きとして記録）</p>
+          )}
         </div>
       </Modal>
 
