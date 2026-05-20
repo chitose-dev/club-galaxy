@@ -284,6 +284,29 @@ input:focus, select:focus, textarea:focus, button:focus-visible {
     display: none !important;
   }
 
+  /* PDF E: 給与明細印刷モード。.print-payslip だけが残り、他の領収書等は
+     非表示にする。PayslipPopup.printPayslip が body にこのクラスを付与。 */
+  body.print-payslip-only .print-only,
+  body.print-payslip-only .print-receipt,
+  body.print-payslip-only .thermal-receipt {
+    display: none !important;
+  }
+  body.print-payslip-only main > div > div:not(:has(.print-payslip)) {
+    display: none !important;
+  }
+  body.print-payslip-only .print-payslip {
+    display: block !important;
+    background: #fff !important;
+    color: #000 !important;
+  }
+  body.print-payslip-only .print-payslip * {
+    color: #000 !important;
+  }
+  /* モーダル内部の不要な装飾を消して、PayslipPopup の表組みだけが出る */
+  body.print-payslip-only .no-print-block {
+    display: none !important;
+  }
+
   /* サーマル印刷（EPSON TM-m30III-H 等 80mm 幅）レイアウト。
      ExtensionConfirmPage の交渉票で使用。等幅フォントで列ズレ抑止。 */
   @page { size: 80mm auto; margin: 4mm; }

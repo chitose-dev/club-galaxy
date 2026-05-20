@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   DndContext,
@@ -19,8 +19,10 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import Modal from '../components/Modal'
 import { Input, Field } from '../components/Input'
 import NumberInput from '../components/NumberInput'
-import { Edit2, Trash2, MapPin, ArrowRightCircle, Pause, Play, GripVertical } from 'lucide-react'
+import { Edit2, Trash2, MapPin, ArrowRightCircle, Pause, Play, GripVertical, FileText, Wallet } from 'lucide-react'
 import type { Cast, Table } from '../data/mock'
+import { formatRealtimeWorkRange } from '../utils/quarterHour'
+import PayslipPopup from '../components/PayslipPopup'
 
 /**
  * ISSUE-007: 待機キャスト画面 — 2 カラム DnD レイアウト。
@@ -41,7 +43,7 @@ const isInLooseTime = (c: Cast): boolean => {
 }
 
 export default function WaitingCastPage() {
-  const { casts, setCasts, tables, moveCast } = useStore()
+  const { casts, setCasts, tables, moveCast, attendanceRecords, addDailyPayRequest, updateAttendance } = useStore()
   const navigate = useNavigate()
 
   const [editing, setEditing] = useState<Cast | null>(null)
@@ -49,6 +51,67 @@ export default function WaitingCastPage() {
   const [locateCast, setLocateCast] = useState<{ cast: Cast; tableId: number | null } | null>(null)
   const [assignCast, setAssignCast] = useState<Cast | null>(null)
   const [draggingId, setDraggingId] = useState<number | null>(null)
+  // PDF E: 給与明細ポップアップ / 日払い入力 / 出勤時刻修正 用
+  const [payslipCast, setPayslipCast] = useState<Cast | null>(null)
+  const [dailyPayCast, setDailyPayCast] = useState<Cast | null>(null)
+  const [dailyPayAmount, setDailyPayAmount] = useState('')
+  const [editClockInCast, setEditClockInCast] = useState<Cast | null>(null)
+  const [editClockInValue, setEditClockInValue] = useState('')
+
+  // 当日の出勤レコード（PDF E: 過去履歴一覧は作らない、当日のみ）
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const todayAttendanceByCastId = useMemo(() => {
+    const m = new Map<number, typeof attendanceRecords[number]>()
+    for (const r of attendanceRecords) {
+      if (r.date !== todayStr) continue
+      if (r.staffType !== 'cast') continue
+      m.set(r.staffId, r)
+    }
+    return m
+  }, [attendanceRecords, todayStr])
+
+  // リアルタイム表示の 15 分枠が分の境界で更新されるよう、1 分ごとに再描画。
+  const [, setNowTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setNowTick((n) => n + 1), 60_000)
+    return () => clearInterval(id)
+  }, [])
+
+  const handleDailyPaySubmit = () => {
+    if (!dailyPayCast) return
+    const amount = Number(dailyPayAmount)
+    if (!Number.isFinite(amount) || amount <= 0) return
+    addDailyPayRequest({
+      id: Date.now(),
+      castId: dailyPayCast.id,
+      castName: dailyPayCast.name,
+      amount,
+      date: new Date().toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' }),
+    })
+    setDailyPayCast(null)
+    setDailyPayAmount('')
+  }
+
+  const handleClockInEditSave = () => {
+    if (!editClockInCast) return
+    const rec = todayAttendanceByCastId.get(editClockInCast.id)
+    if (!rec) return
+    const newClockIn = editClockInValue
+    if (!newClockIn || !/^\d{2}:\d{2}$/.test(newClockIn)) return
+    // clockOut があれば workHours を再計算
+    let patch: Parameters<typeof updateAttendance>[1] = { clockIn: newClockIn }
+    if (rec.clockOut) {
+      const [inH, inM] = newClockIn.split(':').map(Number)
+      const [outH, outM] = rec.clockOut.split(':').map(Number)
+      let totalMin = (outH * 60 + outM) - (inH * 60 + inM)
+      if (totalMin < 0) totalMin += 24 * 60
+      const workHours = Math.round((totalMin - (rec.breakMinutes ?? 0)) / 60 * 10) / 10
+      patch = { ...patch, workHours: Math.max(0, workHours) }
+    }
+    updateAttendance(rec.id, patch)
+    setEditClockInCast(null)
+    setEditClockInValue('')
+  }
 
   // 長押し (delay 200ms) で誤発火防止。タップでは drag が始まらず編集等が可能。
   const sensors = useSensors(
@@ -165,6 +228,12 @@ export default function WaitingCastPage() {
             >
               {onCasts.map((c) => {
                 const busy = assignedNames.has(c.name)
+                const todayRec = todayAttendanceByCastId.get(c.id)
+                // PDF E: 当日出勤レコードの clockIn を元に「20:00〜20:15」形式の
+                // リアルタイム勤務枠を出す。未打刻なら表示なし。
+                const realtimeRange = todayRec?.clockIn
+                  ? formatRealtimeWorkRange(todayRec.clockIn)
+                  : ''
                 return (
                   <DraggableCastCard
                     key={c.id}
@@ -172,6 +241,14 @@ export default function WaitingCastPage() {
                     variant="on"
                     busy={busy}
                     location={busy ? castTableMap.get(c.name) ?? null : null}
+                    workRange={realtimeRange}
+                    canEditClockIn={!!todayRec}
+                    onEditClockIn={todayRec ? () => {
+                      setEditClockInCast(c)
+                      setEditClockInValue(todayRec.clockIn ?? '')
+                    } : undefined}
+                    onPayslip={() => setPayslipCast(c)}
+                    onDailyPay={() => { setDailyPayCast(c); setDailyPayAmount('') }}
                     onEdit={() => setEditing(c)}
                     onDelete={() => setPendingDelete(c)}
                     onToggleBreak={() => handleToggleBreak(c.id)}
@@ -323,17 +400,84 @@ export default function WaitingCastPage() {
         onConfirm={deleteCast}
         onCancel={() => setPendingDelete(null)}
       />
+
+      {/* PDF E: 給与明細ポップアップ */}
+      <PayslipPopup
+        open={!!payslipCast}
+        cast={payslipCast}
+        onClose={() => setPayslipCast(null)}
+      />
+
+      {/* PDF E: 日払い入力ポップアップ */}
+      <Modal
+        open={!!dailyPayCast}
+        onClose={() => { setDailyPayCast(null); setDailyPayAmount('') }}
+        title={dailyPayCast ? `${dailyPayCast.name} - 日払い` : ''}
+        size="sm"
+        footer={
+          <>
+            <GhostButton onClick={() => { setDailyPayCast(null); setDailyPayAmount('') }} className="flex-1">キャンセル</GhostButton>
+            <GoldButton onClick={handleDailyPaySubmit} className="flex-1" disabled={!dailyPayAmount || Number(dailyPayAmount) <= 0}>
+              記録する
+            </GoldButton>
+          </>
+        }
+      >
+        <div className="space-y-2">
+          <Field label="日払い金額 (円)">
+            <Input
+              type="number"
+              value={dailyPayAmount}
+              onChange={(e) => setDailyPayAmount(e.target.value)}
+              placeholder="例: 5000"
+              className="tabular-nums"
+            />
+          </Field>
+          <p className="text-[10px] text-gray-500">※ 給与計算時の日払い済合計に反映されます。一律10%控除して手渡しが運用想定。</p>
+        </div>
+      </Modal>
+
+      {/* PDF E: 出勤時刻 修正ポップアップ — 当日レコードのみ対象、数字選択 input */}
+      <Modal
+        open={!!editClockInCast}
+        onClose={() => { setEditClockInCast(null); setEditClockInValue('') }}
+        title={editClockInCast ? `${editClockInCast.name} - 出勤時刻 修正` : ''}
+        size="sm"
+        footer={
+          <>
+            <GhostButton onClick={() => { setEditClockInCast(null); setEditClockInValue('') }} className="flex-1">キャンセル</GhostButton>
+            <GoldButton onClick={handleClockInEditSave} className="flex-1" disabled={!/^\d{2}:\d{2}$/.test(editClockInValue)}>
+              保存
+            </GoldButton>
+          </>
+        }
+      >
+        <div className="space-y-2">
+          <Field label="出勤時刻 (HH:MM)">
+            <input
+              type="time"
+              value={editClockInValue}
+              onChange={(e) => setEditClockInValue(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-base tabular-nums"
+            />
+          </Field>
+          <p className="text-[10px] text-gray-500">※ 修正すると当日の勤務時間 (clockOut 既存時) が自動再計算されます。</p>
+        </div>
+      </Modal>
     </div>
   )
 }
 
 // ─── サブコンポーネント ───────────────────────────────────
 
-function Avatar({ name }: { name: string }) {
+function Avatar({ name: _name }: { name: string }) {
+  // PDF E: 頭文字表示（"あ"/"れ"/"ゆ"等）を削除。アイコン部のレイアウトは
+  // 残すが文字は出さず、隣の cast.name フル表示を主表記とする。
   return (
-    <div className="shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-gold to-gold-dark flex items-center justify-center text-primary font-bold">
-      {name.slice(0, 1)}
-    </div>
+    <div
+      className="shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-gold/40 to-gold-dark/40 border border-gold/30"
+      aria-hidden
+    />
   )
 }
 
@@ -370,6 +514,15 @@ interface CardProps {
   variant: 'on' | 'off'
   busy: boolean
   location?: Table | null
+  /** PDF E: リアルタイム 15 分単位の勤務枠表示（例: "20:00〜20:15"）。空文字なら非表示。 */
+  workRange?: string
+  /** PDF E: 当日出勤レコードがあるときのみ出勤時刻修正ボタンを出す。 */
+  canEditClockIn?: boolean
+  onEditClockIn?: () => void
+  /** PDF E: 給与明細ポップアップを開く。 */
+  onPayslip?: () => void
+  /** PDF E: 日払い入力ポップアップを開く。 */
+  onDailyPay?: () => void
   onEdit: () => void
   onDelete: () => void
   onToggleBreak?: () => void
@@ -378,7 +531,7 @@ interface CardProps {
 }
 
 function DraggableCastCard(props: CardProps) {
-  const { cast, variant, busy, onEdit, onDelete, onToggleBreak, onTap, isDragging } = props
+  const { cast, variant, busy, workRange, canEditClockIn, onEditClockIn, onPayslip, onDailyPay, onEdit, onDelete, onToggleBreak, onTap, isDragging } = props
   const { attributes, listeners, setNodeRef, transform } = useDraggable({ id: String(cast.id) })
 
   const inLoose = isInLooseTime(cast)
@@ -425,6 +578,7 @@ function DraggableCastCard(props: CardProps) {
         className="flex-1 min-w-0 text-left hover:bg-white/5 rounded px-1 py-0.5 transition-colors"
       >
         <div className="flex items-center gap-1.5">
+          {/* PDF E: 頭文字ではなく cast.name をそのままフル表示 */}
           <span className="text-base font-semibold text-white truncate">{cast.name}</span>
           {inLoose && variant === 'on' && (
             <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold tracking-tight whitespace-nowrap">
@@ -433,10 +587,50 @@ function DraggableCastCard(props: CardProps) {
           )}
           {busy && <MapPin size={10} className="text-gold shrink-0" />}
         </div>
-        <div className="text-[10px] text-gray-400 tracking-wide">{statusLabel}</div>
+        <div className="text-[10px] text-gray-400 tracking-wide">
+          {statusLabel}
+          {/* PDF E: 15 分単位リアルタイム勤務枠（出勤レコードがある時のみ） */}
+          {workRange && variant === 'on' && (
+            <span className="ml-2 text-gold tabular-nums">{workRange}</span>
+          )}
+        </div>
       </button>
 
       <div className="shrink-0 flex items-center gap-1">
+        {/* PDF E: 出勤中キャストには「明細 / 日払い / 出勤時刻修正」導線 */}
+        {variant === 'on' && onPayslip && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onPayslip() }}
+            className="p-1.5 rounded-md bg-white/5 hover:bg-white/10 text-gray-200"
+            title="給与明細"
+            aria-label="給与明細"
+          >
+            <FileText size={12} />
+          </button>
+        )}
+        {variant === 'on' && onDailyPay && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onDailyPay() }}
+            className="p-1.5 rounded-md bg-white/5 hover:bg-white/10 text-gray-200"
+            title="日払い"
+            aria-label="日払い"
+          >
+            <Wallet size={12} />
+          </button>
+        )}
+        {variant === 'on' && canEditClockIn && onEditClockIn && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onEditClockIn() }}
+            className="p-1.5 rounded-md bg-white/5 hover:bg-white/10 text-gray-200"
+            title="出勤時刻を修正"
+            aria-label="出勤時刻を修正"
+          >
+            ⏱
+          </button>
+        )}
         {variant === 'on' && onToggleBreak && (
           <button
             type="button"

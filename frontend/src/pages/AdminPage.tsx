@@ -23,13 +23,19 @@ import { calcHourlyPay } from '../utils/payroll'
 import type { Cast, BackType, GuestMenuItem, CastMenuItem, SetPrice, Table, StoreSettings, DailyWork, UserAccount, BillingRecord } from '../data/mock'
 import type { AttendanceRecord, Expense, ExpenseCategory, AdvancePayment, ArchivedData, DailyReport } from '../data/mock'
 import React from 'react'
-import { Pencil, Trash2, Plus, Save, Download, ChevronUp, ChevronDown, GripVertical, Clock, Printer } from 'lucide-react'
+import { Pencil, Trash2, Plus, Save, Download, ChevronUp, ChevronDown, GripVertical, Clock, Printer, FileText, Wallet } from 'lucide-react'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { openPrintWindow } from '../utils/print'
 import ContextualHeader from '../components/ContextualHeader'
 import Tabs, { type TabItem } from '../components/Tabs'
 import NumberInput from '../components/NumberInput'
 import { getTodayBusinessDay, formatBusinessDay } from '../utils/businessDay'
+// PDF E: 勤怠 UI 拡張用
+import Modal from '../components/Modal'
+import { Input, Field } from '../components/Input'
+import { GoldButton, GhostButton } from '../components/Buttons'
+import PayslipPopup from '../components/PayslipPopup'
+import { formatRealtimeWorkRange } from '../utils/quarterHour'
 
 type AdminTab =
   | 'menu' | 'cast' | 'price' | 'tables' | 'settings' | 'export' | 'users'
@@ -1504,6 +1510,47 @@ function AttendanceManager({
   const [showAdd, setShowAdd] = useState(false)
   const [staffId, setStaffId] = useState<number>(casts[0]?.id ?? 0)
   const [staffType, setStaffType] = useState<'cast' | 'boy'>('cast')
+  // PDF E: 給与明細ポップアップ / 日払い入力 / 15分リアルタイム再描画
+  const [payslipCast, setPayslipCast] = useState<Cast | null>(null)
+  const [dailyPayCast, setDailyPayCast] = useState<Cast | null>(null)
+  const [dailyPayAmount, setDailyPayAmount] = useState('')
+  const { addDailyPayRequest } = useStore()
+  // 1 分ごとに再描画して 15 分枠の境界更新を反映
+  const [, setNowTick] = useState(0)
+  React.useEffect(() => {
+    const id = setInterval(() => setNowTick((n) => n + 1), 60_000)
+    return () => clearInterval(id)
+  }, [])
+
+  // PDF E: 出勤時刻を修正したら workHours を再計算する。
+  const handleClockInEdit = (record: AttendanceRecord, newClockIn: string) => {
+    if (!newClockIn || !/^\d{2}:\d{2}$/.test(newClockIn)) return
+    let patch: Partial<AttendanceRecord> = { clockIn: newClockIn }
+    if (record.clockOut) {
+      const [inH, inM] = newClockIn.split(':').map(Number)
+      const [outH, outM] = record.clockOut.split(':').map(Number)
+      let totalMin = (outH * 60 + outM) - (inH * 60 + inM)
+      if (totalMin < 0) totalMin += 24 * 60
+      const workHours = Math.round((totalMin - (record.breakMinutes ?? 0)) / 60 * 10) / 10
+      patch = { ...patch, workHours: Math.max(0, workHours) }
+    }
+    updateAttendance(record.id, patch)
+  }
+
+  const handleDailyPaySubmit = () => {
+    if (!dailyPayCast) return
+    const amount = Number(dailyPayAmount)
+    if (!Number.isFinite(amount) || amount <= 0) return
+    addDailyPayRequest({
+      id: Date.now(),
+      castId: dailyPayCast.id,
+      castName: dailyPayCast.name,
+      amount,
+      date: new Date().toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' }),
+    })
+    setDailyPayCast(null)
+    setDailyPayAmount('')
+  }
 
   // 追補02 R4: 事前予定登録フォーム用
   const [showSchedule, setShowSchedule] = useState(false)
@@ -1663,10 +1710,17 @@ function AttendanceManager({
         <p className="text-sm text-gray-600">本日の出勤記録はありません</p>
       ) : (
         <div className="space-y-2">
-          {todayRecords.map((r) => (
+          {todayRecords.map((r) => {
+            // PDF E: 15 分単位リアルタイム勤務枠（出勤中のみ）。
+            const realtimeRange = !r.clockOut && r.clockIn
+              ? formatRealtimeWorkRange(r.clockIn)
+              : null
+            const castObj = casts.find((c) => c.id === r.staffId)
+            return (
             <div key={r.id} className="bg-white/5 rounded-lg p-3">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
+                  {/* PDF E: 頭文字ではなく cast.name フル表示 */}
                   <span className="font-bold text-sm">{r.staffName}</span>
                   <span className="text-xs bg-white/5 text-gray-400 px-1.5 py-0.5 rounded">{r.staffType === 'cast' ? 'キャスト' : 'ボーイ'}</span>
                   {r.scheduledClockIn && r.clockIn && r.scheduledClockIn !== r.clockIn && (
@@ -1677,12 +1731,23 @@ function AttendanceManager({
                 </div>
                 <div className="flex items-center gap-2">
                   <Clock size={12} className="text-gray-500" />
-                  <span className="text-sm tabular-nums">{r.clockIn ?? '--:--'}</span>
+                  {/* PDF E: 出勤時刻は input type="time" で数字選択（丸時計UIを廃止） */}
+                  <input
+                    type="time"
+                    value={r.clockIn ?? ''}
+                    onChange={(e) => handleClockInEdit(r, e.target.value)}
+                    className="bg-white/5 border border-white/10 rounded px-2 py-1 text-sm tabular-nums w-24"
+                    title="出勤時刻を修正"
+                  />
                   <span className="text-gray-600">〜</span>
                   <span className="text-sm tabular-nums">{r.clockOut ?? '--:--'}</span>
                 </div>
               </div>
-              <div className="flex items-center gap-3 text-xs">
+              {/* PDF E: 15 分単位リアルタイム勤務枠 */}
+              {realtimeRange && (
+                <div className="text-xs text-gold tabular-nums mb-1">勤務枠: {realtimeRange}</div>
+              )}
+              <div className="flex items-center gap-3 text-xs flex-wrap">
                 <div className="flex items-center gap-1">
                   <span className="text-gray-500">休憩:</span>
                   <NumberInput
@@ -1696,12 +1761,30 @@ function AttendanceManager({
                   <span className="text-gray-500">分</span>
                 </div>
                 <span className="text-gray-500">勤務: <span className="text-white tabular-nums">{r.workHours}h</span></span>
+                {/* PDF E: 明細 / 日払い 導線（キャストのみ） */}
+                {castObj && (
+                  <>
+                    <button
+                      onClick={() => setPayslipCast(castObj)}
+                      className="bg-white/5 hover:bg-white/10 text-gray-200 px-3 py-1 rounded text-xs flex items-center gap-1"
+                    >
+                      <FileText size={11} /> 明細
+                    </button>
+                    <button
+                      onClick={() => { setDailyPayCast(castObj); setDailyPayAmount('') }}
+                      className="bg-white/5 hover:bg-white/10 text-gray-200 px-3 py-1 rounded text-xs flex items-center gap-1"
+                    >
+                      <Wallet size={11} /> 日払い
+                    </button>
+                  </>
+                )}
                 {!r.clockOut && (
                   <button onClick={() => handleClockOut(r)} className="ml-auto bg-red-500/20 text-red-400 px-3 py-1 rounded text-xs font-bold">退勤</button>
                 )}
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
@@ -1729,20 +1812,44 @@ function AttendanceManager({
         </button>
       )}
 
-      {/* All records */}
-      {attendanceRecords.filter((r) => r.date !== todayStr).length > 0 && (
-        <div className="mt-4">
-          <h3 className="text-sm font-bold text-gray-400 mb-2">過去の出勤記録</h3>
-          <div className="space-y-1.5">
-            {attendanceRecords.filter((r) => r.date !== todayStr).map((r) => (
-              <div key={r.id} className="flex justify-between text-sm py-1.5 border-b border-white/5">
-                <span className="text-gray-500">{r.date} {r.staffName}</span>
-                <span className="tabular-nums">{r.clockIn}〜{r.clockOut ?? '?'} ({r.workHours}h)</span>
-              </div>
-            ))}
-          </div>
+      {/* PDF E: 「過去の出勤記録」一覧は不要との指示 → 削除。
+          月次集計は SalaryPage / 日経表 PDF から確認する運用に統一。 */}
+
+      {/* PDF E: 給与明細ポップアップ */}
+      <PayslipPopup
+        open={!!payslipCast}
+        cast={payslipCast}
+        onClose={() => setPayslipCast(null)}
+      />
+
+      {/* PDF E: 日払い入力ポップアップ */}
+      <Modal
+        open={!!dailyPayCast}
+        onClose={() => { setDailyPayCast(null); setDailyPayAmount('') }}
+        title={dailyPayCast ? `${dailyPayCast.name} - 日払い` : ''}
+        size="sm"
+        footer={
+          <>
+            <GhostButton onClick={() => { setDailyPayCast(null); setDailyPayAmount('') }} className="flex-1">キャンセル</GhostButton>
+            <GoldButton onClick={handleDailyPaySubmit} className="flex-1" disabled={!dailyPayAmount || Number(dailyPayAmount) <= 0}>
+              記録する
+            </GoldButton>
+          </>
+        }
+      >
+        <div className="space-y-2">
+          <Field label="日払い金額 (円)">
+            <Input
+              type="number"
+              value={dailyPayAmount}
+              onChange={(e) => setDailyPayAmount(e.target.value)}
+              placeholder="例: 5000"
+              className="tabular-nums"
+            />
+          </Field>
+          <p className="text-[10px] text-gray-500">※ 給与計算時の日払い済合計に反映されます。一律10%控除して手渡しが運用想定。</p>
         </div>
-      )}
+      </Modal>
     </div>
   )
 }
@@ -2241,9 +2348,9 @@ function DailyPayManager({
               const paid = alreadyPaid(c.id)
               return (
                 <div key={c.id} className="py-3 flex items-center gap-3">
-                  <div className="shrink-0 w-9 h-9 rounded-full bg-gradient-to-br from-gold to-gold-dark flex items-center justify-center text-primary font-bold text-sm">
-                    {c.name.slice(0, 1)}
-                  </div>
+                  {/* PDF E: 頭文字表示を削除し、フル名を主表記に。
+                      左のアイコンは無地の円で残す。 */}
+                  <div className="shrink-0 w-9 h-9 rounded-full bg-gradient-to-br from-gold/40 to-gold-dark/40 border border-gold/30" aria-hidden />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium">{c.name}</div>
                     <div className="text-xs text-gray-500 tabular-nums">
