@@ -410,8 +410,15 @@ function CastTrendView() {
 
   const buckets = useMemo(() => {
     if (!cast) return []
+    // A2: 本指名ボトルバック按分も含めて集計するため、全キャストの
+    // 'ボトルバック'（%単位）を渡す。
+    const bottleBackRateByCast: Record<string, number> = {}
+    for (const c of casts) {
+      bottleBackRateByCast[c.name] = c.backRates['ボトルバック'] ?? 0
+    }
     const work = computeDailyWork(
-      cast.id, cast.name, attendanceRecords, billingRecords, cast.backRates['本指名'] ?? 0,
+      cast.id, cast.name, attendanceRecords, billingRecords,
+      cast.backRates['本指名'] ?? 0, bottleBackRateByCast,
     )
     // dailyWork の date は 'M/D' 形式 → 今年扱い
     const today = new Date()

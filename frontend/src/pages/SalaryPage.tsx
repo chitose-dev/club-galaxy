@@ -51,8 +51,19 @@ export default function SalaryPage() {
   const selectedCastName = casts.find((c) => c.id === selectedCastId)?.name ?? ''
   // 延長指名バック按分の単価は本指名 backRate を流用する仕様（mock.ts コメント参照）
   const selectedCastShimeiRate = cast?.backRates['本指名'] ?? 0
+  // A2: 本指名ボトルバック按分は全キャストの「ボトルバック」率（%単位）を参照する。
+  // 同じレシートに別の本指名キャストが居る場合の split 計算で他キャストの率も必要なため、
+  // 一覧で渡す。
+  const bottleBackRateByCast = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const c of casts) {
+      m[c.name] = c.backRates['ボトルバック'] ?? 0
+    }
+    return m
+  }, [casts])
   const dailyWork: DailyWork[] = computeDailyWork(
-    selectedCastId, selectedCastName, attendanceRecords, billingRecords, selectedCastShimeiRate,
+    selectedCastId, selectedCastName, attendanceRecords, billingRecords,
+    selectedCastShimeiRate, bottleBackRateByCast,
   )
 
   const filteredWork = useMemo(() => {
@@ -73,8 +84,14 @@ export default function SalaryPage() {
     let total = 0
     for (const w of filteredWork) {
       for (const [type, count] of Object.entries(w.backs) as [BackType, number][]) {
+        // A2: 'ボトルバック' の金額は bottleBackAmount を正本として扱うため、
+        // ここでの旧 `count × %値` 計算からは除外する（二重計上防止）。
+        if (type === 'ボトルバック') continue
         total += (cast.backRates[type] ?? 0) * count
       }
+      // A2: 本指名ボトルバック（小計÷本指名人数×個別率）と延長指名バックを加算。
+      total += w.bottleBackAmount ?? 0
+      total += w.extensionBackAmount ?? 0
     }
     return total
   }, [filteredWork, cast])
@@ -118,8 +135,12 @@ export default function SalaryPage() {
     if (!cast) return 0
     let total = 0
     for (const [type, count] of Object.entries(w.backs) as [BackType, number][]) {
+      // A2: 'ボトルバック' は bottleBackAmount を正本にするため除外。
+      if (type === 'ボトルバック') continue
       total += (cast.backRates[type] ?? 0) * count
     }
+    total += w.bottleBackAmount ?? 0
+    total += w.extensionBackAmount ?? 0
     return total
   }
 
@@ -350,11 +371,18 @@ export default function SalaryPage() {
           <div className="panel-gold p-4 mb-4">
             <h3 className="text-sm font-bold mb-2 text-gold">バック集計</h3>
             <div className="flex flex-wrap gap-2 mb-2">
-              {(Object.entries(backTotals) as [BackType, number][]).map(([type, count]) => (
-                <span key={type} className="bg-gold/10 border border-gold/30 text-gray-200 text-xs px-2 py-0.5 rounded tabular-nums">
-                  {type}: {count}件 (¥{((cast?.backRates[type] ?? 0) * count).toLocaleString()})
-                </span>
-              ))}
+              {(Object.entries(backTotals) as [BackType, number][]).map(([type, count]) => {
+                // A2: ボトルバックは bottleBackAmount を集計して表示する
+                // （旧 `count × %値` 表示は誤算出になるため）。
+                const amount = type === 'ボトルバック'
+                  ? filteredWork.reduce((s, w) => s + (w.bottleBackAmount ?? 0), 0)
+                  : (cast?.backRates[type] ?? 0) * count
+                return (
+                  <span key={type} className="bg-gold/10 border border-gold/30 text-gray-200 text-xs px-2 py-0.5 rounded tabular-nums">
+                    {type}: {count}件 (¥{amount.toLocaleString()})
+                  </span>
+                )
+              })}
             </div>
             <div className="text-sm font-bold text-gold tabular-nums">バック合計: ¥{totalBackAmount.toLocaleString()}</div>
           </div>
