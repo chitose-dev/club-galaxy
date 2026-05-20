@@ -73,11 +73,9 @@ export function printCastLedger(params: CastLedgerParams): void {
 
       const backCells = BACK_COLUMNS.map(({ key }) => {
         if (key === 'ボトルバック') {
-          // A2: 件数表示 + 金額は bottleBackAmount から（旧 count × % 計算は廃止）。
-          const count = w.backs[key] ?? 0
-          return count > 0 || bottleBack > 0
-            ? `${count}(¥${bottleBack.toLocaleString()})`
-            : '-'
+          // A2: backs から件数は除外しているため、bottleBackAmount のみを表示。
+          // count 件表示は専用カウントを追加した後続 PR で復活させる想定。
+          return bottleBack > 0 ? `¥${bottleBack.toLocaleString()}` : '-'
         }
         const count = w.backs[key] ?? 0
         const unit = cast.backRates?.[key] ?? 0

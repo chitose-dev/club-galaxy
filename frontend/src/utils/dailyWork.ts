@@ -112,6 +112,11 @@ export function computeDailyWork(
     for (const order of snap.orders) {
       const bt = order.menuItem.backType
       if (!bt) continue
+      // A2: 'ボトルバック' は bottleBackAmount を正本として扱うため、
+      // ここでは件数自体も加算しない。同卓だが本指名でないキャストに
+      // 「ボトルバック: 1件 (¥0)」のような不整合表示が出るのを防ぐ
+      // （Word 仕様「本指名ではないキャストには付けない」と表示も整合）。
+      if (bt === 'ボトルバック') continue
       dw.backs[bt] = (dw.backs[bt] ?? 0) + (order.quantity ?? 1)
     }
   }

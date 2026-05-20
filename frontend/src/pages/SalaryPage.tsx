@@ -337,9 +337,24 @@ export default function SalaryPage() {
                       <td className="py-1.5 px-1">{w.date}</td>
                       <td className="py-1.5 px-1 text-right tabular-nums">{w.hours > 0 ? `${w.hours}h` : '休'}</td>
                       <td className="py-1.5 px-1 text-right tabular-nums">{dailyPay > 0 ? `¥${dailyPay.toLocaleString()}` : '-'}</td>
-                      {backTypeOrder.map((bt) => (
-                        <td key={bt} className="py-1.5 px-1 text-right tabular-nums">{w.backs[bt] ?? '-'}</td>
-                      ))}
+                      {backTypeOrder.map((bt) => {
+                        // A2: 'ボトルバック' は件数ではなく金額（bottleBackAmount）を表示。
+                        // 件数集計から外しているため、ここで '-' のままだと当日ボトル
+                        // バックが発生していてもセルが空になる。
+                        if (bt === 'ボトルバック') {
+                          const amt = w.bottleBackAmount ?? 0
+                          return (
+                            <td key={bt} className="py-1.5 px-1 text-right tabular-nums">
+                              {amt > 0 ? `¥${amt.toLocaleString()}` : '-'}
+                            </td>
+                          )
+                        }
+                        return (
+                          <td key={bt} className="py-1.5 px-1 text-right tabular-nums">
+                            {w.backs[bt] ?? '-'}
+                          </td>
+                        )
+                      })}
                       <td className="py-1.5 px-1 text-right text-blue-300 font-bold tabular-nums">{pTotal > 0 ? pTotal : '-'}</td>
                       <td className="py-1.5 px-1 text-right font-bold tabular-nums">{nikkei > 0 ? `¥${nikkei.toLocaleString()}` : '-'}</td>
                     </tr>
@@ -351,9 +366,21 @@ export default function SalaryPage() {
                   <td className="py-2 px-1">合計</td>
                   <td className="py-2 px-1 text-right tabular-nums">{totalHours}h</td>
                   <td className="py-2 px-1 text-right tabular-nums">¥{(cast ? calcHourlyPay(cast.hourlyRate, totalHours) : 0).toLocaleString()}</td>
-                  {backTypeOrder.map((bt) => (
-                    <td key={bt} className="py-2 px-1 text-right tabular-nums">{backTotals[bt] ?? '-'}</td>
-                  ))}
+                  {backTypeOrder.map((bt) => {
+                    if (bt === 'ボトルバック') {
+                      const monthAmt = filteredWork.reduce((s, w) => s + (w.bottleBackAmount ?? 0), 0)
+                      return (
+                        <td key={bt} className="py-2 px-1 text-right tabular-nums">
+                          {monthAmt > 0 ? `¥${monthAmt.toLocaleString()}` : '-'}
+                        </td>
+                      )
+                    }
+                    return (
+                      <td key={bt} className="py-2 px-1 text-right tabular-nums">
+                        {backTotals[bt] ?? '-'}
+                      </td>
+                    )
+                  })}
                   <td className="py-2 px-1 text-right text-blue-300 tabular-nums">
                     {Object.values(backTotals).reduce((s, c) => s + c, 0)}
                   </td>
@@ -367,22 +394,31 @@ export default function SalaryPage() {
         </div>
 
         {/* Back summary */}
-        {Object.keys(backTotals).length > 0 && (
+        {(Object.keys(backTotals).length > 0 || filteredWork.some((w) => (w.bottleBackAmount ?? 0) > 0)) && (
           <div className="panel-gold p-4 mb-4">
             <h3 className="text-sm font-bold mb-2 text-gold">バック集計</h3>
             <div className="flex flex-wrap gap-2 mb-2">
               {(Object.entries(backTotals) as [BackType, number][]).map(([type, count]) => {
-                // A2: ボトルバックは bottleBackAmount を集計して表示する
-                // （旧 `count × %値` 表示は誤算出になるため）。
-                const amount = type === 'ボトルバック'
-                  ? filteredWork.reduce((s, w) => s + (w.bottleBackAmount ?? 0), 0)
-                  : (cast?.backRates[type] ?? 0) * count
+                // A2: 'ボトルバック' は backs から除外したのでここには出ない。
+                // 旧 `count × %値` 表示は誤算出のため使わず、専用チップで別表示。
+                const amount = (cast?.backRates[type] ?? 0) * count
                 return (
                   <span key={type} className="bg-gold/10 border border-gold/30 text-gray-200 text-xs px-2 py-0.5 rounded tabular-nums">
                     {type}: {count}件 (¥{amount.toLocaleString()})
                   </span>
                 )
               })}
+              {/* A2: 本指名ボトルバックは backs に含めないため別チップで表示。
+                  小計÷本指名人数×個別率で算出された金額のみ。 */}
+              {(() => {
+                const bottleTotal = filteredWork.reduce((s, w) => s + (w.bottleBackAmount ?? 0), 0)
+                if (bottleTotal === 0) return null
+                return (
+                  <span className="bg-gold/10 border border-gold/30 text-gray-200 text-xs px-2 py-0.5 rounded tabular-nums">
+                    ボトルバック: ¥{bottleTotal.toLocaleString()}
+                  </span>
+                )
+              })()}
             </div>
             <div className="text-sm font-bold text-gold tabular-nums">バック合計: ¥{totalBackAmount.toLocaleString()}</div>
           </div>
