@@ -310,7 +310,10 @@ export default function SalaryPage() {
             </div>
             <div className="grid grid-cols-4 gap-2 text-center">
               <div className="panel py-2 px-1">
-                <div className="text-xs text-gray-500">税引前(時給+バック)</div>
+                {/* PDF F: 値には「時給+バック」だけでなく「その他: 売上保証差額」も
+                    含まれるため、ラベルは「税引前(合計)」に統一。
+                    内訳は給与計算カード側の補足行で確認できる。 */}
+                <div className="text-xs text-gray-500">税引前(合計)</div>
                 <div className="text-sm font-bold tabular-nums">¥{taxablePre.toLocaleString()}</div>
               </div>
               <div className="panel py-2 px-1">
@@ -336,7 +339,7 @@ export default function SalaryPage() {
             )}
             {period === 'first' && monthlyShortfallBreakdown && monthlyShortfallBreakdown.shortfall > 0 && (
               <div className="text-[11px] text-gray-400 mt-1 text-center bg-white/5 border border-white/10 rounded px-2 py-1">
-                ⓘ 当月の売上保証差額 ¥{monthlyShortfallBreakdown.shortfall.toLocaleString()} は **翌月15日支払い**（後半期間）に上乗せされます
+                ⓘ 当月の売上保証差額 ¥{monthlyShortfallBreakdown.shortfall.toLocaleString()} は <span className="font-bold text-gray-200">翌月15日支払い</span>（後半期間）に上乗せされます
               </div>
             )}
           </div>
@@ -462,7 +465,9 @@ export default function SalaryPage() {
         <div className="panel p-4 mb-4 space-y-2">
           <h3 className="text-sm font-bold mb-2 text-gray-400">給与計算</h3>
           <div className="flex justify-between text-sm">
-            <span className="text-gray-500">税引前 (時給+バック)</span>
+            {/* PDF F: 保証差額を含むためラベルを「税引前(合計)」に統一。
+                内訳は直下の補足行で明示。 */}
+            <span className="text-gray-500">税引前 (合計)</span>
             <span className="font-bold tabular-nums">¥{taxablePre.toLocaleString()}</span>
           </div>
           <div className="text-xs text-gray-600 ml-2 tabular-nums">
