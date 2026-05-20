@@ -136,6 +136,8 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
   const [editPrice, setEditPrice] = useState('')
   const [editCost, setEditCost] = useState('')
   const [editCastBack, setEditCastBack] = useState('')
+  // PDF G: ゼロ円ボトルメニュー用。bottleBackBasePerUnit を編集できるようにする。
+  const [editBottleBackBase, setEditBottleBackBase] = useState('')
   const [confirmTarget, setConfirmTarget] = useState<{ kind: 'guest' | 'cast'; id: number; name: string } | null>(null)
 
   // ─── 新規追加フォーム (追補02 R5-1) ───
@@ -145,6 +147,8 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
   const [addCost, setAddCost] = useState(0)
   const [addCastBack, setAddCastBack] = useState(0)
   const [addGuestSub, setAddGuestSub] = useState<GuestMenuItem['subcategory']>('shot')
+  // PDF G: 0 円ボトル用バック基準額。空文字なら未指定 (= price を使う)。
+  const [addBottleBackBase, setAddBottleBackBase] = useState('')
   const [addCastSub, setAddCastSub] = useState<CastMenuItem['subcategory']>('fdrink')
   const [addBackType, setAddBackType] = useState<BackType>('FD')
   // ISSUE-001: 商品名の prefix で指名種別 (F / 本) を自動判定。
@@ -161,7 +165,13 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
     setAddCastSub('fdrink')
     setAddBackType('FD')
     setNominationHint(null)
+    setAddBottleBackBase('')
   }
+
+  // PDF G: ゼロ円ボトル系。subcategory が bottle 系（champagne / whisky /
+  // shochu / brandy / wine）のとき、bottleBackBasePerUnit を入力できる。
+  const isBottleSubcategory = (sub: GuestMenuItem['subcategory']): boolean =>
+    sub === 'champagne' || sub === 'whisky' || sub === 'shochu' || sub === 'brandy' || sub === 'wine'
 
   /**
    * ISSUE-001: 商品名 prefix から指名種別 (free/honshimei) を自動判定し、
@@ -195,6 +205,11 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
     const existingIds = [...guestMenu.map((m) => m.id), ...castMenu.map((m) => m.id)]
     const nextId = Math.max(...existingIds, 0) + 1
     if (addKind === 'guest') {
+      // PDF G: bottle 系のサブカテゴリで bottleBackBasePerUnit が入力されていれば
+      // 保存する。0 円ボトル + 任意バック基準額の運用に対応するため。
+      const bottleBase = isBottleSubcategory(addGuestSub) && addBottleBackBase.trim() !== ''
+        ? Math.max(0, Number(addBottleBackBase))
+        : undefined
       setGuestMenu((prev) => [
         ...prev,
         {
@@ -205,6 +220,7 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
           castBack: 0, // ゲスト用はバックなし
           category: 'guest',
           subcategory: addGuestSub,
+          ...(bottleBase !== undefined ? { bottleBackBasePerUnit: bottleBase } : {}),
         },
       ])
     } else if (addKind === 'cast') {
@@ -442,6 +458,31 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
                 </select>
               </div>
             )}
+            {/* PDF G: bottle 系サブカテゴリのとき、ボトルバック計算用の基準額を
+                任意入力できる。販売価格0円のキャストプレゼント用ボトルでも
+                バック金額を発生させたいケースで使う（未入力なら price を使う）。 */}
+            {addKind === 'guest' && isBottleSubcategory(addGuestSub) && (
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">
+                  ボトルバック計算用 基準額 (円、任意)
+                </label>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  step={500}
+                  value={addBottleBackBase}
+                  onChange={(e) => setAddBottleBackBase(e.target.value)}
+                  placeholder={addPrice === 0 ? '例: 5000（0円ボトル用）' : '空欄なら価格を使用'}
+                  className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm"
+                />
+                <div className="text-[10px] text-gray-500 mt-1">
+                  0円ボトル（キャストプレゼント）に「想定単価」を持たせると、
+                  本指名キャストのボトルバック計算で {`{基準額}÷本指名人数×個別率`} が
+                  発生する。一般メニューは空欄でOK。
+                </div>
+              </div>
+            )}
             <div className="flex justify-end gap-2 pt-1">
               <button onClick={handleConfirmAdd} disabled={!addName.trim()} className="btn-gold text-xs px-4 py-1.5 disabled:opacity-40">追加する</button>
             </div>
@@ -451,23 +492,69 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
       <div>
         <h3 className="text-sm font-bold text-gray-400 mb-2">ゲスト用ドリンク</h3>
         <div className="divide-y divide-white/5">
-          {guestMenu.map((item) => (
+          {guestMenu.map((item) => {
+            const editable = editingId === item.id
+            const bottleSub = isBottleSubcategory(item.subcategory)
+            return (
             <div key={item.id} className="py-2.5">
               <div className="flex items-center justify-between">
-                <span className="text-sm">{item.name}</span>
-                {editingId === item.id ? (
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-sm truncate">{item.name}</span>
+                  {/* PDF G: 0円ボトル & 基準額付き商品が分かるバッジ。 */}
+                  {item.price === 0 && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300">0円</span>
+                  )}
+                  {item.bottleBackBasePerUnit !== undefined && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300 tabular-nums">
+                      バック基準 ¥{item.bottleBackBasePerUnit.toLocaleString()}
+                    </span>
+                  )}
+                </div>
+                {editable ? (
                   <div className="flex items-center gap-2">
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-1">
-                        <span className="text-xs text-gray-500 w-8">価格</span>
+                        <span className="text-xs text-gray-500 w-12">価格</span>
                         <input type="number" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} className="w-20 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm text-right" />
                       </div>
                       <div className="flex items-center gap-1">
-                        <span className="text-xs text-gray-500 w-8">原価</span>
+                        <span className="text-xs text-gray-500 w-12">原価</span>
                         <input type="number" value={editCost} onChange={(e) => setEditCost(e.target.value)} className="w-20 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm text-right" />
                       </div>
+                      {bottleSub && (
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-gray-500 w-12">バック基準</span>
+                          <input
+                            type="number"
+                            value={editBottleBackBase}
+                            onChange={(e) => setEditBottleBackBase(e.target.value)}
+                            placeholder="空=価格"
+                            className="w-20 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm text-right"
+                          />
+                        </div>
+                      )}
                     </div>
-                    <button onClick={() => { setGuestMenu((prev) => prev.map((m) => m.id === item.id ? { ...m, price: Number(editPrice), cost: Number(editCost) } : m)); setEditingId(null) }} className="text-white hover:text-gray-300">
+                    <button
+                      onClick={() => {
+                        const newBase = editBottleBackBase.trim() === ''
+                          ? undefined
+                          : Math.max(0, Number(editBottleBackBase))
+                        setGuestMenu((prev) => prev.map((m) => {
+                          if (m.id !== item.id) return m
+                          const next: GuestMenuItem = { ...m, price: Number(editPrice), cost: Number(editCost) }
+                          if (bottleSub) {
+                            if (newBase !== undefined) {
+                              next.bottleBackBasePerUnit = newBase
+                            } else {
+                              delete next.bottleBackBasePerUnit
+                            }
+                          }
+                          return next
+                        }))
+                        setEditingId(null)
+                      }}
+                      className="text-white hover:text-gray-300"
+                    >
                       <Save size={14} />
                     </button>
                   </div>
@@ -477,7 +564,15 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
                       <span className="text-sm tabular-nums">{item.price === 0 ? 'セット内' : `¥${item.price.toLocaleString()}`}</span>
                       <span className="text-xs text-gray-500 ml-2">原価¥{item.cost.toLocaleString()}</span>
                     </div>
-                    <button onClick={() => { setEditingId(item.id); setEditPrice(String(item.price)); setEditCost(String(item.cost)) }} className="text-gray-600 hover:text-white transition-colors">
+                    <button
+                      onClick={() => {
+                        setEditingId(item.id)
+                        setEditPrice(String(item.price))
+                        setEditCost(String(item.cost))
+                        setEditBottleBackBase(item.bottleBackBasePerUnit !== undefined ? String(item.bottleBackBasePerUnit) : '')
+                      }}
+                      className="text-gray-600 hover:text-white transition-colors"
+                    >
                       <Pencil size={13} />
                     </button>
                     <button onClick={() => setConfirmTarget({ kind: 'guest', id: item.id, name: item.name })} className="text-gray-600 hover:text-red-400 transition-colors">
@@ -487,7 +582,8 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
                 )}
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       </div>
 
