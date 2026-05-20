@@ -68,6 +68,9 @@ export function computeDailyWork(
 
   // sales + backs: 会計レコード
   for (const billing of billingRecords) {
+    // 取消済みレコード（BillingRecord 型コメント §3.1.1: voidedAt が立つ記録は
+    // 売上集計から除外）は最初から飛ばす。extension / bottleBack ループでも同様。
+    if (billing.voidedAt) continue
     const cs = (billing as BillingRecord & { castNamesSnapshot?: string[] }).castNamesSnapshot
     if (!Array.isArray(cs) || !cs.includes(castName)) continue
 
@@ -119,6 +122,7 @@ export function computeDailyWork(
   // castNamesSnapshot ベースでは判定しない（万一 mainNomination が assigned から
   // 外れているレコードでも、nominatedCastNames に居れば帰属対象）。
   for (const billing of billingRecords) {
+    if (billing.voidedAt) continue
     const snapshot = billing.extensionHistorySnapshot
     if (!snapshot || snapshot.length === 0) continue
     const date =
@@ -141,13 +145,12 @@ export function computeDailyWork(
   // 当該キャストが含まれるレシートを抽出し、bottle 系 orders の小計に対して
   // calcChampagneSplit を適用。当該キャストの取り分を bottleBackAmount に加算。
   for (const billing of billingRecords) {
+    if (billing.voidedAt) continue
     const snap = billing.receiptSnapshot
     if (!snap?.orders) continue
     const mainNoms = snap.mainNominationCastNamesSnapshot ?? []
     if (mainNoms.length === 0) continue
     if (!mainNoms.includes(castName)) continue
-    // 取り消し済みレシートは集計対象外
-    if (billing.voidedAt) continue
     const date =
       billing.date ??
       (billing.completedAt ? billing.completedAt.slice(0, 10) : null)

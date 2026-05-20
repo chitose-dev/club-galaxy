@@ -482,8 +482,10 @@ export default function SalaryPage() {
           <button
             onClick={() => {
               const now = new Date()
+              // A2: 日経表 PDF にもボトルバックを反映するため、bottleBackRateByCast を渡す。
               const work = computeDailyWork(
-                cast.id, cast.name, attendanceRecords, billingRecords, cast.backRates['本指名'] ?? 0,
+                cast.id, cast.name, attendanceRecords, billingRecords,
+                cast.backRates['本指名'] ?? 0, bottleBackRateByCast,
               )
               // 先月売上の計算
               const prevMonth = now.getMonth() === 0 ? 12 : now.getMonth()
