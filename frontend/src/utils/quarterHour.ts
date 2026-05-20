@@ -68,26 +68,35 @@ export function getCurrentQuarterRange(now: Date = new Date()): { startHHMM: str
  *  「出勤時刻 〜 現在の 15 分枠終端」文字列を返す。
  *
  *  終端は現在時刻が含まれる枠の END (= floor(now) + 15 分)。
- *  ちょうど境界 (now=20:15) の場合は新枠の END (= 20:30) を返す
- *  ので、表示は「20:15 入った瞬間に枠が進む」感覚と一致する。
+ *  ちょうど境界 (now=20:15) の場合は新枠の END (= 20:30) を返す。
  *
- *  例: clockIn="20:00"、now=20:07  → "20:00〜20:15"
- *      clockIn="20:00"、now=20:15  → "20:00〜20:30"
- *      clockIn="20:00"、now=20:30  → "20:00〜20:45"
- *      clockIn="20:30"、now=20:35  → "20:30〜20:45"
+ *  深夜跨ぎ対応 (CLUB 系は常態): clockIn と now の日付が異なるケースは
+ *  「now が clockIn より HH:MM 上で小さい」場合に発生するので、
+ *  end < start のときは end に 24h 足して跨ぎとして表示する。
  *
- *  clockIn が不正 / now が clockIn より前 のときはフォールバックで clockIn を返す。 */
+ *  例: clockIn="20:00"、now=20:07   → "20:00〜20:15"
+ *      clockIn="20:00"、now=20:15   → "20:00〜20:30"
+ *      clockIn="20:00"、now=20:30   → "20:00〜20:45"
+ *      clockIn="23:45"、now=00:05   → "23:45〜00:15"  ← 深夜跨ぎ
+ *      clockIn="22:00"、now=02:30   → "22:00〜02:45"  ← 深夜跨ぎ
+ *
+ *  clockIn が不正のときは空文字。 */
 export function formatRealtimeWorkRange(clockIn: string | null | undefined, now: Date = new Date()): string {
   if (!clockIn) return ''
   const start = parseHHMM(clockIn)
   if (!start) return ''
-  // 現枠の END = floor(now) + 15 分。ceilQ だとぴったり境界で次枠に
-  // 進まないため、floor 後に +15min する方を正本ロジックにする
-  // (getCurrentQuarterRange と同じ方式)。
   const floor = floorToQuarter(now)
   const end = new Date(floor.getTime() + QUARTER * 60_000)
-  if (end.getHours() < start.h || (end.getHours() === start.h && end.getMinutes() < start.m)) {
-    return clockIn
+  const endH = end.getHours()
+  const endM = end.getMinutes()
+  // 深夜跨ぎ判定: end < start (HH:MM 比較で end が前) なら、now は翌日扱い。
+  // 単純に formatHHMM(endH, endM) を表示するだけで「23:45〜00:15」のように
+  // 自然に出る（HH:MM 文字列上は単純連結で OK）。
+  const startMin = start.h * 60 + start.m
+  const endMin = endH * 60 + endM
+  if (endMin < startMin) {
+    // 深夜跨ぎ。end をそのまま 00:15 等で表示。
+    return `${formatHHMM(start.h, start.m)}〜${formatHHMM(endH, endM)}`
   }
-  return `${formatHHMM(start.h, start.m)}〜${formatHHMM(end.getHours(), end.getMinutes())}`
+  return `${formatHHMM(start.h, start.m)}〜${formatHHMM(endH, endM)}`
 }

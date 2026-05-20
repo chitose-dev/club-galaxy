@@ -43,7 +43,7 @@ const isInLooseTime = (c: Cast): boolean => {
 }
 
 export default function WaitingCastPage() {
-  const { casts, setCasts, tables, moveCast, attendanceRecords, addDailyPayRequest, updateAttendance } = useStore()
+  const { casts, setCasts, tables, moveCast, attendanceRecords, addAttendance, addDailyPayRequest, updateAttendance } = useStore()
   const navigate = useNavigate()
 
   const [editing, setEditing] = useState<Cast | null>(null)
@@ -133,6 +133,7 @@ export default function WaitingCastPage() {
   const onCasts = useMemo(() => casts.filter((c) => c.active), [casts])
 
   const handleClockIn = (id: number) => {
+    const cast = casts.find((c) => c.id === id)
     setCasts((prev) =>
       prev.map((c) =>
         c.id === id
@@ -140,9 +141,37 @@ export default function WaitingCastPage() {
           : c,
       ),
     )
+    // PDF E: 待機画面からの出勤も AttendanceRecord に記録する。
+    // E の勤務枠 / 修正 / 給与計算は todayAttendanceByCastId を見ているため、
+    // ここを書いておかないと UI が一切反映されない。
+    // 当日既に存在するレコードがあれば二重作成しない（再出勤などのケース）。
+    if (cast && cast.id) {
+      const existing = todayAttendanceByCastId.get(cast.id)
+      if (!existing) {
+        const now = new Date()
+        const hh = String(now.getHours()).padStart(2, '0')
+        const mm = String(now.getMinutes()).padStart(2, '0')
+        addAttendance({
+          id: Date.now(),
+          staffId: cast.id,
+          staffName: cast.name,
+          staffType: 'cast',
+          date: todayStr,
+          clockIn: `${hh}:${mm}`,
+          clockOut: null,
+          breakMinutes: 0,
+          workHours: 0,
+        })
+      } else if (existing.clockOut) {
+        // 再出勤: clockOut を解除して当日レコードを「出勤中」に戻す。
+        updateAttendance(existing.id, { clockOut: null })
+      }
+    }
   }
 
   const handleClockOut = (id: number) => {
+    const cast = casts.find((c) => c.id === id)
+    const isLoose = cast ? isInLooseTime(cast) : false
     setCasts((prev) =>
       prev.map((c) => {
         if (c.id !== id) return c
@@ -152,10 +181,32 @@ export default function WaitingCastPage() {
           ...c,
           active: false,
           onBreak: false,
-          lastClockInAt: isInLooseTime(c) ? null : c.lastClockInAt,
+          lastClockInAt: isLoose ? null : c.lastClockInAt,
         }
       }),
     )
+    // PDF E: 退勤も AttendanceRecord に反映する。
+    // - 通常退勤: clockOut + workHours を入れる
+    // - ルーズタイム退勤（給与計算対象外）: workHours=0, clockOut=now を入れて
+    //   AttendanceRecord 自体は残す（削除 API が無いため、勤務時間 0 で実質ノーカウント）
+    if (cast) {
+      const existing = todayAttendanceByCastId.get(cast.id)
+      if (existing && !existing.clockOut) {
+        const now = new Date()
+        const hh = String(now.getHours()).padStart(2, '0')
+        const mm = String(now.getMinutes()).padStart(2, '0')
+        const clockOut = `${hh}:${mm}`
+        if (isLoose) {
+          updateAttendance(existing.id, { clockOut, workHours: 0 })
+        } else {
+          const [inH, inM] = (existing.clockIn ?? `${hh}:${mm}`).split(':').map(Number)
+          let totalMin = (now.getHours() * 60 + now.getMinutes()) - (inH * 60 + inM)
+          if (totalMin < 0) totalMin += 24 * 60
+          const workHours = Math.round((totalMin - (existing.breakMinutes ?? 0)) / 60 * 10) / 10
+          updateAttendance(existing.id, { clockOut, workHours: Math.max(0, workHours) })
+        }
+      }
+    }
   }
 
   const handleToggleBreak = (id: number) => {

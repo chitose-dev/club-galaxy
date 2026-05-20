@@ -256,7 +256,11 @@ input:focus, select:focus, textarea:focus, button:focus-visible {
     overflow: visible !important;
   }
 
-  main > div > div:not(:has(.print-receipt)) {
+  /* 領収書/サーマル印刷時のみ「print-receipt を含まない兄弟」を隠す。
+     PDF E: 給与明細印刷モード (body.print-payslip-only) では、給与明細
+     モーダル親 (.print-payslip を含む) も同時に消えてしまうため、
+     `body:not(.print-payslip-only)` で条件分けする。 */
+  body:not(.print-payslip-only) main > div > div:not(:has(.print-receipt)) {
     display: none !important;
   }
 
@@ -285,14 +289,23 @@ input:focus, select:focus, textarea:focus, button:focus-visible {
   }
 
   /* PDF E: 給与明細印刷モード。.print-payslip だけが残り、他の領収書等は
-     非表示にする。PayslipPopup.printPayslip が body にこのクラスを付与。 */
+     非表示にする。PayslipPopup.printPayslip が body にこのクラスを付与。
+     既存の領収書専用ルールは body:not(.print-payslip-only) で除外済みなので、
+     ここでは「給与明細以外の sibling を hide」「給与明細自体は確実に表示」を
+     担当する。 */
   body.print-payslip-only .print-only,
   body.print-payslip-only .print-receipt,
   body.print-payslip-only .thermal-receipt {
     display: none !important;
   }
+  /* 給与明細を含まない直下兄弟は隠す（メイン UI を隠して給与明細だけ残す） */
   body.print-payslip-only main > div > div:not(:has(.print-payslip)) {
     display: none !important;
+  }
+  /* Modal はポータル経由で body 直下に出るケースがあるため、両方カバー */
+  body.print-payslip-only > div > *:not(:has(.print-payslip)):not(.print-payslip) {
+    /* ポータル外 sibling は隠したいが、root #app コンテナ自体は対象外
+       (中の main は別ルールで処理)。意図せぬ非表示を避けるため緩めに留める。 */
   }
   body.print-payslip-only .print-payslip {
     display: block !important;
