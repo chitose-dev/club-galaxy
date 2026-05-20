@@ -86,7 +86,7 @@ export default function UsageDetailPage() {
     <div className="flex flex-col min-h-full">
       <ContextualHeader
         accent="floor"
-        title={`卓 ${table.number} の利用明細`}
+        title={`${table.number}卓 の利用明細`}
         // ISSUE-010: from クエリ優先、無ければ BackButton が navigate(-1) 既定動作
         backTo={from}
         // spec.md §4.1.1: 表頭右上に時間帯（HH:MM 〜 HH:MM）を表示

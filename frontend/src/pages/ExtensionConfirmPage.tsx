@@ -196,7 +196,7 @@ export default function ExtensionConfirmPage() {
         <div className="max-w-3xl mx-auto panel p-4 space-y-4 no-print">
           {/* 表頭：卓 / 時間帯 */}
           <div className="flex justify-between items-baseline border-b border-white/10 pb-2">
-            <span className="text-base font-bold">卓 {table.number}</span>
+            <span className="text-base font-bold">{table.number}卓</span>
             <span className="text-sm tabular-nums tracking-wider text-gray-300 flex items-center gap-1">
               <ClockIcon size={14} /> {exStart} 〜 {exEnd}
             </span>

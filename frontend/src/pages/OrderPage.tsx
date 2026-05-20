@@ -780,7 +780,7 @@ export default function OrderPage() {
         open={!!pendingExtend && !!selectedTable}
         onClose={() => setPendingExtend(null)}
         size="sm"
-        title={selectedTable ? `卓 ${selectedTable.number} 延長の確認` : '延長の確認'}
+        title={selectedTable ? `${selectedTable.number}卓 延長の確認` : '延長の確認'}
         footer={
           <>
             <GhostButton onClick={() => setPendingExtend(null)} className="flex-1">キャンセル</GhostButton>
@@ -859,7 +859,7 @@ export default function OrderPage() {
         open={showAddCast && !!selectedTable}
         onClose={() => setShowAddCast(false)}
         size="md"
-        title={`卓 ${selectedTable?.number ?? ''} に追加する女の子`}
+        title={`${selectedTable?.number ?? ''}卓 に追加する女の子`}
         footer={<GhostButton onClick={() => setShowAddCast(false)} className="flex-1">キャンセル</GhostButton>}
       >
         {selectedTable && (() => {
@@ -892,7 +892,7 @@ export default function OrderPage() {
                     <div>
                       <div className="font-bold">{c.name}</div>
                       <div className="text-xs text-gray-400 mt-0.5">
-                        {busyAt ? `現在: 卓 ${busyAt.number} 対応中 (移動すると元の卓から外れます)` : '待機中'}
+                        {busyAt ? `現在: ${busyAt.number}卓 対応中 (移動すると元の卓から外れます)` : '待機中'}
                       </div>
                     </div>
                     <Plus size={18} className="text-gold" />

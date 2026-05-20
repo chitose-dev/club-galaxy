@@ -103,7 +103,7 @@ export default function ExtensionInheritanceModal({ open, table, onClose, onConf
       open={open && !!table}
       onClose={onClose}
       size="md"
-      title={table ? `卓 ${table.number} 延長 — キャスト継承選択` : '延長'}
+      title={table ? `${table.number}卓 延長 — キャスト継承選択` : '延長'}
       footer={
         <>
           <GhostButton onClick={onClose} className="flex-1">キャンセル</GhostButton>

@@ -430,7 +430,7 @@ export default function FloorPage() {
             ご延長交渉 {pendingCheckTickets.length}件 (50分経過)
           </span>
           <span className="text-xs text-red-300/80">
-            卓 {pendingCheckTickets.map((t) => t.number).join(', ')} → タップで一括印字
+            {pendingCheckTickets.map((t) => `${t.number}卓`).join(', ')} → タップで一括印字
           </span>
         </button>
       )}
@@ -711,7 +711,7 @@ export default function FloorPage() {
       <Modal
         open={showCheckIn && !!selected}
         onClose={() => { setShowCheckIn(false); setSelected(null) }}
-        title={selected ? `卓 ${selected.number} 入店` : ''}
+        title={selected ? `${selected.number}卓 入店` : ''}
         size="md"
       >
         {selected && (
@@ -769,7 +769,7 @@ export default function FloorPage() {
       <Modal
         open={showExtend && !!selected}
         onClose={() => { setShowExtend(false); setSelected(null) }}
-        title={selected ? `卓 ${selected.number} 延長` : ''}
+        title={selected ? `${selected.number}卓 延長` : ''}
         size="sm"
       >
         {selected && (
@@ -793,7 +793,7 @@ export default function FloorPage() {
       <Modal
         open={showRotation && !!selected}
         onClose={closeRotationModal}
-        title={selected ? `付け回し - 卓 ${selected.number}` : ''}
+        title={selected ? `付け回し - ${selected.number}卓` : ''}
         size="sm"
       >
         {selected && (
