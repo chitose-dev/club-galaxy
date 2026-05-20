@@ -14,6 +14,11 @@
  *
  * 旧実装は「個別率の平均を取り、バック合計を均等折半」する方式だったが、
  * Word 回答ではキャスト個別率を適用する方式が正となったため差し替えた。
+ *
+ * 単位ルール（既存 `Cast.backRates['ボトルバック']` と一致）:
+ *   バック率は **0〜100 の % 数値で受け取る**（25% なら 25、10% なら 10）。
+ *   `mock.ts` の `backRates['ボトルバック']` / `AdminPage.tsx` の入力 UI
+ *   （max=100, unit="%"）と単位を揃えるため、内部で `/ 100` して係数化する。
  */
 
 export interface BottleBackInput {
@@ -22,7 +27,8 @@ export interface BottleBackInput {
   subtotal: number
   /** 本指名キャスト名のリスト。フリー卓（空配列）の場合はバック付与なし。 */
   nominationCastNames: string[]
-  /** キャスト名 → 個別ボトルバック率（0.0〜1.0）。
+  /** キャスト名 → 個別ボトルバック率（**%単位**: 25% なら 25 を渡す）。
+   *  既存 `Cast.backRates['ボトルバック']` の保存形式と同じ。
    *  存在しないキャスト名や undefined のレートは 0 として扱う。 */
   castBackRateMap: Record<string, number>
 }
@@ -56,12 +62,14 @@ export function calcChampagneSplit(input: BottleBackInput): BottleBackOutput {
   // 各キャストの基準額（端数は店側）。
   const perCastBase = Math.floor(subtotal / n)
 
-  // 個別率を引いてバック金額を確定。
+  // 個別率を引いてバック金額を確定。rate は %単位（25=25%）で渡されるため
+  // ここで /100 して係数化する。負値や 100 超は入力 UI 側で拒否されている
+  // 前提だが、防御的に係数のみ計算しガードはしない。
   const perCastBackAmount: Record<string, number> = {}
   let totalBackAmount = 0
   for (const name of nominationCastNames) {
-    const rate = castBackRateMap[name] ?? 0
-    const back = Math.floor(perCastBase * rate)
+    const ratePercent = castBackRateMap[name] ?? 0
+    const back = Math.floor((perCastBase * ratePercent) / 100)
     perCastBackAmount[name] = back
     totalBackAmount += back
   }
