@@ -290,6 +290,9 @@ export interface BillingRecord {
   subtotalBeforeTax?: number
   /** 担当キャスト名(集計表示用) */
   castNamesSnapshot?: string[]
+  /** PDF C: 会計時の人数（領収書分割発行の上限「人数分まで」に使う）。
+   *  castNamesSnapshot.length は担当キャスト数なので客人数とは別物。 */
+  guestCountSnapshot?: number
   /** spec.md §5.5 売上帰属スナップショット（会計時計算）。
    *  会計時の Table.mainNominationCastNames で subtotalBeforeTax を均等按分した結果。
    *  キー = キャスト名、値 = そのキャストへの帰属売上（円）。

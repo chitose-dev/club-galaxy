@@ -206,6 +206,110 @@ export default function BillingPage() {
     return <UncollectedRecoveryView record={uncollectedRecord} />
   }
 
+  // PDF C: 分割発行モーダルは「卓 → empty」遷移後の early return パスでも
+  // 描画する必要があるため、JSX をヘルパ関数にして両 return から呼び出す。
+  // function 宣言は巻き上げ対象だが、参照される helper (openSplitIssue 等) が
+  // const なので関数本体実行時点まで評価を遅延させる目的でも function 化する。
+  function renderSplitIssueModal() { return (
+    <Modal
+      open={showSplitIssue && !!splitContext}
+      onClose={() => { setShowSplitIssue(false); setSplitContext(null); setSplitSlots([]) }}
+      size="lg"
+      title="領収書 分割発行"
+      footer={
+        <GhostButton onClick={() => { setShowSplitIssue(false); setSplitContext(null); setSplitSlots([]) }} className="flex-1">閉じる</GhostButton>
+      }
+    >
+      {splitContext && (() => {
+        const totalIssued = splitSlots.reduce((s, x) => s + Math.max(0, Math.floor(Number(x.amount) || 0)), 0)
+        const remainder = splitContext.total - totalIssued
+        const maxSlots = splitContext.guestCount
+        return (
+          <div className="space-y-3">
+            <div className="text-xs text-gray-400 space-y-0.5">
+              <div>{splitContext.tableNumber}卓 / 伝票No. {splitContext.receiptNumber}</div>
+              <div className="flex gap-3 tabular-nums">
+                <span>会計総額: <span className="text-gold font-bold">¥{splitContext.total.toLocaleString()}</span></span>
+                <span>発行合計: <span className={totalIssued > splitContext.total ? 'text-red-400 font-bold' : 'text-blue-300 font-bold'}>¥{totalIssued.toLocaleString()}</span></span>
+                <span>未発行: <span className={remainder < 0 ? 'text-red-400 font-bold' : 'text-gray-300 font-bold'}>¥{remainder.toLocaleString()}</span></span>
+              </div>
+              <div className="text-[10px] text-gray-500">※ 発行合計が会計総額と一致しないケースも許容（例: 一部のみ領収書発行）</div>
+            </div>
+            <div className="space-y-2">
+              {splitSlots.map((slot, i) => (
+                <div key={i} className="panel p-3 space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-gold font-bold">枚目 #{i + 1}</span>
+                    {splitSlots.length > 1 && (
+                      <button
+                        onClick={() => removeSplitSlot(i)}
+                        className="text-xs text-red-400 hover:text-red-300"
+                      >
+                        枠を削除
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <Field label="宛名">
+                      <Input
+                        type="text"
+                        value={slot.recipientName}
+                        onChange={(e) => updateSplitSlot(i, { recipientName: e.target.value })}
+                        placeholder="空欄=上様"
+                      />
+                    </Field>
+                    <Field label="但し書き">
+                      <Input
+                        type="text"
+                        value={slot.purpose}
+                        onChange={(e) => updateSplitSlot(i, { purpose: e.target.value })}
+                      />
+                    </Field>
+                    <Field label="金額 (円)">
+                      <Input
+                        type="number"
+                        value={slot.amount}
+                        onChange={(e) => updateSplitSlot(i, { amount: e.target.value })}
+                        className="tabular-nums"
+                      />
+                    </Field>
+                  </div>
+                  <button
+                    onClick={() => issueAndPrintSplit(i)}
+                    className="w-full btn-gold py-2 text-xs flex items-center justify-center gap-1.5"
+                  >
+                    <Printer size={13} /> この枠を発行 & 印刷
+                  </button>
+                </div>
+              ))}
+              {splitSlots.length < maxSlots && (
+                <button
+                  onClick={addSplitSlot}
+                  className="w-full btn-dark py-2 text-xs text-gray-400 hover:text-white"
+                >
+                  + 枠を追加（最大 {maxSlots} 枚 / 人数分）
+                </button>
+              )}
+            </div>
+            {issuedForCurrent.length > 0 && (
+              <div className="panel p-3">
+                <h4 className="text-xs text-gray-400 tracking-wider mb-2">この会計の発行履歴（{issuedForCurrent.length} 件）</h4>
+                <div className="space-y-1 text-xs">
+                  {issuedForCurrent.map((r) => (
+                    <div key={r.id} className="flex justify-between text-gray-300 tabular-nums">
+                      <span>#{r.sequenceIndex} {r.recipientName || '上様'} / {r.purpose}</span>
+                      <span>¥{r.amount.toLocaleString()} <span className="text-gray-500">({new Date(r.issuedAt).toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit' })} {r.issuedBy})</span></span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })()}
+    </Modal>
+  ) }
+
   if (!table || table.status === 'empty') {
     return (
       <div className="flex flex-col min-h-full">
@@ -219,7 +323,9 @@ export default function BillingPage() {
         </div>
         {billingTab === 'audit' && <AuditLogView logs={discountLogs} onClose={() => setBillingTab('total')} />}
 
-        {/* 会計完了後、次の卓がなくこの分岐に来た場合もポップアップを表示できるようにする */}
+        {/* 会計完了後、次の卓がなくこの分岐に来た場合もポップアップを表示できるようにする
+            PDF C: handleComplete → resetTable で卓が empty 化するので、会計直後の
+            分割発行導線はここのモーダルにも必ず置く必要がある（旧版はこちら未対応）。 */}
         <Modal
           open={showReceipt && !!lastBillingData}
           onClose={() => { setShowReceipt(false); setLastBillingData(null) }}
@@ -236,7 +342,7 @@ export default function BillingPage() {
                 <CheckCircle size={40} className="mx-auto mb-2 text-emerald-400" />
                 <p className="text-xs text-gray-400 tracking-wider mb-1">お支払い額</p>
                 <p className="text-3xl font-extrabold text-gold tabular-nums">¥{lastBillingData.total.toLocaleString()}</p>
-                <p className="text-xs text-gray-500 mt-1">卓 {lastBillingData.tableNumber} / 伝票No. {lastBillingData.receiptNumber}</p>
+                <p className="text-xs text-gray-500 mt-1">{lastBillingData.tableNumber}卓 / 伝票No. {lastBillingData.receiptNumber}</p>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <button onClick={() => doPrint('summary')} className="btn-gold py-3 flex items-center justify-center gap-2 text-sm">
@@ -246,12 +352,27 @@ export default function BillingPage() {
                   <Printer size={16} /> 明細再印刷
                 </button>
               </div>
+              <button
+                onClick={() => openSplitIssue({
+                  billingRecordId: lastBillingData.billingRecordId,
+                  tableNumber: lastBillingData.tableNumber,
+                  total: lastBillingData.total,
+                  consumptionTax: lastBillingData.consumptionTax,
+                  receiptNumber: lastBillingData.receiptNumber,
+                  guestCount: lastBillingData.guestCount,
+                })}
+                className="w-full btn-dark py-2.5 flex items-center justify-center gap-2 text-sm"
+              >
+                <Printer size={14} /> 領収書を分割発行（人数分まで）
+              </button>
             </div>
           )}
         </Modal>
 
         {/* 印刷用 HTML (会計完了直後、卓が empty に遷移した後でも再印刷できるように) */}
         {receiptPrintBlock}
+        {/* 分割発行モーダル（empty 遷移後の早期 return パスでも使えるように共通描画） */}
+        {renderSplitIssueModal()}
       </div>
     )
   }
@@ -405,6 +526,8 @@ export default function BillingPage() {
       nominatedCastIdsSnapshot,
       subtotalBeforeTax: subtotalAll,
       castNamesSnapshot: [...table.assignedCasts],
+      // PDF C: 履歴経由で分割発行する際の上限「人数分まで」を厳密に持たせる。
+      guestCountSnapshot: table.guestCount,
       salesAttributionByCast,
       // 延長指名バック按分の集計元（computeDailyWork が参照）。
       // ExtensionEntry をディープコピーして会計後の状態変更から切り離す。
@@ -578,7 +701,9 @@ export default function BillingPage() {
       // 履歴復元時は guestCount を知らないため、発行枚数の上限は orders 件数や
       // 安全な数値で代用する。分割発行は会計直後の方が現実的だが、履歴側でも
       // 動作するように 1 以上の正の整数で埋める。
-      guestCount: Math.max(1, (record.castNamesSnapshot?.length ?? 1)),
+      // PDF C: 客人数は guestCountSnapshot（会計時の table.guestCount）を優先。
+      // 旧レコード（snapshot 無し）は安全側で 1 にフォールバック。
+      guestCount: Math.max(1, record.guestCountSnapshot ?? 1),
       billingRecordId: record.id,
     })
     // ポップアップは出さず、直接印刷フローに乗せる
@@ -742,7 +867,7 @@ export default function BillingPage() {
               receiptNumber: s.receiptNumber,
               receiptName: s.receiptName,
               receiptPurpose: s.receiptPurpose,
-              guestCount: Math.max(1, record.castNamesSnapshot?.length ?? 1),
+              guestCount: Math.max(1, record.guestCountSnapshot ?? 1),
               billingRecordId: record.id,
             })
             openSplitIssue({
@@ -751,7 +876,7 @@ export default function BillingPage() {
               total: record.total,
               consumptionTax: s.consumptionTax,
               receiptNumber: s.receiptNumber,
-              guestCount: Math.max(1, record.castNamesSnapshot?.length ?? 1),
+              guestCount: Math.max(1, record.guestCountSnapshot ?? 1),
             })
           }}
         />
@@ -1288,105 +1413,8 @@ export default function BillingPage() {
         onPrintSummary={() => doPrint('summary')}
       />
 
-      {/* PDF C: 領収書 分割発行モーダル — 人数分まで複数枚、金額任意、合計不一致許容、発行履歴を残す */}
-      <Modal
-        open={showSplitIssue && !!splitContext}
-        onClose={() => { setShowSplitIssue(false); setSplitContext(null); setSplitSlots([]) }}
-        size="lg"
-        title="領収書 分割発行"
-        footer={
-          <GhostButton onClick={() => { setShowSplitIssue(false); setSplitContext(null); setSplitSlots([]) }} className="flex-1">閉じる</GhostButton>
-        }
-      >
-        {splitContext && (() => {
-          const totalIssued = splitSlots.reduce((s, x) => s + Math.max(0, Math.floor(Number(x.amount) || 0)), 0)
-          const remainder = splitContext.total - totalIssued
-          // 上限: splitContext.guestCount（直近会計 / 履歴いずれも openSplitIssue で固定済み）
-          const maxSlots = splitContext.guestCount
-          return (
-            <div className="space-y-3">
-              <div className="text-xs text-gray-400 space-y-0.5">
-                <div>卓 {splitContext.tableNumber} / 伝票No. {splitContext.receiptNumber}</div>
-                <div className="flex gap-3 tabular-nums">
-                  <span>会計総額: <span className="text-gold font-bold">¥{splitContext.total.toLocaleString()}</span></span>
-                  <span>発行合計: <span className={totalIssued > splitContext.total ? 'text-red-400 font-bold' : 'text-blue-300 font-bold'}>¥{totalIssued.toLocaleString()}</span></span>
-                  <span>未発行: <span className={remainder < 0 ? 'text-red-400 font-bold' : 'text-gray-300 font-bold'}>¥{remainder.toLocaleString()}</span></span>
-                </div>
-                <div className="text-[10px] text-gray-500">※ 発行合計が会計総額と一致しないケースも許容（例: 一部のみ領収書発行）</div>
-              </div>
-              <div className="space-y-2">
-                {splitSlots.map((slot, i) => (
-                  <div key={i} className="panel p-3 space-y-2">
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs text-gold font-bold">枚目 #{i + 1}</span>
-                      {splitSlots.length > 1 && (
-                        <button
-                          onClick={() => removeSplitSlot(i)}
-                          className="text-xs text-red-400 hover:text-red-300"
-                        >
-                          枠を削除
-                        </button>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <Field label="宛名">
-                        <Input
-                          type="text"
-                          value={slot.recipientName}
-                          onChange={(e) => updateSplitSlot(i, { recipientName: e.target.value })}
-                          placeholder="空欄=上様"
-                        />
-                      </Field>
-                      <Field label="但し書き">
-                        <Input
-                          type="text"
-                          value={slot.purpose}
-                          onChange={(e) => updateSplitSlot(i, { purpose: e.target.value })}
-                        />
-                      </Field>
-                      <Field label="金額 (円)">
-                        <Input
-                          type="number"
-                          value={slot.amount}
-                          onChange={(e) => updateSplitSlot(i, { amount: e.target.value })}
-                          className="tabular-nums"
-                        />
-                      </Field>
-                    </div>
-                    <button
-                      onClick={() => issueAndPrintSplit(i)}
-                      className="w-full btn-gold py-2 text-xs flex items-center justify-center gap-1.5"
-                    >
-                      <Printer size={13} /> この枠を発行 & 印刷
-                    </button>
-                  </div>
-                ))}
-                {splitSlots.length < maxSlots && (
-                  <button
-                    onClick={addSplitSlot}
-                    className="w-full btn-dark py-2 text-xs text-gray-400 hover:text-white"
-                  >
-                    + 枠を追加（最大 {maxSlots} 枚 / 人数分）
-                  </button>
-                )}
-              </div>
-              {issuedForCurrent.length > 0 && (
-                <div className="panel p-3">
-                  <h4 className="text-xs text-gray-400 tracking-wider mb-2">この会計の発行履歴（{issuedForCurrent.length} 件）</h4>
-                  <div className="space-y-1 text-xs">
-                    {issuedForCurrent.map((r) => (
-                      <div key={r.id} className="flex justify-between text-gray-300 tabular-nums">
-                        <span>#{r.sequenceIndex} {r.recipientName || '上様'} / {r.purpose}</span>
-                        <span>¥{r.amount.toLocaleString()} <span className="text-gray-500">({new Date(r.issuedAt).toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit' })} {r.issuedBy})</span></span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )
-        })()}
-      </Modal>
+      {/* PDF C: 分割発行モーダル — 早期 return パスと共通描画 */}
+      {renderSplitIssueModal()}
     </div>
   )
 }
