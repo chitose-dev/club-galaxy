@@ -51,8 +51,19 @@ export default function SalaryPage() {
   const selectedCastName = casts.find((c) => c.id === selectedCastId)?.name ?? ''
   // 延長指名バック按分の単価は本指名 backRate を流用する仕様（mock.ts コメント参照）
   const selectedCastShimeiRate = cast?.backRates['本指名'] ?? 0
+  // A2: 本指名ボトルバック按分は全キャストの「ボトルバック」率（%単位）を参照する。
+  // 同じレシートに別の本指名キャストが居る場合の split 計算で他キャストの率も必要なため、
+  // 一覧で渡す。
+  const bottleBackRateByCast = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const c of casts) {
+      m[c.name] = c.backRates['ボトルバック'] ?? 0
+    }
+    return m
+  }, [casts])
   const dailyWork: DailyWork[] = computeDailyWork(
-    selectedCastId, selectedCastName, attendanceRecords, billingRecords, selectedCastShimeiRate,
+    selectedCastId, selectedCastName, attendanceRecords, billingRecords,
+    selectedCastShimeiRate, bottleBackRateByCast,
   )
 
   const filteredWork = useMemo(() => {
@@ -73,8 +84,14 @@ export default function SalaryPage() {
     let total = 0
     for (const w of filteredWork) {
       for (const [type, count] of Object.entries(w.backs) as [BackType, number][]) {
+        // A2: 'ボトルバック' の金額は bottleBackAmount を正本として扱うため、
+        // ここでの旧 `count × %値` 計算からは除外する（二重計上防止）。
+        if (type === 'ボトルバック') continue
         total += (cast.backRates[type] ?? 0) * count
       }
+      // A2: 本指名ボトルバック（小計÷本指名人数×個別率）と延長指名バックを加算。
+      total += w.bottleBackAmount ?? 0
+      total += w.extensionBackAmount ?? 0
     }
     return total
   }, [filteredWork, cast])
@@ -118,8 +135,12 @@ export default function SalaryPage() {
     if (!cast) return 0
     let total = 0
     for (const [type, count] of Object.entries(w.backs) as [BackType, number][]) {
+      // A2: 'ボトルバック' は bottleBackAmount を正本にするため除外。
+      if (type === 'ボトルバック') continue
       total += (cast.backRates[type] ?? 0) * count
     }
+    total += w.bottleBackAmount ?? 0
+    total += w.extensionBackAmount ?? 0
     return total
   }
 
@@ -316,9 +337,24 @@ export default function SalaryPage() {
                       <td className="py-1.5 px-1">{w.date}</td>
                       <td className="py-1.5 px-1 text-right tabular-nums">{w.hours > 0 ? `${w.hours}h` : '休'}</td>
                       <td className="py-1.5 px-1 text-right tabular-nums">{dailyPay > 0 ? `¥${dailyPay.toLocaleString()}` : '-'}</td>
-                      {backTypeOrder.map((bt) => (
-                        <td key={bt} className="py-1.5 px-1 text-right tabular-nums">{w.backs[bt] ?? '-'}</td>
-                      ))}
+                      {backTypeOrder.map((bt) => {
+                        // A2: 'ボトルバック' は件数ではなく金額（bottleBackAmount）を表示。
+                        // 件数集計から外しているため、ここで '-' のままだと当日ボトル
+                        // バックが発生していてもセルが空になる。
+                        if (bt === 'ボトルバック') {
+                          const amt = w.bottleBackAmount ?? 0
+                          return (
+                            <td key={bt} className="py-1.5 px-1 text-right tabular-nums">
+                              {amt > 0 ? `¥${amt.toLocaleString()}` : '-'}
+                            </td>
+                          )
+                        }
+                        return (
+                          <td key={bt} className="py-1.5 px-1 text-right tabular-nums">
+                            {w.backs[bt] ?? '-'}
+                          </td>
+                        )
+                      })}
                       <td className="py-1.5 px-1 text-right text-blue-300 font-bold tabular-nums">{pTotal > 0 ? pTotal : '-'}</td>
                       <td className="py-1.5 px-1 text-right font-bold tabular-nums">{nikkei > 0 ? `¥${nikkei.toLocaleString()}` : '-'}</td>
                     </tr>
@@ -330,9 +366,21 @@ export default function SalaryPage() {
                   <td className="py-2 px-1">合計</td>
                   <td className="py-2 px-1 text-right tabular-nums">{totalHours}h</td>
                   <td className="py-2 px-1 text-right tabular-nums">¥{(cast ? calcHourlyPay(cast.hourlyRate, totalHours) : 0).toLocaleString()}</td>
-                  {backTypeOrder.map((bt) => (
-                    <td key={bt} className="py-2 px-1 text-right tabular-nums">{backTotals[bt] ?? '-'}</td>
-                  ))}
+                  {backTypeOrder.map((bt) => {
+                    if (bt === 'ボトルバック') {
+                      const monthAmt = filteredWork.reduce((s, w) => s + (w.bottleBackAmount ?? 0), 0)
+                      return (
+                        <td key={bt} className="py-2 px-1 text-right tabular-nums">
+                          {monthAmt > 0 ? `¥${monthAmt.toLocaleString()}` : '-'}
+                        </td>
+                      )
+                    }
+                    return (
+                      <td key={bt} className="py-2 px-1 text-right tabular-nums">
+                        {backTotals[bt] ?? '-'}
+                      </td>
+                    )
+                  })}
                   <td className="py-2 px-1 text-right text-blue-300 tabular-nums">
                     {Object.values(backTotals).reduce((s, c) => s + c, 0)}
                   </td>
@@ -346,15 +394,31 @@ export default function SalaryPage() {
         </div>
 
         {/* Back summary */}
-        {Object.keys(backTotals).length > 0 && (
+        {(Object.keys(backTotals).length > 0 || filteredWork.some((w) => (w.bottleBackAmount ?? 0) > 0)) && (
           <div className="panel-gold p-4 mb-4">
             <h3 className="text-sm font-bold mb-2 text-gold">バック集計</h3>
             <div className="flex flex-wrap gap-2 mb-2">
-              {(Object.entries(backTotals) as [BackType, number][]).map(([type, count]) => (
-                <span key={type} className="bg-gold/10 border border-gold/30 text-gray-200 text-xs px-2 py-0.5 rounded tabular-nums">
-                  {type}: {count}件 (¥{((cast?.backRates[type] ?? 0) * count).toLocaleString()})
-                </span>
-              ))}
+              {(Object.entries(backTotals) as [BackType, number][]).map(([type, count]) => {
+                // A2: 'ボトルバック' は backs から除外したのでここには出ない。
+                // 旧 `count × %値` 表示は誤算出のため使わず、専用チップで別表示。
+                const amount = (cast?.backRates[type] ?? 0) * count
+                return (
+                  <span key={type} className="bg-gold/10 border border-gold/30 text-gray-200 text-xs px-2 py-0.5 rounded tabular-nums">
+                    {type}: {count}件 (¥{amount.toLocaleString()})
+                  </span>
+                )
+              })}
+              {/* A2: 本指名ボトルバックは backs に含めないため別チップで表示。
+                  小計÷本指名人数×個別率で算出された金額のみ。 */}
+              {(() => {
+                const bottleTotal = filteredWork.reduce((s, w) => s + (w.bottleBackAmount ?? 0), 0)
+                if (bottleTotal === 0) return null
+                return (
+                  <span className="bg-gold/10 border border-gold/30 text-gray-200 text-xs px-2 py-0.5 rounded tabular-nums">
+                    ボトルバック: ¥{bottleTotal.toLocaleString()}
+                  </span>
+                )
+              })()}
             </div>
             <div className="text-sm font-bold text-gold tabular-nums">バック合計: ¥{totalBackAmount.toLocaleString()}</div>
           </div>
@@ -454,8 +518,10 @@ export default function SalaryPage() {
           <button
             onClick={() => {
               const now = new Date()
+              // A2: 日経表 PDF にもボトルバックを反映するため、bottleBackRateByCast を渡す。
               const work = computeDailyWork(
-                cast.id, cast.name, attendanceRecords, billingRecords, cast.backRates['本指名'] ?? 0,
+                cast.id, cast.name, attendanceRecords, billingRecords,
+                cast.backRates['本指名'] ?? 0, bottleBackRateByCast,
               )
               // 先月売上の計算
               const prevMonth = now.getMonth() === 0 ? 12 : now.getMonth()

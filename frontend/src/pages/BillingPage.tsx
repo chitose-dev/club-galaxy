@@ -354,10 +354,25 @@ export default function BillingPage() {
         tax,
         consumptionTax,
         discount,
-        orders: table.orders.map((o) => ({ menuItem: { id: o.menuItem.id, name: o.menuItem.name, price: o.menuItem.price }, quantity: o.quantity, castName: o.castName })),
+        orders: table.orders.map((o) => ({
+          menuItem: {
+            id: o.menuItem.id,
+            name: o.menuItem.name,
+            price: o.menuItem.price,
+            subcategory: o.menuItem.subcategory,
+            backType: o.menuItem.category === 'cast' ? o.menuItem.backType : undefined,
+            bottleBackBasePerUnit: o.menuItem.category === 'guest' ? o.menuItem.bottleBackBasePerUnit : undefined,
+          },
+          quantity: o.quantity,
+          castName: o.castName,
+        })),
         startTime: table.startTime,
         nominationLabel: getNominationLabel(table),
         completedAt: new Date().toLocaleString('ja-JP'),
+        // A2: 本指名ボトルバック計算のため、会計時の本指名キャスト名を
+        // ロックして保存する。castNamesSnapshot は assigned 全員を含んで
+        // しまうため、本指名限定のこちらを使う。
+        mainNominationCastNamesSnapshot: [...table.mainNominationCastNames],
       },
     })
 

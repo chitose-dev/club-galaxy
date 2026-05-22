@@ -54,19 +54,29 @@ export function printCastLedger(params: CastLedgerParams): void {
     .map((w) => {
       // 追補03 R25: 時給は 15 分単位 + ルーズタイム 15 分
       const hourly = calcHourlyPay(cast.hourlyRate, w.hours)
+      // A2: ボトルバックは bottleBackAmount を正本として扱うため、
+      // 通常の backs[type] × rate 集計からは 'ボトルバック' を除外する
+      // （旧 `count × %値` 計算は誤算出になるため）。
       const backTotal = (Object.keys(w.backs) as Array<keyof typeof w.backs>).reduce(
-        (sum, k) => sum + (w.backs[k] ?? 0) * (cast.backRates?.[k] ?? 0),
+        (sum, k) => k === 'ボトルバック' ? sum : sum + (w.backs[k] ?? 0) * (cast.backRates?.[k] ?? 0),
         0,
       )
       // 延長指名バック按分（PR #63 で computeDailyWork が均等割りした金額）。
       // 日経表 P 合計に含めないと延長分が給与計算に反映されない。
       const extensionBack = w.extensionBackAmount ?? 0
-      const pTotal = backTotal + extensionBack
+      // A2: 本指名ボトルバック（小計÷本指名人数×個別率）
+      const bottleBack = w.bottleBackAmount ?? 0
+      const pTotal = backTotal + extensionBack + bottleBack
       const dailyGross = hourly + pTotal
       const tax = Math.floor(dailyGross * 0.1)
       const total = dailyGross - tax
 
       const backCells = BACK_COLUMNS.map(({ key }) => {
+        if (key === 'ボトルバック') {
+          // A2: backs から件数は除外しているため、bottleBackAmount のみを表示。
+          // count 件表示は専用カウントを追加した後続 PR で復活させる想定。
+          return bottleBack > 0 ? `¥${bottleBack.toLocaleString()}` : '-'
+        }
         const count = w.backs[key] ?? 0
         const unit = cast.backRates?.[key] ?? 0
         return count > 0 ? `${count}(¥${(count * unit).toLocaleString()})` : '-'
@@ -89,13 +99,16 @@ export function printCastLedger(params: CastLedgerParams): void {
   const totalSales = monthWork.reduce((s, w) => s + w.sales, 0)
   const totalGross = monthWork.reduce((s, w) => {
     const hourly = Math.floor(cast.hourlyRate * w.hours)
+    // A2: 月次集計でも 'ボトルバック' を旧路線（count × %）から除外し、
+    // bottleBackAmount を直接加算する。
     const backTotal = (Object.keys(w.backs) as Array<keyof typeof w.backs>).reduce(
-      (sum, k) => sum + (w.backs[k] ?? 0) * (cast.backRates?.[k] ?? 0),
+      (sum, k) => k === 'ボトルバック' ? sum : sum + (w.backs[k] ?? 0) * (cast.backRates?.[k] ?? 0),
       0,
     )
-    // 月計にも延長指名バックを加算（日次の pTotal と整合させる）。
+    // 月計にも延長指名バック + 本指名ボトルバックを加算（日次の pTotal と整合させる）。
     const extensionBack = w.extensionBackAmount ?? 0
-    return s + hourly + backTotal + extensionBack
+    const bottleBack = w.bottleBackAmount ?? 0
+    return s + hourly + backTotal + extensionBack + bottleBack
   }, 0)
   const totalTax = Math.floor(totalGross * 0.1)
   const totalNet = totalGross - totalTax

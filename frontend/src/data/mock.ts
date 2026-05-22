@@ -65,6 +65,11 @@ export interface GuestMenuItem {
   castBack: number    // キャストバック
   category: 'guest'
   subcategory: 'shochu' | 'whisky' | 'brandy' | 'champagne' | 'wine' | 'shot' | 'pitcher' | 'beer' | 'warimono'
+  /** ボトルバック計算用の単価（円、税抜き）。未指定なら `price` を使う。
+   *  G PR で導入する「販売価格0円・任意バック金額のボトル」を表現するため、
+   *  本指名ボトルバックの基準額計算 (`calcChampagneSplit`) のみで参照される。
+   *  通常メニューでは未指定。 */
+  bottleBackBasePerUnit?: number
 }
 
 export interface CastMenuItem {
@@ -291,11 +296,37 @@ export interface ReceiptSnapshot {
   tax: number
   consumptionTax: number
   discount: number
-  orders: { menuItem: { id: number; name: string; price: number }; quantity: number; castName?: string }[]
+  /**
+   * 各注文の menuItem スナップショット。再印刷だけでなく、後段の
+   * ボトルバック計算（A2）でも参照するため、subcategory / backType /
+   * bottleBackBasePerUnit も保存する。古いレコードは subcategory が
+   * undefined のため、参照側で安全に空判定を行うこと。
+   */
+  orders: {
+    menuItem: {
+      id: number
+      name: string
+      price: number
+      /** ボトル/カクテル等のサブカテゴリ。bottle 系の判定に使う。 */
+      subcategory?: string
+      /** バック種別。'ボトルバック' のとき本指名割勘ボトルバックの対象。 */
+      backType?: BackType
+      /** ボトルバック計算用の単価上書き（0円ボトル用、G PR で使用）。 */
+      bottleBackBasePerUnit?: number
+    }
+    quantity: number
+    castName?: string
+  }[]
   startTime: string | null
   nominationLabel: string
   /** 会計日時 (新規会計時に保存。古いレコードは再印刷不可) */
   completedAt: string
+  /** 会計確定時点の本指名キャスト名スナップショット。
+   *  ボトルバック配分（本指名のみ対象）の集計元として A2 で導入。
+   *  Table.mainNominationCastNames を会計時にディープコピーして保存し、
+   *  以後のキャスト名変更に影響されないようにする。
+   *  未指定（旧レコード）はフリー卓扱い = ボトルバック対象なし。 */
+  mainNominationCastNamesSnapshot?: string[]
 }
 
 // ─── 給与関連 ───
@@ -310,6 +341,13 @@ export interface DailyWork {
    *  cast.backRates['本指名'] を nominatedCastNames.length で均等割り
    *  （端数切り捨て）して集計する。フリー延長（nominatedCastNames=[]）は加算しない。 */
   extensionBackAmount?: number
+  /** 本指名ボトルバックの合計（円、A2）。
+   *  computeDailyWork が receiptSnapshot.mainNominationCastNamesSnapshot に
+   *  当該キャストが含まれるレシートを抽出し、bottle系の orders の小計を
+   *  `calcChampagneSplit` で配分した結果（当該キャスト分）を加算する。
+   *  `backs['ボトルバック']` は表示用にカウントは残すが金額計算には使わない
+   *  （旧 `count × rate` 算出は廃止、bottleBackAmount が正本）。 */
+  bottleBackAmount?: number
 }
 
 export interface DailyPayRequest {
