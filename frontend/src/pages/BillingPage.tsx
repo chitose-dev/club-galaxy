@@ -632,7 +632,7 @@ export default function BillingPage() {
         setFee,
         tax,
         consumptionTax,
-        // PDF D: VIP 値引等の discount に端数カット分も合算した実効値引きを保存。
+        // VIP 値引等の discount に端数カット分も合算した実効値引きを保存。
         // 監査ログ側に内訳（discount / 端数カット）が別エントリで残るため、
         // 集計時はこの total で「いくら値引きされたか」を把握する。
         discount: effectiveDiscount,
@@ -811,7 +811,7 @@ export default function BillingPage() {
     <div className="flex flex-col min-h-full">
       <ContextualHeader
         accent="billing"
-        title={`卓 ${table.number} の会計`}
+        title={`${table.number}卓 の会計`}
         backTo={`/table/${table.id}`}
         right={
           <select
@@ -820,7 +820,7 @@ export default function BillingPage() {
             className="bg-primary-dark/60 border border-gold/20 rounded-lg px-3 py-1.5 text-sm text-white"
           >
             {occupiedTables.map((t) => (
-              <option key={t.id} value={t.id}>卓 {t.number} ({t.assignedCasts.join(',')})</option>
+              <option key={t.id} value={t.id}>{t.number}卓 ({t.assignedCasts.join(',')})</option>
             ))}
           </select>
         }
@@ -894,7 +894,7 @@ export default function BillingPage() {
               <span className="text-gray-500">担当: {table.assignedCasts.join(', ')}</span>
               <span className="text-gray-500">{table.guestCount}名</span>
             </div>
-            <h3 className="text-sm font-bold mb-3 text-gray-400">卓 {table.number} 内訳</h3>
+            <h3 className="text-sm font-bold mb-3 text-gray-400">{table.number}卓 内訳</h3>
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
                 <span>セット料金 <span className="text-gray-600">({table.startTime ? getSetPriceLabel(table.startTime) : '-'})</span></span>
@@ -1061,8 +1061,9 @@ export default function BillingPage() {
                           type="number"
                           value={cashInputAmount}
                           onChange={(e) => {
-                            // 現金額を変えると差額・手数料が変わり、旧 cardEndCut の
-                            // 値が新カード支払額に対して意味を失うので一旦解除する。
+                            // カード支払額に影響する入力変更時は旧 cardEndCut を解除する。
+                            // 現金額が変わると差額・手数料が変わり、古い端数カット値が
+                            // 意味を失うため。
                             setCashInputAmount(e.target.value)
                             setCardEndCut(0)
                           }}
@@ -1077,8 +1078,8 @@ export default function BillingPage() {
                           <button
                             key={qa}
                             onClick={() => {
-                              // クイック加算でも現金が変わる → カード支払額が変わるため、
-                              // 旧 cardEndCut は解除する。
+                              // カード支払額に影響する入力変更時は旧 cardEndCut を解除する。
+                              // クイック加算でも現金が変わり、カード残額が動くため。
                               setCashInputAmount(String((Number(cashInputAmount) || 0) + qa))
                               setCardEndCut(0)
                             }}
@@ -1094,8 +1095,8 @@ export default function BillingPage() {
                             const remainder = Math.max(0, preCardTotal - cur)
                             const trim = remainder % 1000
                             setCashInputAmount(String(cur + trim))
-                            // ハスカット後はカード残額(差額)が変わる → カード支払額の
-                            // 端数カット計算が古くなるので解除する。
+                            // カード支払額に影響する入力変更時は旧 cardEndCut を解除する。
+                            // ハスカット後はカード残額(差額)が変わるため。
                             setCardEndCut(0)
                           }}
                           className="text-xs px-3 py-1.5 bg-amber-500/15 border border-amber-500/30 text-amber-300 rounded"
@@ -1163,7 +1164,13 @@ export default function BillingPage() {
                   <Input
                     type="number"
                     value={discount || ''}
-                    onChange={(e) => setDiscount(Math.max(0, Number(e.target.value)))}
+                    onChange={(e) => {
+                      // カード支払額に影響する入力変更時は旧 cardEndCut を解除する。
+                      // discount が変わると preCardTotal が変わり、古い端数カット値が
+                      // 意味を失うため。
+                      setDiscount(Math.max(0, Number(e.target.value)))
+                      setCardEndCut(0)
+                    }}
                     placeholder="値引額"
                     className="mb-2 tabular-nums"
                   />
@@ -1250,11 +1257,14 @@ export default function BillingPage() {
                                 type="checkbox"
                                 checked={mergeTableIds.includes(t.id)}
                                 onChange={(e) => {
+                                  // カード支払額に影響する入力変更時は旧 cardEndCut を解除する。
+                                  // 合算対象が変わると合計と preCardTotal が変わるため。
                                   if (e.target.checked) setMergeTableIds((prev) => [...prev, t.id])
                                   else setMergeTableIds((prev) => prev.filter((id) => id !== t.id))
+                                  setCardEndCut(0)
                                 }}
                               />
-                              <span>卓 {t.number}</span>
+                              <span>{t.number}卓</span>
                               <span className="text-xs text-gray-500">({t.assignedCasts.join(', ') || 'フリー'} / {t.guestCount}名)</span>
                             </div>
                             <span className="text-xs text-gray-400 tabular-nums">¥{mSub.toLocaleString()}</span>
@@ -1373,7 +1383,7 @@ export default function BillingPage() {
               <CheckCircle size={40} className="mx-auto mb-2 text-emerald-400" />
               <p className="text-xs text-gray-400 tracking-wider mb-1">お支払い額</p>
               <p className="text-3xl font-extrabold text-gold tabular-nums">¥{lastBillingData.total.toLocaleString()}</p>
-              <p className="text-xs text-gray-500 mt-1">卓 {lastBillingData.tableNumber} / 伝票No. {lastBillingData.receiptNumber}</p>
+              <p className="text-xs text-gray-500 mt-1">{lastBillingData.tableNumber}卓 / 伝票No. {lastBillingData.receiptNumber}</p>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <button
@@ -1495,7 +1505,7 @@ function BillingHistoryView({
                 <div className="flex justify-between items-start mb-2">
                   <div>
                     <div className="text-sm font-bold flex items-center gap-2">
-                      卓 {r.tableNumber}
+                      {r.tableNumber}卓
                       {r.receiptSnapshot && (
                         <span className="text-xs text-gray-500">
                           伝票No. {r.receiptSnapshot.receiptNumber}
@@ -1576,7 +1586,7 @@ function BillingHistoryView({
           <div className="bg-gray-900 border border-white/10 rounded-lg p-4 max-w-md w-full space-y-3">
             <h3 className="text-sm font-bold text-white">会計記録を取消</h3>
             <div className="text-xs text-gray-400">
-              卓 {voidTarget.tableNumber} / ¥{voidTarget.total.toLocaleString()}
+              {voidTarget.tableNumber}卓 / ¥{voidTarget.total.toLocaleString()}
               {voidTarget.receiptSnapshot && (
                 <span className="ml-2">伝票No. {voidTarget.receiptSnapshot.receiptNumber}</span>
               )}
@@ -1637,7 +1647,7 @@ function AuditLogView({ logs, onClose }: { logs: DiscountLog[]; onClose?: () => 
           {logs.map((log) => (
             <div key={log.id} className="panel p-3">
               <div className="flex justify-between text-sm mb-1">
-                <span className="font-bold">卓 {log.tableNumber}</span>
+                <span className="font-bold">{log.tableNumber}卓</span>
                 <span className="text-gray-500 text-xs">{log.timestamp}</span>
               </div>
               <div className="grid grid-cols-2 gap-2 text-xs">

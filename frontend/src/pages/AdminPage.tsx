@@ -2437,7 +2437,7 @@ function UncollectedManager({ billingRecords, updateBillingRecord }: {
           <div className="bg-gray-900 border border-white/10 rounded-lg p-4 max-w-md w-full space-y-3">
             <h3 className="text-sm font-bold text-white">確定未収にする</h3>
             <div className="text-xs text-gray-400">
-              卓 {reasonFor.tableNumber} / ¥{reasonFor.total.toLocaleString()} / {formatDateTime(reasonFor.completedAt)}
+              {reasonFor.tableNumber}卓 / ¥{reasonFor.total.toLocaleString()} / {formatDateTime(reasonFor.completedAt)}
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">事由（必須）</label>
@@ -2483,7 +2483,7 @@ function UncollectedManager({ billingRecords, updateBillingRecord }: {
               <div className="flex justify-between items-start">
                 <div className="text-xs text-gray-400">
                   <div>{formatDateTime(r.completedAt)}</div>
-                  <div>卓 {r.tableNumber} / 担当: {(r.castNamesSnapshot ?? []).join(', ') || '-'}</div>
+                  <div>{r.tableNumber}卓 / 担当: {(r.castNamesSnapshot ?? []).join(', ') || '-'}</div>
                 </div>
                 <div className="text-base font-bold text-red-400 tabular-nums">¥{r.total.toLocaleString()}</div>
               </div>
@@ -2516,7 +2516,7 @@ function UncollectedManager({ billingRecords, updateBillingRecord }: {
               <div className="flex justify-between items-start">
                 <div className="text-xs text-gray-400 space-y-0.5">
                   <div>{formatDateTime(r.completedAt)}</div>
-                  <div>卓 {r.tableNumber} / 担当: {(r.castNamesSnapshot ?? []).join(', ') || '-'}</div>
+                  <div>{r.tableNumber}卓 / 担当: {(r.castNamesSnapshot ?? []).join(', ') || '-'}</div>
                   {r.uncollectedReason && <div className="text-amber-300/80">事由: {r.uncollectedReason}</div>}
                   {r.writtenOffAt && <div className="text-gray-500">確定: {formatDateTime(r.writtenOffAt)}</div>}
                 </div>
