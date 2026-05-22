@@ -69,7 +69,7 @@ interface Store {
   discountLogs: DiscountLog[]
   /** PDF C: 分割発行された領収書履歴。新→古順で蓄積。 */
   issuedReceipts: IssuedReceipt[]
-  /** PDF E: 勤怠 (AttendanceRecord) 修正履歴。新→古順で蓄積。 */
+  /** 勤怠 (AttendanceRecord) 修正履歴。新→古順で蓄積。 */
   attendanceEditLogs: AttendanceEditLog[]
   billingRecords: BillingRecord[]
   dailyPayRequests: DailyPayRequest[]
@@ -94,7 +94,7 @@ interface Store {
   addDiscountLog: (log: DiscountLog) => void
   /** PDF C: 分割発行された領収書を 1 件記録する。 */
   addIssuedReceipt: (receipt: IssuedReceipt) => void
-  /** PDF E: 勤怠修正監査ログを 1 件記録する。 */
+  /** 勤怠修正監査ログを 1 件記録する。 */
   addAttendanceEditLog: (log: AttendanceEditLog) => void
   addBillingRecord: (record: BillingRecord) => void
   /** 未収管理用の部分更新。owner only。楽観的に local state に反映してから API。 */
@@ -214,7 +214,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [discountLogs, setDiscountLogs] = useState<DiscountLog[]>([])
   // PDF C: 分割発行領収書履歴。最新を先頭に push する（履歴表示時に降順で出すため）。
   const [issuedReceipts, setIssuedReceipts] = useState<IssuedReceipt[]>([])
-  // PDF E: 勤怠修正監査ログ。新→古順。
+  // 勤怠修正監査ログ。新→古順。
   const [attendanceEditLogs, setAttendanceEditLogs] = useState<AttendanceEditLog[]>([])
   const [billingRecords, setBillingRecords] = useState<BillingRecord[]>([])
   const [dailyPayRequests, setDailyPayRequests] = useState<DailyPayRequest[]>([])
@@ -498,7 +498,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setIssuedReceipts((prev) => [receipt, ...prev])
   }, [])
 
-  // PDF E: 勤怠修正監査ログを 1 件記録。新→古順。
+  // 勤怠修正監査ログを 1 件記録。新→古順。
   const addAttendanceEditLog = useCallback((log: AttendanceEditLog) => {
     setAttendanceEditLogs((prev) => [log, ...prev])
   }, [])
