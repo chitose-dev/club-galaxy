@@ -48,6 +48,14 @@
   --text-disabled: #707080;
 }
 
+/* PDF指示: タブレット操作で誤って文字選択が発動しないよう、
+   ボタン要素は全体でテキスト選択を無効化する。 */
+button {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
 /* ─── Buttons (TRUST風: ゴールドグラデ + ベベル) ─── */
 .btn-gold {
   background: linear-gradient(180deg, var(--color-gold-light) 0%, var(--color-gold) 55%, var(--color-gold-dark) 100%);
