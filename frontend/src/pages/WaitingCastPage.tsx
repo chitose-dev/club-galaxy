@@ -289,9 +289,9 @@ export default function WaitingCastPage() {
                 className="w-full panel p-3 flex items-center justify-between hover:bg-white/10 transition-colors text-left"
               >
                 <div>
-                  <div className="font-bold">卓 {t.number}</div>
+                  <div className="font-bold">{t.number}卓</div>
                   <div className="text-xs text-gray-400 mt-0.5">
-                    対応中: {t.assignedCasts.length > 0 ? t.assignedCasts.join(', ') : '担当なし'}
+                    対応中: {t.assignedCasts.length > 0 ? t.assignedCasts.join(', ') : 'フリー'}
                     {t.mainNominationCastNames.length > 0 && (
                       <span className="text-gold ml-2">(本指名: {t.mainNominationCastNames.join(', ')})</span>
                     )}
