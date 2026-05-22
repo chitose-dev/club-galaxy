@@ -200,7 +200,7 @@ export default function BillingPage() {
                 <CheckCircle size={40} className="mx-auto mb-2 text-emerald-400" />
                 <p className="text-xs text-gray-400 tracking-wider mb-1">お支払い額</p>
                 <p className="text-3xl font-extrabold text-gold tabular-nums">¥{lastBillingData.total.toLocaleString()}</p>
-                <p className="text-xs text-gray-500 mt-1">卓 {lastBillingData.tableNumber} / 伝票No. {lastBillingData.receiptNumber}</p>
+                <p className="text-xs text-gray-500 mt-1">{lastBillingData.tableNumber}卓 / 伝票No. {lastBillingData.receiptNumber}</p>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <button onClick={() => doPrint('summary')} className="btn-gold py-3 flex items-center justify-center gap-2 text-sm">
@@ -509,7 +509,7 @@ export default function BillingPage() {
     <div className="flex flex-col min-h-full">
       <ContextualHeader
         accent="billing"
-        title={`卓 ${table.number} の会計`}
+        title={`${table.number}卓 の会計`}
         backTo={`/table/${table.id}`}
         right={
           <select
@@ -518,7 +518,7 @@ export default function BillingPage() {
             className="bg-primary-dark/60 border border-gold/20 rounded-lg px-3 py-1.5 text-sm text-white"
           >
             {occupiedTables.map((t) => (
-              <option key={t.id} value={t.id}>卓 {t.number} ({t.assignedCasts.join(',')})</option>
+              <option key={t.id} value={t.id}>{t.number}卓 ({t.assignedCasts.join(',')})</option>
             ))}
           </select>
         }
@@ -552,7 +552,7 @@ export default function BillingPage() {
               <span className="text-gray-500">担当: {table.assignedCasts.join(', ')}</span>
               <span className="text-gray-500">{table.guestCount}名</span>
             </div>
-            <h3 className="text-sm font-bold mb-3 text-gray-400">卓 {table.number} 内訳</h3>
+            <h3 className="text-sm font-bold mb-3 text-gray-400">{table.number}卓 内訳</h3>
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
                 <span>セット料金 <span className="text-gray-600">({table.startTime ? getSetPriceLabel(table.startTime) : '-'})</span></span>
@@ -862,7 +862,7 @@ export default function BillingPage() {
                                   else setMergeTableIds((prev) => prev.filter((id) => id !== t.id))
                                 }}
                               />
-                              <span>卓 {t.number}</span>
+                              <span>{t.number}卓</span>
                               <span className="text-xs text-gray-500">({t.assignedCasts.join(', ') || 'フリー'} / {t.guestCount}名)</span>
                             </div>
                             <span className="text-xs text-gray-400 tabular-nums">¥{mSub.toLocaleString()}</span>
@@ -940,7 +940,7 @@ export default function BillingPage() {
         }
       >
         <div className="space-y-2">
-          <p className="text-sm text-gray-400">卓 {table.number} の会計を確定しますか？</p>
+          <p className="text-sm text-gray-400">{table.number}卓 の会計を確定しますか？</p>
           <p className="text-2xl font-bold text-gold tabular-nums">¥{finalTotal.toLocaleString()}</p>
           {splitCount > 0 && <p className="text-sm text-gray-400 tabular-nums">割り勘: ¥{perPerson.toLocaleString()} x {splitCount}人</p>}
           <p className="text-sm text-gray-500">支払方法: {paymentLabel(paymentMethod)}</p>
@@ -969,7 +969,7 @@ export default function BillingPage() {
               <CheckCircle size={40} className="mx-auto mb-2 text-emerald-400" />
               <p className="text-xs text-gray-400 tracking-wider mb-1">お支払い額</p>
               <p className="text-3xl font-extrabold text-gold tabular-nums">¥{lastBillingData.total.toLocaleString()}</p>
-              <p className="text-xs text-gray-500 mt-1">卓 {lastBillingData.tableNumber} / 伝票No. {lastBillingData.receiptNumber}</p>
+              <p className="text-xs text-gray-500 mt-1">{lastBillingData.tableNumber}卓 / 伝票No. {lastBillingData.receiptNumber}</p>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <button
@@ -1070,7 +1070,7 @@ function BillingHistoryView({
                 <div className="flex justify-between items-start mb-2">
                   <div>
                     <div className="text-sm font-bold flex items-center gap-2">
-                      卓 {r.tableNumber}
+                      {r.tableNumber}卓
                       {r.receiptSnapshot && (
                         <span className="text-xs text-gray-500">
                           伝票No. {r.receiptSnapshot.receiptNumber}
@@ -1133,7 +1133,7 @@ function BillingHistoryView({
           <div className="bg-gray-900 border border-white/10 rounded-lg p-4 max-w-md w-full space-y-3">
             <h3 className="text-sm font-bold text-white">会計記録を取消</h3>
             <div className="text-xs text-gray-400">
-              卓 {voidTarget.tableNumber} / ¥{voidTarget.total.toLocaleString()}
+              {voidTarget.tableNumber}卓 / ¥{voidTarget.total.toLocaleString()}
               {voidTarget.receiptSnapshot && (
                 <span className="ml-2">伝票No. {voidTarget.receiptSnapshot.receiptNumber}</span>
               )}
@@ -1194,7 +1194,7 @@ function AuditLogView({ logs, onClose }: { logs: DiscountLog[]; onClose?: () => 
           {logs.map((log) => (
             <div key={log.id} className="panel p-3">
               <div className="flex justify-between text-sm mb-1">
-                <span className="font-bold">卓 {log.tableNumber}</span>
+                <span className="font-bold">{log.tableNumber}卓</span>
                 <span className="text-gray-500 text-xs">{log.timestamp}</span>
               </div>
               <div className="grid grid-cols-2 gap-2 text-xs">

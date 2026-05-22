@@ -73,9 +73,8 @@ export default function ExtensionConfirmPage() {
     ...config.addedShimeiCastNames.filter((n) => !config.keptShimeiCastNames.includes(n)),
   ]
 
-  // EX 番号（延長確定後の表示用）
+  // EX 番号（延長確定後の表示用） — PDF/Word 仕様: 30 分は "EX(n)半"、60 分は "EX(n)"。
   const exIndex = (table.extensionHistory ?? []).length + 1
-  // PDF/Word 仕様: 30 分は "EX(n)半"、60 分は "EX(n)"。
   const exLabel = config.minutes === 30 ? `EX(${exIndex})半` : `EX(${exIndex})`
   const exStart = calcCurrentSetEnd(table)
   const exEnd = addMinutes(exStart, config.minutes)
