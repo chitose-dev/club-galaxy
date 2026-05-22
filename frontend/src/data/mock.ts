@@ -256,6 +256,31 @@ export interface IssuedReceipt {
   }
 }
 
+/**
+ * 勤怠 (AttendanceRecord) を修正した履歴を残す監査ログ。
+ *
+ * 「一度打刻した出勤・退勤時刻を後から修正できるUI、修正履歴は監査ログに残す」
+ * 要件に従い、誰が・いつ・どのフィールドを・何から何に変更したかを保存する。
+ */
+export interface AttendanceEditLog {
+  id: number
+  /** 対象 AttendanceRecord.id */
+  recordId: number
+  castId: number
+  castName: string
+  /** 変更フィールド名 */
+  field: 'clockIn' | 'clockOut' | 'breakMinutes'
+  /** 旧値（HH:MM or 分） */
+  before: string | number | null
+  /** 新値（HH:MM or 分） */
+  after: string | number | null
+  /** 編集日時 (ISO 8601) */
+  editedAt: string
+  /** 編集者 (user.displayName ?? 'スタッフ') */
+  editedBy: string
+}
+
+
 export interface DiscountLog {
   id: number
   tableNumber: string

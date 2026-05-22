@@ -5,7 +5,8 @@ import { type BackType, type DailyWork, type UserAccount, type AttendanceRecord 
 import { computeDailyWork } from '../utils/dailyWork'
 import { calcHourlyPay } from '../utils/payroll'
 import { calcMonthlyGuaranteeShortfall } from '../utils/saleGuarantee'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, FileText } from 'lucide-react'
+import PayslipPopup from '../components/PayslipPopup'
 import { openPrintWindow } from '../utils/print'
 import { getPaymentDate, formatPaymentDate } from '../utils/paymentDate'
 import { printCastLedger } from '../utils/castLedger'
@@ -37,6 +38,8 @@ export default function SalaryPage() {
 
   const [showDailyPayRecord, setShowDailyPayRecord] = useState(false)
   const [dailyPayAmount, setDailyPayAmount] = useState('')
+  // PDF E: SalaryPage からも給与明細ポップアップを開ける
+  const [showPayslip, setShowPayslip] = useState(false)
 
   const [showAddDeduction, setShowAddDeduction] = useState(false)
   const [deductionAmount, setDeductionAmount] = useState('')
@@ -306,7 +309,18 @@ export default function SalaryPage() {
           <div className="panel-gold p-3">
             <div className="flex items-center justify-between mb-2">
               <span className="font-bold text-gold">{cast.name}</span>
-              <span className="text-xs text-gray-400 tabular-nums">時給¥{cast.hourlyRate.toLocaleString()} / 保証{(cast.guaranteeRate * 100).toFixed(0)}%</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400 tabular-nums">時給¥{cast.hourlyRate.toLocaleString()} / 保証{(cast.guaranteeRate * 100).toFixed(0)}%</span>
+                {/* PDF E: 「明細」ボタン — PayslipPopup を SalaryPage の選択期間
+                    (period) と同じで開く。WaitingCastPage / AdminPage と同じ表示。 */}
+                <button
+                  onClick={() => setShowPayslip(true)}
+                  className="px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-gray-200 text-xs flex items-center gap-1"
+                  title="給与明細ポップアップ"
+                >
+                  <FileText size={11} /> 明細
+                </button>
+              </div>
             </div>
             <div className="grid grid-cols-4 gap-2 text-center">
               <div className="panel py-2 px-1">
@@ -755,6 +769,15 @@ export default function SalaryPage() {
           </Field>
         </div>
       </Modal>
+
+      {/* PDF E: 給与明細ポップアップ — SalaryPage の選択期間 (period) と
+          同期して開く。WaitingCastPage / AdminPage と同じ計算ロジック。 */}
+      <PayslipPopup
+        open={showPayslip}
+        cast={cast ?? null}
+        period={period}
+        onClose={() => setShowPayslip(false)}
+      />
     </div>
   )
 }
