@@ -10,6 +10,7 @@
 import type { Cast, DailyWork, StoreSettings } from '../data/mock'
 import { openPrintWindow } from './print'
 import { calcHourlyPay } from './payroll'
+import { calcMonthlyGuaranteeShortfall } from './saleGuarantee'
 
 const BACK_COLUMNS: { key: keyof DailyWork['backs']; label: string }[] = [
   { key: 'FD', label: 'Fドリンク' },
@@ -97,7 +98,7 @@ export function printCastLedger(params: CastLedgerParams): void {
 
   const totalHours = monthWork.reduce((s, w) => s + w.hours, 0)
   const totalSales = monthWork.reduce((s, w) => s + w.sales, 0)
-  const totalGross = monthWork.reduce((s, w) => {
+  const totalGrossBase = monthWork.reduce((s, w) => {
     const hourly = Math.floor(cast.hourlyRate * w.hours)
     // A2: 月次集計でも 'ボトルバック' を旧路線（count × %）から除外し、
     // bottleBackAmount を直接加算する。
@@ -110,6 +111,12 @@ export function printCastLedger(params: CastLedgerParams): void {
     const bottleBack = w.bottleBackAmount ?? 0
     return s + hourly + backTotal + extensionBack + bottleBack
   }, 0)
+  // PDF F: 月単位の売上保証差額を「その他」として総支給額に加算。
+  // 日経表は月締めなので、差額があれば常に含める（SalaryPage は支払日基準で
+  // 'second' 期間にだけ表示するが、日経表は税理士提出の月締め基準）。
+  const guaranteeBreakdown = calcMonthlyGuaranteeShortfall(monthWork, cast)
+  const guaranteeShortfall = guaranteeBreakdown.shortfall
+  const totalGross = totalGrossBase + guaranteeShortfall
   const totalTax = Math.floor(totalGross * 0.1)
   const totalNet = totalGross - totalTax
 
@@ -139,6 +146,13 @@ export function printCastLedger(params: CastLedgerParams): void {
         ${rowsHtml || '<tr><td colspan="16" class="center muted">該当月のデータなし</td></tr>'}
       </tbody>
       <tfoot>
+        ${guaranteeShortfall > 0 ? `
+        <tr class="total">
+          <td colspan="${3 + BACK_COLUMNS.length + 1}">その他: 売上保証差額（月通常給与 ¥${guaranteeBreakdown.monthlyRegularSalary.toLocaleString()} &lt; 保証 ¥${guaranteeBreakdown.guaranteeBase.toLocaleString()}）</td>
+          <td>+¥${guaranteeShortfall.toLocaleString()}</td>
+          <td>-</td>
+          <td>-</td>
+        </tr>` : ''}
         <tr class="total">
           <td>合計</td>
           <td>${totalHours}h</td>
