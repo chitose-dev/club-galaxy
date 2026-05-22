@@ -7,10 +7,14 @@ import { DangerButton, DarkButton, GhostButton } from '../components/Buttons'
 import {
   displayOrderName,
   getSetPriceForTime,
-  getSetPriceLabel,
   SET_DURATION_MINUTES,
 } from '../data/mock'
-import { getSetLabel } from '../utils/setCountLabel'
+import {
+  addMinutesToHHmm,
+  formatTimeRange,
+  getCurrentSetRange,
+  getSetLabel,
+} from '../utils/setCountLabel'
 import ExtensionInheritanceModal from '../components/ExtensionInheritanceModal'
 import { FileText, CreditCard, Trash2, ArrowLeft, Clock as ClockIcon } from 'lucide-react'
 
@@ -86,28 +90,20 @@ export default function UsageDetailPage() {
     <div className="flex flex-col min-h-full">
       <ContextualHeader
         accent="floor"
-        title={`卓 ${table.number} の利用明細`}
+        title={`${table.number}卓 の利用明細`}
         // ISSUE-010: from クエリ優先、無ければ BackButton が navigate(-1) 既定動作
         backTo={from}
-        // spec.md §4.1.1: 表頭右上に時間帯（HH:MM 〜 HH:MM）を表示
-        right={
-          <span className="text-sm tabular-nums tracking-wider text-gray-300 flex items-center gap-1">
-            <ClockIcon size={14} /> {table.startTime ?? '-'} 〜 {sessionEnd}
-          </span>
-        }
+        // PDF指示: 時間帯表示は見出し側から外し、入店時刻欄に終了時刻まで含める。
       />
 
       <div className="flex-1 overflow-y-auto p-4">
         <div className="max-w-4xl mx-auto grid md:grid-cols-2 gap-4">
           <div className="panel p-4 space-y-2">
-            <h3 className="text-xs text-gray-400 tracking-wider mb-1">指名状況</h3>
-            {/* 追補02 R1-7: 「対応中」(現在接客中) と「本指名」を区別 */}
+            {/* PDF指示: 「指名状況」見出しは廃止、必要項目（対応中/担当/人数/入店時刻）のみ。 */}
             <div className="flex justify-between">
               <span className="text-sm text-gray-400">対応中</span>
-              <span className="text-sm">{assignedCasts.join(', ') || '担当なし'}</span>
+              <span className="text-sm">{assignedCasts.join(', ') || 'フリー'}</span>
             </div>
-            {/* spec.md §3.2.2: 「指名タイプ」ラベル → 「担当」。本指名がいればキャスト名を
-                カンマ区切りで動的表示し、いなければ「フリー」と表示する。 */}
             <div className="flex justify-between">
               <span className="text-sm text-gray-400">担当</span>
               <span className={`text-sm ${mainNominations.length > 0 ? 'text-gold' : ''}`}>
@@ -120,22 +116,35 @@ export default function UsageDetailPage() {
             </div>
             <div className="flex justify-between">
               <span className="text-sm text-gray-400">入店時刻</span>
-              <span className="text-sm tabular-nums">{table.startTime ?? '-'}</span>
+              <span className="text-sm tabular-nums">
+                {table.startTime
+                  ? `${table.startTime} 〜 ${sessionEnd}`
+                  : '-'}
+              </span>
             </div>
+            {(() => {
+              const range = getCurrentSetRange(table)
+              if (!range) return null
+              return (
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-400">現在のセット</span>
+                  <span className="text-sm tabular-nums">
+                    {getSetLabel(table)} {formatTimeRange(range.start, range.end)}
+                  </span>
+                </div>
+              )
+            })()}
           </div>
 
           <div className="panel p-4 space-y-2">
-            {/* spec.md §4.1.2: 「セット小計」「料金」表記揺れを「セット料金」に統一 */}
+            {/* PDF指示: 「時間帯」行は廃止。セット料金 (Set種別 + 単価 × 人数 × セット数) と
+                必要なら値引・小計のみを表示。 */}
             <h3 className="text-xs text-gray-400 tracking-wider mb-1">セット料金（{getSetLabel(table)}）</h3>
             <div className="flex justify-between text-sm">
               <span className="text-gray-400">セット料金</span>
               <span className="tabular-nums">
                 ¥{adjustedSetPrice.toLocaleString()} × {guestCount}名 × {setCount}セット
               </span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-400">時間帯</span>
-              <span>{table.startTime ? getSetPriceLabel(table.startTime) : '-'}</span>
             </div>
             {discountPerSet > 0 && (
               <div className="flex justify-between text-sm text-amber-300">
@@ -203,6 +212,30 @@ export default function UsageDetailPage() {
             </div>
           </div>
         </div>
+
+        {/* PDF指示: 延長履歴は EX(n) / EX(n)半 ラベル + 時間レンジで表示する。 */}
+        {extensionHistory.length > 0 && table.startTime && (() => {
+          let cursor = addMinutesToHHmm(table.startTime, SET_DURATION_MINUTES)
+          return (
+            <div className="max-w-4xl mx-auto mt-4 panel p-4">
+              <h3 className="text-xs text-gray-400 tracking-wider mb-3">延長履歴</h3>
+              <div className="space-y-1 text-sm">
+                {extensionHistory.map((ex, i) => {
+                  const start = cursor
+                  const end = addMinutesToHHmm(start, ex.minutes)
+                  cursor = end
+                  const label = ex.minutes === 30 ? `EX(${i + 1})半` : `EX(${i + 1})`
+                  return (
+                    <div key={ex.id} className="flex items-center gap-3">
+                      <span className="text-xs text-gray-400 w-20 shrink-0">{label}</span>
+                      <span className="tabular-nums text-gray-200">{formatTimeRange(start, end)}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })()}
       </div>
 
       {/* spec.md §4.2: 画面下に [戻る][延長][注文を追加][会計] の4ボタン。

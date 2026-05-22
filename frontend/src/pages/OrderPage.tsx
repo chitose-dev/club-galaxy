@@ -11,6 +11,7 @@ import Modal from '../components/Modal'
 import { Input, Field as FormField } from '../components/Input'
 import { GoldButton, DangerButton, GhostButton, DarkButton } from '../components/Buttons'
 import { useExtendTable } from '../hooks/useExtendTable'
+import { formatTimeRange, getCurrentSetRange, getSetLabel } from '../utils/setCountLabel'
 
 // ビデオレビュー N6 (注1 15:50): ヘルプの再定義
 //   - 待機キャストが場内指名なしで入った状態
@@ -58,15 +59,15 @@ type CategoryDef = {
 }
 
 const categories: CategoryDef[] = [
-  { key: 'all',          label: '全ての商品',     activeBg: 'bg-white/10',        activeText: 'text-white',       bar: 'bg-white/20',     barActive: 'bg-white/60' },
+  { key: 'all',          label: 'すべての商品',   activeBg: 'bg-white/10',        activeText: 'text-white',       bar: 'bg-white/20',     barActive: 'bg-white/60' },
+  { key: 'charge',       label: '指名同伴',        activeBg: 'bg-cyan-500/15',     activeText: 'text-cyan-200',    bar: 'bg-cyan-400/40',  barActive: 'bg-cyan-300' },
   { key: 'cast-drink',   label: 'キャストドリンク', activeBg: 'bg-pink-500/15',    activeText: 'text-pink-200',    bar: 'bg-pink-400/40',  barActive: 'bg-pink-300' },
-  { key: 'shot-pitcher', label: '単品ドリンク',    activeBg: 'bg-sky-500/15',      activeText: 'text-sky-200',     bar: 'bg-sky-400/40',   barActive: 'bg-sky-300' },
+  { key: 'shot-pitcher', label: 'ゲストドリンク',  activeBg: 'bg-sky-500/15',      activeText: 'text-sky-200',     bar: 'bg-sky-400/40',   barActive: 'bg-sky-300' },
   { key: 'champagne',    label: 'シャンパン',      activeBg: 'bg-amber-500/15',    activeText: 'text-amber-200',   bar: 'bg-amber-400/40', barActive: 'bg-amber-300' },
   { key: 'whisky',       label: 'ウイスキー',      activeBg: 'bg-orange-500/15',   activeText: 'text-orange-200',  bar: 'bg-orange-400/40',barActive: 'bg-orange-300' },
   { key: 'shochu',       label: '焼酎',            activeBg: 'bg-emerald-500/15',  activeText: 'text-emerald-200', bar: 'bg-emerald-400/40',barActive: 'bg-emerald-300' },
   { key: 'brandy',       label: 'ブランデー',      activeBg: 'bg-rose-500/15',     activeText: 'text-rose-200',    bar: 'bg-rose-400/40',  barActive: 'bg-rose-300' },
   { key: 'wine',         label: 'ワイン',          activeBg: 'bg-red-500/15',      activeText: 'text-red-200',     bar: 'bg-red-400/40',   barActive: 'bg-red-300' },
-  { key: 'charge',       label: '指名料・同伴',    activeBg: 'bg-cyan-500/15',     activeText: 'text-cyan-200',    bar: 'bg-cyan-400/40',  barActive: 'bg-cyan-300' },
 ]
 
 /**
@@ -322,20 +323,29 @@ export default function OrderPage() {
         // 指定なし or 不正値はホール画面を default にする。
         backTo={searchParams.get('from') || '/floor'}
         leftExtra={
-          <select
-            value={selectedTableId}
-            onChange={(e) => {
-              setSelectedTableId(Number(e.target.value))
-              setSelectedCastNames([])
-            }}
-            className="bg-primary-dark/60 border border-gold/30 rounded-lg px-3 py-1.5 text-sm text-white"
-          >
-            {occupiedTables.map((t) => (
-              <option key={t.id} value={t.id}>
-                卓{t.number} | {t.guestCount}名 | {t.assignedCasts.join(', ') || '-'}
-              </option>
-            ))}
-          </select>
+          <div className="flex gap-1.5 overflow-x-auto max-w-[60vw] py-0.5">
+            {occupiedTables.map((t) => {
+              const active = t.id === selectedTableId
+              const summary = `${t.number}卓 / ${t.guestCount}名${t.assignedCasts.length > 0 ? ` / ${t.assignedCasts.join(', ')}` : ''}`
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => {
+                    setSelectedTableId(t.id)
+                    setSelectedCastNames([])
+                  }}
+                  className={`whitespace-nowrap px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                    active
+                      ? 'bg-gold text-primary border-gold shadow'
+                      : 'bg-primary-dark/60 text-gray-200 border-gold/30 hover:bg-white/10'
+                  }`}
+                  title={summary}
+                >
+                  {summary}
+                </button>
+              )
+            })}
+          </div>
         }
       />
 
@@ -481,22 +491,24 @@ export default function OrderPage() {
                     onClick={() => toggleCastSelection(name)}
                     className="flex-1"
                   />
-                  <div className="flex flex-col gap-0.5 items-end justify-center shrink-0 w-14">
+                  <div className="flex flex-col gap-1 items-stretch justify-center shrink-0 w-16">
+                    {/* PDF指示: 本指名トグルはタップしやすいサイズに拡大。
+                        2 度押しで OFF に戻る挙動は既存の toggleMainNomination で担保。 */}
                     <button
                       onClick={(e) => { e.stopPropagation(); toggleMainNomination(name) }}
-                      className={`text-[9px] leading-tight px-1.5 py-0.5 rounded font-bold tracking-tight transition-colors ${
+                      className={`text-[11px] leading-tight px-1 py-1.5 rounded font-bold tracking-tight transition-colors min-h-[34px] ${
                         isMain
                           ? 'bg-amber-500/30 text-amber-200 hover:bg-amber-500/40'
-                          : 'bg-white/5 text-gray-500 hover:bg-amber-500/20 hover:text-amber-200'
+                          : 'bg-white/5 text-gray-400 hover:bg-amber-500/20 hover:text-amber-200'
                       }`}
                       title={isMain ? '本指名を解除' : '本指名にする'}
                     >
                       {isMain ? '★本指名' : '☆本指名'}
                     </button>
                     {isBanai && (
-                      <span className="text-[9px] leading-tight px-1.5 py-0.5 rounded bg-blue-500/30 text-blue-200 font-bold tracking-tight">場内</span>
+                      <span className="text-[10px] leading-tight px-1.5 py-0.5 rounded bg-blue-500/30 text-blue-200 font-bold tracking-tight text-center">場内</span>
                     )}
-                    <span className="text-[9px] leading-tight px-1.5 py-0.5 rounded bg-gold/20 text-gold font-bold tracking-tight tabular-nums">卓{selectedTable.number}</span>
+                    <span className="text-[10px] leading-tight px-1 py-0.5 rounded bg-gold/20 text-gold font-bold tracking-tight tabular-nums text-center">{selectedTable.number}卓</span>
                   </div>
                 </div>
               )
@@ -518,15 +530,33 @@ export default function OrderPage() {
 
         {/* ── Column 4: 注文明細 ── */}
         <div className="overflow-y-auto p-3">
-          {/* セット料金バナー: 卓基本料金を一目で。視認性を最優先して
-              フォント・パディングを十分に大きく確保する（運用中のオーナーが
-              遠目でも金額を確認できるサイズ感）。 */}
-          <div className="mb-3 panel-gold border-2 border-gold/50 rounded-lg px-4 py-3 text-gold flex items-center justify-between bg-gold/10">
-            <span className="text-lg font-bold tracking-wider">セット料金</span>
-            <span className="text-lg font-bold tabular-nums">
-              {selectedTable.guestCount}名 | ¥{adjustedSetPrice.toLocaleString()} | 計:¥{setSubtotal.toLocaleString()}
-            </span>
-          </div>
+          {/* PDF指示: セット料金は「注文 1 行」として扱う。1卓 / 3名 / Set 4000円 /
+              12:00～1:00まで のサマリと、料金内訳 1行 を表示する。 */}
+          {(() => {
+            const range = getCurrentSetRange(selectedTable)
+            const rangeStr = range ? formatTimeRange(range.start, range.end) : null
+            const setLabel = getSetLabel(selectedTable)
+            return (
+              <div className="mb-3 panel-gold border-2 border-gold/50 rounded-lg px-4 py-3 text-gold bg-gold/10">
+                <div className="text-base font-bold tracking-wider flex flex-wrap gap-x-2 gap-y-1 items-baseline">
+                  <span>{selectedTable.number}卓</span>
+                  <span className="text-gold/60">/</span>
+                  <span>{selectedTable.guestCount}名</span>
+                  <span className="text-gold/60">/</span>
+                  <span>Set ¥{adjustedSetPrice.toLocaleString()}</span>
+                  {rangeStr && (
+                    <>
+                      <span className="text-gold/60">/</span>
+                      <span className="tabular-nums">{rangeStr}</span>
+                    </>
+                  )}
+                </div>
+                <div className="text-sm mt-1 text-gold/90 tabular-nums">
+                  {setLabel}料金 ¥{adjustedSetPrice.toLocaleString()}×{selectedTable.guestCount}名 = ¥{setSubtotal.toLocaleString()}
+                </div>
+              </div>
+            )
+          })()}
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs text-gray-400 tracking-wider">注文明細</span>
             <span className="text-[10px] text-gray-500">{orders.length} 品</span>
@@ -617,16 +647,20 @@ export default function OrderPage() {
         }
         right={
           <div className="flex items-center gap-1.5">
-            {EXTENSION_OPTIONS.map((min) => (
-              <DarkButton
-                key={min}
-                onClick={() => requestExtend(min as 30 | 60)}
-                className="text-sm flex items-center gap-1"
-                title={`+${min}分 延長`}
-              >
-                <ClockIcon size={14} /> +{min}分
-              </DarkButton>
-            ))}
+            {EXTENSION_OPTIONS.map((min) => {
+              const nextIdx = (selectedTable.extensionHistory?.length ?? 0) + 1
+              const exLabel = min === 30 ? `EX(${nextIdx})半` : `EX(${nextIdx})`
+              return (
+                <DarkButton
+                  key={min}
+                  onClick={() => requestExtend(min as 30 | 60)}
+                  className="text-sm flex items-center gap-1"
+                  title={`${exLabel} (${min}分) 延長`}
+                >
+                  <ClockIcon size={14} /> {exLabel}
+                </DarkButton>
+              )
+            })}
           </div>
         }
       />
@@ -763,7 +797,7 @@ export default function OrderPage() {
         open={!!pendingExtend && !!selectedTable}
         onClose={() => setPendingExtend(null)}
         size="sm"
-        title={selectedTable ? `卓 ${selectedTable.number} 延長の確認` : '延長の確認'}
+        title={selectedTable ? `${selectedTable.number}卓 延長の確認` : '延長の確認'}
         footer={
           <>
             <GhostButton onClick={() => setPendingExtend(null)} className="flex-1">キャンセル</GhostButton>
@@ -781,8 +815,13 @@ export default function OrderPage() {
             <div className="space-y-3">
               <div className="panel p-3 space-y-1.5">
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">延長時間</span>
-                  <span className="font-bold">+{pendingExtend.minutes}分</span>
+                  <span className="text-gray-400">延長</span>
+                  <span className="font-bold">
+                    {(() => {
+                      const nextIdx = (selectedTable.extensionHistory?.length ?? 0) + 1
+                      return pendingExtend.minutes === 30 ? `EX(${nextIdx})半（30分）` : `EX(${nextIdx})（60分）`
+                    })()}
+                  </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-400">延長料金 ({selectedTable.guestCount}名 × ¥{setUnitAdjusted.toLocaleString()})</span>
@@ -842,7 +881,7 @@ export default function OrderPage() {
         open={showAddCast && !!selectedTable}
         onClose={() => setShowAddCast(false)}
         size="md"
-        title={`卓 ${selectedTable?.number ?? ''} に追加する女の子`}
+        title={`${selectedTable?.number ?? ''}卓 に追加する女の子`}
         footer={<GhostButton onClick={() => setShowAddCast(false)} className="flex-1">キャンセル</GhostButton>}
       >
         {selectedTable && (() => {
@@ -875,7 +914,7 @@ export default function OrderPage() {
                     <div>
                       <div className="font-bold">{c.name}</div>
                       <div className="text-xs text-gray-400 mt-0.5">
-                        {busyAt ? `現在: 卓 ${busyAt.number} 対応中 (移動すると元の卓から外れます)` : '待機中'}
+                        {busyAt ? `現在: ${busyAt.number}卓 対応中 (移動すると元の卓から外れます)` : '待機中'}
                       </div>
                     </div>
                     <Plus size={18} className="text-gold" />
