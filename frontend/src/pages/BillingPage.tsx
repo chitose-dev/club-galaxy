@@ -757,8 +757,9 @@ export default function BillingPage() {
                           type="number"
                           value={cashInputAmount}
                           onChange={(e) => {
-                            // 現金額を変えると差額・手数料が変わり、旧 cardEndCut の
-                            // 値が新カード支払額に対して意味を失うので一旦解除する。
+                            // カード支払額に影響する入力変更時は旧 cardEndCut を解除する。
+                            // 現金額が変わると差額・手数料が変わり、古い端数カット値が
+                            // 意味を失うため。
                             setCashInputAmount(e.target.value)
                             setCardEndCut(0)
                           }}
@@ -773,8 +774,8 @@ export default function BillingPage() {
                           <button
                             key={qa}
                             onClick={() => {
-                              // クイック加算でも現金が変わる → カード支払額が変わるため、
-                              // 旧 cardEndCut は解除する。
+                              // カード支払額に影響する入力変更時は旧 cardEndCut を解除する。
+                              // クイック加算でも現金が変わり、カード残額が動くため。
                               setCashInputAmount(String((Number(cashInputAmount) || 0) + qa))
                               setCardEndCut(0)
                             }}
@@ -790,8 +791,8 @@ export default function BillingPage() {
                             const remainder = Math.max(0, preCardTotal - cur)
                             const trim = remainder % 1000
                             setCashInputAmount(String(cur + trim))
-                            // ハスカット後はカード残額(差額)が変わる → カード支払額の
-                            // 端数カット計算が古くなるので解除する。
+                            // カード支払額に影響する入力変更時は旧 cardEndCut を解除する。
+                            // ハスカット後はカード残額(差額)が変わるため。
                             setCardEndCut(0)
                           }}
                           className="text-xs px-3 py-1.5 bg-amber-500/15 border border-amber-500/30 text-amber-300 rounded"
@@ -859,7 +860,13 @@ export default function BillingPage() {
                   <Input
                     type="number"
                     value={discount || ''}
-                    onChange={(e) => setDiscount(Math.max(0, Number(e.target.value)))}
+                    onChange={(e) => {
+                      // カード支払額に影響する入力変更時は旧 cardEndCut を解除する。
+                      // discount が変わると preCardTotal が変わり、古い端数カット値が
+                      // 意味を失うため。
+                      setDiscount(Math.max(0, Number(e.target.value)))
+                      setCardEndCut(0)
+                    }}
                     placeholder="値引額"
                     className="mb-2 tabular-nums"
                   />
@@ -946,8 +953,11 @@ export default function BillingPage() {
                                 type="checkbox"
                                 checked={mergeTableIds.includes(t.id)}
                                 onChange={(e) => {
+                                  // カード支払額に影響する入力変更時は旧 cardEndCut を解除する。
+                                  // 合算対象が変わると合計と preCardTotal が変わるため。
                                   if (e.target.checked) setMergeTableIds((prev) => [...prev, t.id])
                                   else setMergeTableIds((prev) => prev.filter((id) => id !== t.id))
+                                  setCardEndCut(0)
                                 }}
                               />
                               <span>{t.number}卓</span>
