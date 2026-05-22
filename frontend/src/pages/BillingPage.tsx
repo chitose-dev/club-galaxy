@@ -34,6 +34,9 @@ export default function BillingPage() {
   const [cashInputAmount, setCashInputAmount] = useState('')
   const [discount, setDiscount] = useState(0)
   const [discountReason, setDiscountReason] = useState('')
+  // PDF D: 現金+カード時に「カード支払額 (差額+手数料)」を端数カットできるようにする。
+  // カット分は固定理由「端数カット」として discount に合算し、監査ログに別エントリで残す。
+  const [cardEndCut, setCardEndCut] = useState(0)
   const [showConfirm, setShowConfirm] = useState(false)
   const [billingTab, setBillingTab] = useState<BillingTab>('total')
   const [splitCount, setSplitCount] = useState(0)
@@ -276,7 +279,16 @@ export default function BillingPage() {
   const mixedCashAmount = paymentMethod === 'mixed' ? (Number(cashInputAmount) || 0) : 0
   const mixedCardAmount = paymentMethod === 'mixed' ? Math.max(0, preCardTotal - mixedCashAmount) : 0
   const mixedCardFee = paymentMethod === 'mixed' && mixedCardAmount > 0 ? Math.floor(mixedCardAmount * cardFeeRate) : 0
-  const mixedTotalWithFee = paymentMethod === 'mixed' ? preCardTotal + mixedCardFee : preCardTotal + cardFee
+  // PDF D: 「カード支払額」= カード差額 + カード手数料。先方が電卓を叩かなくても
+  // 1 行で見える値として算出する。端数カット (cardEndCut) はこの値からのみ引く。
+  // 差額/手数料そのものはカット対象にせず、cardEndCut を「最終のカード金額の値引き」
+  // として扱うことで、cascading な再計算を避ける。
+  const mixedCardPaymentRaw = paymentMethod === 'mixed' ? mixedCardAmount + mixedCardFee : 0
+  const safeCardEndCut = paymentMethod === 'mixed' ? Math.min(cardEndCut, mixedCardPaymentRaw) : 0
+  const mixedCardPaymentFinal = Math.max(0, mixedCardPaymentRaw - safeCardEndCut)
+  const mixedTotalWithFee = paymentMethod === 'mixed'
+    ? mixedCashAmount + mixedCardPaymentFinal
+    : preCardTotal + cardFee
 
   const total = preCardTotal + cardFee
 
@@ -295,6 +307,22 @@ export default function BillingPage() {
         timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
       })
     }
+    // PDF D: 端数カット分も値引きとして別エントリで監査ログに残す。
+    // 操作した人と金額が後追いできるようにする。
+    if (paymentMethod === 'mixed' && safeCardEndCut > 0) {
+      addDiscountLog({
+        id: Date.now() + 1,
+        tableNumber: table.number,
+        originalTotal: subtotal + setFee + tax + consumptionTax + mixedCardFee,
+        discountAmount: safeCardEndCut,
+        reason: '端数カット (カード支払額)',
+        operator: user?.displayName ?? 'スタッフ',
+        timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
+      })
+    }
+    // BillingRecord / ReceiptSnapshot に保存する discount は VIP 値引等の
+    // discount に端数カット分を合算した「実効値引き総額」。
+    const effectiveDiscount = discount + safeCardEndCut
 
     // spec.md §5.5: 本指名キャスト全員分の ID をスナップショット保存。
     // 売上帰属は mainNominationCastNames で subtotalBeforeTax を均等按分（会計時スナップショット方式）。
@@ -332,7 +360,9 @@ export default function BillingPage() {
       total: finalTotal,
       paymentMethod,
       cashAmount: paymentMethod === 'cash' ? finalTotal : paymentMethod === 'mixed' ? mixedCashAmount : 0,
-      cardAmount: paymentMethod === 'card' ? finalTotal : paymentMethod === 'mixed' ? mixedCardAmount : 0,
+      // PDF D: cardAmount は実際に決済された金額（端数カット後）。
+      // 端数カットがなければ mixedCardAmount + mixedCardFee と同じ。
+      cardAmount: paymentMethod === 'card' ? finalTotal : paymentMethod === 'mixed' ? mixedCardPaymentFinal : 0,
       cardFee: cardFee > 0 || mixedCardFee > 0 ? (paymentMethod === 'mixed' ? mixedCardFee : cardFee) : undefined,
       completedAt: new Date().toISOString(),
       date: nowIso,
@@ -353,7 +383,10 @@ export default function BillingPage() {
         setFee,
         tax,
         consumptionTax,
-        discount,
+        // VIP 値引等の discount に端数カット分も合算した実効値引きを保存。
+        // 監査ログ側に内訳（discount / 端数カット）が別エントリで残るため、
+        // 集計時はこの total で「いくら値引きされたか」を把握する。
+        discount: effectiveDiscount,
         orders: table.orders.map((o) => ({
           menuItem: {
             id: o.menuItem.id,
@@ -429,12 +462,16 @@ export default function BillingPage() {
       tax,
       consumptionTax,
       cardFee: paymentMethod === 'mixed' ? mixedCardFee : cardFee,
-      discount,
+      // PDF D: lastBillingData にも実効値引きを反映（会計完了モーダルの値引き行が
+      // 実際の値引き総額と一致するようにするため）。
+      discount: effectiveDiscount,
       orders: table.orders.map((o) => ({ menuItem: { id: o.menuItem.id, name: o.menuItem.name, price: o.menuItem.price }, quantity: o.quantity, castName: o.castName })),
       nominationLabel: getNominationLabel(table),
       startTime: table.startTime,
       cashAmount: paymentMethod === 'cash' ? finalTotal : paymentMethod === 'mixed' ? mixedCashAmount : 0,
-      cardAmount: paymentMethod === 'card' ? finalTotal : paymentMethod === 'mixed' ? mixedCardAmount : 0,
+      // PDF D: cardAmount は「実際にカードで決済された金額」を保存。
+      // 端数カットが入った場合は mixedCardPaymentFinal (差額+手数料−カット) を使う。
+      cardAmount: paymentMethod === 'card' ? finalTotal : paymentMethod === 'mixed' ? mixedCardPaymentFinal : 0,
       receiptNumber: receiptNumberForRecord,
       receiptName,
       receiptPurpose,
@@ -452,6 +489,7 @@ export default function BillingPage() {
     setShowReceipt(true)
     setDiscount(0)
     setDiscountReason('')
+    setCardEndCut(0)
     setSplitCount(0)
     setMergeTableIds([])
   }
@@ -514,7 +552,7 @@ export default function BillingPage() {
         right={
           <select
             value={selectedTableId}
-            onChange={(e) => { setSelectedTableId(Number(e.target.value)); setDiscount(0); setDiscountReason(''); setSplitCount(0); setPaymentMethod('cash'); setCashInputAmount('') }}
+            onChange={(e) => { setSelectedTableId(Number(e.target.value)); setDiscount(0); setDiscountReason(''); setSplitCount(0); setPaymentMethod('cash'); setCashInputAmount(''); setCardEndCut(0) }}
             className="bg-primary-dark/60 border border-gold/20 rounded-lg px-3 py-1.5 text-sm text-white"
           >
             {occupiedTables.map((t) => (
@@ -704,7 +742,7 @@ export default function BillingPage() {
                   <Tabs<PaymentMethod>
                     variant="pills"
                     value={paymentMethod}
-                    onChange={(m) => { setPaymentMethod(m); setCashInputAmount('') }}
+                    onChange={(m) => { setPaymentMethod(m); setCashInputAmount(''); setCardEndCut(0) }}
                     items={[
                       { key: 'cash', label: '現金' },
                       { key: 'card', label: 'カード' },
@@ -718,7 +756,13 @@ export default function BillingPage() {
                         <Input
                           type="number"
                           value={cashInputAmount}
-                          onChange={(e) => setCashInputAmount(e.target.value)}
+                          onChange={(e) => {
+                            // カード支払額に影響する入力変更時は旧 cardEndCut を解除する。
+                            // 現金額が変わると差額・手数料が変わり、古い端数カット値が
+                            // 意味を失うため。
+                            setCashInputAmount(e.target.value)
+                            setCardEndCut(0)
+                          }}
                           placeholder="現金で受け取る金額"
                           className="tabular-nums"
                         />
@@ -729,7 +773,12 @@ export default function BillingPage() {
                         {[1000, 5000, 10000, 30000].map((qa) => (
                           <button
                             key={qa}
-                            onClick={() => setCashInputAmount(String((Number(cashInputAmount) || 0) + qa))}
+                            onClick={() => {
+                              // カード支払額に影響する入力変更時は旧 cardEndCut を解除する。
+                              // クイック加算でも現金が変わり、カード残額が動くため。
+                              setCashInputAmount(String((Number(cashInputAmount) || 0) + qa))
+                              setCardEndCut(0)
+                            }}
                             className="flex-1 text-xs panel py-1.5 hover:bg-white/10 rounded"
                           >
                             +{qa.toLocaleString()}
@@ -742,6 +791,9 @@ export default function BillingPage() {
                             const remainder = Math.max(0, preCardTotal - cur)
                             const trim = remainder % 1000
                             setCashInputAmount(String(cur + trim))
+                            // カード支払額に影響する入力変更時は旧 cardEndCut を解除する。
+                            // ハスカット後はカード残額(差額)が変わるため。
+                            setCardEndCut(0)
                           }}
                           className="text-xs px-3 py-1.5 bg-amber-500/15 border border-amber-500/30 text-amber-300 rounded"
                           title="残額の 1000 円未満を現金に吸収して丸める"
@@ -754,7 +806,44 @@ export default function BillingPage() {
                           <div className="flex justify-between font-bold"><span>現金受取</span><span className="tabular-nums">¥{mixedCashAmount.toLocaleString()}</span></div>
                           <div className="flex justify-between"><span className="text-gray-500">カード差額</span><span className="tabular-nums">¥{mixedCardAmount.toLocaleString()}</span></div>
                           <div className="flex justify-between text-blue-300"><span>カード手数料 (+{(cardFeeRate * 100).toFixed(0)}%)</span><span className="tabular-nums">¥{mixedCardFee.toLocaleString()}</span></div>
-                          <div className="flex justify-between border-t border-white/10 pt-1 mt-1 font-bold text-gold"><span>合計</span><span className="tabular-nums">¥{mixedTotalWithFee.toLocaleString()}</span></div>
+                          {/* PDF D: カード差額+手数料を「カード支払額」として 1 行表示。
+                              先方が電卓で計算しなくても客に提示する金額が一目で分かる。 */}
+                          <div className="flex justify-between border-t border-white/10 pt-1 mt-1 font-bold text-gold">
+                            <span>カード支払額（差額+手数料）</span>
+                            {safeCardEndCut > 0 ? (
+                              <span className="tabular-nums">
+                                <span className="text-gray-500 line-through mr-1">¥{mixedCardPaymentRaw.toLocaleString()}</span>
+                                ¥{mixedCardPaymentFinal.toLocaleString()}
+                              </span>
+                            ) : (
+                              <span className="tabular-nums">¥{mixedCardPaymentRaw.toLocaleString()}</span>
+                            )}
+                          </div>
+                          {/* PDF D: 端数カットボタン。カード支払額の 1000 円未満を
+                              切り捨て、そのカット分は値引きとして会計記録に残る。
+                              既に表示用の値は cardEndCut を引いた形で出るので、
+                              ボタンは「適用」「解除」のトグル UI にする。 */}
+                          {safeCardEndCut === 0 && mixedCardPaymentRaw % 1000 > 0 && (
+                            <button
+                              onClick={() => setCardEndCut(mixedCardPaymentRaw % 1000)}
+                              className="w-full text-xs px-3 py-1.5 bg-amber-500/15 border border-amber-500/30 text-amber-300 rounded mt-1"
+                              title="カード支払額の 1000 円未満を端数カット (値引きとして会計記録に残る)"
+                            >
+                              端数カット ¥{(mixedCardPaymentRaw % 1000).toLocaleString()} 値引き → ¥{(mixedCardPaymentRaw - (mixedCardPaymentRaw % 1000)).toLocaleString()}
+                            </button>
+                          )}
+                          {safeCardEndCut > 0 && (
+                            <div className="flex items-center justify-between text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded px-2 py-1">
+                              <span>端数カット ¥{safeCardEndCut.toLocaleString()} を値引きとして記録</span>
+                              <button
+                                onClick={() => setCardEndCut(0)}
+                                className="underline"
+                              >
+                                解除
+                              </button>
+                            </div>
+                          )}
+                          <div className="flex justify-between border-t border-white/10 pt-1 mt-1 font-bold text-gold"><span>合計（現金+カード）</span><span className="tabular-nums">¥{mixedTotalWithFee.toLocaleString()}</span></div>
                         </div>
                       )}
                     </div>
@@ -771,7 +860,13 @@ export default function BillingPage() {
                   <Input
                     type="number"
                     value={discount || ''}
-                    onChange={(e) => setDiscount(Math.max(0, Number(e.target.value)))}
+                    onChange={(e) => {
+                      // カード支払額に影響する入力変更時は旧 cardEndCut を解除する。
+                      // discount が変わると preCardTotal が変わり、古い端数カット値が
+                      // 意味を失うため。
+                      setDiscount(Math.max(0, Number(e.target.value)))
+                      setCardEndCut(0)
+                    }}
                     placeholder="値引額"
                     className="mb-2 tabular-nums"
                   />
@@ -858,8 +953,11 @@ export default function BillingPage() {
                                 type="checkbox"
                                 checked={mergeTableIds.includes(t.id)}
                                 onChange={(e) => {
+                                  // カード支払額に影響する入力変更時は旧 cardEndCut を解除する。
+                                  // 合算対象が変わると合計と preCardTotal が変わるため。
                                   if (e.target.checked) setMergeTableIds((prev) => [...prev, t.id])
                                   else setMergeTableIds((prev) => prev.filter((id) => id !== t.id))
+                                  setCardEndCut(0)
                                 }}
                               />
                               <span>{t.number}卓</span>
@@ -944,11 +1042,23 @@ export default function BillingPage() {
           <p className="text-2xl font-bold text-gold tabular-nums">¥{finalTotal.toLocaleString()}</p>
           {splitCount > 0 && <p className="text-sm text-gray-400 tabular-nums">割り勘: ¥{perPerson.toLocaleString()} x {splitCount}人</p>}
           <p className="text-sm text-gray-500">支払方法: {paymentLabel(paymentMethod)}</p>
+          {/* PDF D: 現金+カード時は「カード支払額（差額+手数料-端数カット）」を
+              実際にカードで決済する額として明示する。差額/手数料/端数カットは
+              内訳として併記し、会計画面と表記を揃える。 */}
           {paymentMethod === 'mixed' && mixedCardAmount > 0 && (
-            <p className="text-sm text-gray-500 tabular-nums">現金: ¥{mixedCashAmount.toLocaleString()} / カード: ¥{mixedCardAmount.toLocaleString()}</p>
+            <div className="text-sm space-y-0.5">
+              <p className="text-gray-500 tabular-nums">現金: ¥{mixedCashAmount.toLocaleString()}</p>
+              <p className="text-gold tabular-nums font-bold">カード支払額: ¥{mixedCardPaymentFinal.toLocaleString()}</p>
+              <p className="text-xs text-gray-500 tabular-nums">　└ 内訳: 差額 ¥{mixedCardAmount.toLocaleString()} + 手数料 ¥{mixedCardFee.toLocaleString()}{safeCardEndCut > 0 ? ` − 端数カット ¥${safeCardEndCut.toLocaleString()}` : ''}</p>
+            </div>
           )}
-          {(cardFee > 0 || mixedCardFee > 0) && <p className="text-sm text-blue-400 tabular-nums">カード手数料: ¥{(paymentMethod === 'mixed' ? mixedCardFee : cardFee).toLocaleString()}</p>}
+          {paymentMethod === 'card' && cardFee > 0 && (
+            <p className="text-sm text-blue-400 tabular-nums">カード手数料: ¥{cardFee.toLocaleString()}</p>
+          )}
           {discount > 0 && <p className="text-sm text-red-400 tabular-nums">値引き: -¥{discount.toLocaleString()} ({discountReason})</p>}
+          {paymentMethod === 'mixed' && safeCardEndCut > 0 && (
+            <p className="text-sm text-amber-300 tabular-nums">端数カット: -¥{safeCardEndCut.toLocaleString()} （値引きとして記録）</p>
+          )}
         </div>
       </Modal>
 
