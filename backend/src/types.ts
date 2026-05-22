@@ -317,6 +317,9 @@ export interface BillingRecord extends AuditFields, SoftDeletable {
   nominatedCastIds: number[]
   /** 税理士提出に realName 必要 */
   castSnapshot: { id: number; name: string; realName?: string }[]
+  /** PDF C: 会計時の客人数。領収書分割発行の上限「人数分まで」に使う。
+   *  担当キャスト数（castSnapshot.length）とは別物。 */
+  guestCountSnapshot?: number
 
   receiptSnapshot: ReceiptSnapshot
   receiptIssued: boolean
