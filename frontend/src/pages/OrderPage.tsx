@@ -531,7 +531,7 @@ export default function OrderPage() {
         {/* ── Column 4: 注文明細 ── */}
         <div className="overflow-y-auto p-3">
           {/* PDF指示: セット料金は「注文 1 行」として扱う。1卓 / 3名 / Set 4000円 /
-              12:00～1:00まで のサマリと、料金内訳 1行 を表示する。 */}
+              12:00〜1:00まで のサマリと、料金内訳 1行 を表示する。 */}
           {(() => {
             const range = getCurrentSetRange(selectedTable)
             const rangeStr = range ? formatTimeRange(range.start, range.end) : null

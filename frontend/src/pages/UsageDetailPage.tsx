@@ -114,6 +114,8 @@ export default function UsageDetailPage() {
               <span className="text-sm text-gray-400">人数</span>
               <span className="text-sm">{guestCount} 名</span>
             </div>
+            {/* PDF: 入店時刻には終わる時間まで表示。セッション全体の終了予定を
+                併記し、現在の 1Set目 / EX レンジは別行で見せる。 */}
             <div className="flex justify-between">
               <span className="text-sm text-gray-400">入店時刻</span>
               <span className="text-sm tabular-nums">

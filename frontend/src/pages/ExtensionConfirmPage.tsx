@@ -73,7 +73,7 @@ export default function ExtensionConfirmPage() {
     ...config.addedShimeiCastNames.filter((n) => !config.keptShimeiCastNames.includes(n)),
   ]
 
-  // EX 番号（延長確定後の表示用） — PDF指示: 30 分は "EX(n)半"、60 分は "EX(n)"。
+  // EX 番号（延長確定後の表示用） — PDF/Word 仕様: 30 分は "EX(n)半"、60 分は "EX(n)"。
   const exIndex = (table.extensionHistory ?? []).length + 1
   const exLabel = config.minutes === 30 ? `EX(${exIndex})半` : `EX(${exIndex})`
   const exStart = calcCurrentSetEnd(table)
@@ -335,6 +335,9 @@ export default function ExtensionConfirmPage() {
               <span className="text-base text-gold font-bold">合計（税込）</span>
               <span className="text-2xl tabular-nums font-bold text-gold">¥{totalEx.toLocaleString()}</span>
             </div>
+            {/* PDF: 延長交渉プリントの内訳には「ドリンクは別途、税サ込み」と表示。
+                画面表示にも同じ注記を出して印刷と齟齬がないようにする。 */}
+            <div className="text-xs text-gray-400 mt-1">※ドリンクは別途、税サ込み</div>
           </section>
 
           {/* 帰属先（バック） */}
@@ -373,7 +376,7 @@ export default function ExtensionConfirmPage() {
           <div className="t-eng">INTERIM CHECK SHEET</div>
           <div className="t-dashed" />
           <div className="t-row">
-            <span>卓番: {table.number}</span>
+            <span>{table.number}卓</span>
             <span>現在時刻: {nowHHmm}</span>
           </div>
           <div className="t-dashed" />
@@ -396,10 +399,10 @@ export default function ExtensionConfirmPage() {
           ))}
           {pastExEntries.map((ent, i) => {
             const unit = ent.minutes === 30 ? ext30Unit : ext60Unit
-            const lab = ent.minutes === 30 ? `EX(${i + 1})半` : `EX(${i + 1})`
+            const pastLabel = ent.minutes === 30 ? `EX(${i + 1})半` : `EX(${i + 1})`
             return (
               <div key={`t-past-${ent.id}`} className="t-line">
-                <span>{lab} ({ent.minutes}分)</span>
+                <span>{pastLabel} ({ent.minutes}分)</span>
                 <span>¥ {(unit * table.guestCount).toLocaleString()}</span>
               </div>
             )
@@ -438,8 +441,8 @@ export default function ExtensionConfirmPage() {
             <span>60分の場合</span>
             <span>¥ {budgetIf60.toLocaleString()}</span>
           </div>
-          <div className="t-footnote">※ドリンク、指名料は別途</div>
-          <div className="t-footnote">※税サ込</div>
+          {/* PDF: 「ドリンクは別途、税サ込み」を 1 行で印字。 */}
+          <div className="t-footnote">※ドリンクは別途、税サ込み</div>
         </div>
       </div>
 

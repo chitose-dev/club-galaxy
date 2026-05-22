@@ -11,7 +11,14 @@ import {
   chargeItems,
 } from '../data/mock'
 import { getNominationBadge } from '../utils/nomination'
-import { addMinutesToHHmm, formatTimeRange, getCurrentSetRange, getSetLabel } from '../utils/setCountLabel'
+import {
+  addMinutesToHHMM,
+  formatSetWithRange,
+  formatTimeRange,
+  getCurrentSetTimeRange,
+  getExtensionLabel,
+  getSetLabel,
+} from '../utils/setCountLabel'
 import { useExtendTable } from '../hooks/useExtendTable'
 import { Clock, Users, Plus, Printer, ChevronRight, FileText, CreditCard, Undo2 } from 'lucide-react'
 import BottomActionBar from '../components/BottomActionBar'
@@ -433,9 +440,19 @@ export default function FloorPage() {
                   </span>
                 ) : null}
               </div>
-              {table.status !== 'empty' && (
+              {table.status !== 'empty' && (() => {
+                // PDF: 入店時刻には終わる時間まで表示。担当なしは「フリー」表示。
+                const range = table.startTime
+                  ? getCurrentSetTimeRange({
+                      startTime: table.startTime,
+                      setCount: table.setCount,
+                      extensionHistory: table.extensionHistory,
+                    })
+                  : null
+                return (
                 <div className="mt-2.5 space-y-1">
-                  {/* 追補02 R1-7: 「対応中」を第一行で明示。本指名担当は別表示。 */}
+                  {/* 追補02 R1-7: 「対応中」を第一行で明示。本指名担当は別表示。
+                      PDF: 担当が居なければ「フリー」と明示。 */}
                   <div className="text-sm font-medium truncate">
                     {table.assignedCasts.length > 0 ? table.assignedCasts.join(', ') : <span className="text-gray-500">フリー</span>}
                   </div>
@@ -449,14 +466,12 @@ export default function FloorPage() {
                     <span>{table.guestCount}名</span>
                     <span className="text-gray-600">/</span>
                     <Clock size={11} />
-                    {(() => {
-                      const range = getCurrentSetRange(table)
-                      return (
-                        <span className="truncate">
-                          {range ? formatTimeRange(range.start, range.end) : `${table.startTime}〜`}
-                        </span>
-                      )
-                    })()}
+                    {/* PDF: 「12:00〜1:00まで」形式で開始〜終了を併記。 */}
+                    <span className="truncate">
+                      {range?.startHHMM && range?.endHHMM
+                        ? formatTimeRange(range.startHHMM, range.endHHMM)
+                        : `${table.startTime ?? ''}〜`}
+                    </span>
                   </div>
                   <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
                     {/* PDF指示: セットラベル + 残時間 を 1Set目 形式で並べる */}
@@ -474,7 +489,8 @@ export default function FloorPage() {
                     <div className="text-xs text-accent font-bold mt-0.5">50分経過</div>
                   )}
                 </div>
-              )}
+                )
+              })()}
             </button>
           )
         })}
@@ -491,10 +507,15 @@ export default function FloorPage() {
           <>
             {selected.startTime && (() => {
               const rem = calcRemainingMinutes(selected.startTime, selected.setCount, selected.timeAdjustmentMinutes ?? 0, selected.extensionHistory ?? [])
-              const range = getCurrentSetRange(selected)
+              // PDF/Word 仕様: 「1Set目 12:00〜1:00まで（残り20分）」「EX(2)半 12:00〜12:30まで（…）」
+              const range = getCurrentSetTimeRange({
+                startTime: selected.startTime,
+                setCount: selected.setCount,
+                extensionHistory: selected.extensionHistory,
+              })
               return (
                 <div className={`text-center py-3 rounded-[10px] mb-4 font-bold text-lg ${rem <= 5 ? 'bg-accent/10 text-red-300 border border-accent/30' : rem <= 10 ? 'bg-amber-500/10 text-amber-300 border border-amber-500/30' : 'panel-gold'}`}>
-                  {getSetLabel(selected)} {range && formatTimeRange(range.start, range.end)} (残り{rem > 0 ? `${rem}分` : '0分・終了'})
+                  {rem > 0 ? formatSetWithRange(range, rem) : `${range.label} 終了`}
                 </div>
               )
             })()}
@@ -604,12 +625,14 @@ export default function FloorPage() {
               <div className="mt-2 panel p-2">
                 <div className="text-xs text-gray-500 mb-1">延長履歴</div>
                 {selected.extensionHistory.map((ex, idx) => {
+                  // PDF/Word: 「EX(1) 11:00〜12:00まで」「EX(2)半 12:00〜12:30まで」
+                  const exLabel = getExtensionLabel(idx, ex.minutes)
                   const d = new Date(ex.timestamp)
-                  const start = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-                  const exLabel = ex.minutes === 30 ? `EX(${idx + 1})半` : `EX(${idx + 1})`
+                  const startHHMM = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+                  const endHHMM = addMinutesToHHMM(startHHMM, ex.minutes)
                   return (
                     <div key={ex.id} className="flex justify-between items-center text-xs py-0.5">
-                      <span className="text-gray-400">{exLabel} {formatTimeRange(start, addMinutesToHHmm(start, ex.minutes))}</span>
+                      <span className="text-gray-400">{exLabel} {formatTimeRange(startHHMM, endHHMM)}</span>
                       <button onClick={() => handleUndoExtension(ex.id)} className="text-accent flex items-center gap-1"><Undo2 size={10} /> 取消</button>
                     </div>
                   )
