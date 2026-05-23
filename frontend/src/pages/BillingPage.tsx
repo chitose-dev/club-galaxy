@@ -5,8 +5,10 @@ import { useAuth } from '../auth'
 import { getSetPriceForTime, getSetPriceLabel, displayOrderName } from '../data/mock'
 import type { DiscountLog, BillingRecord, IssuedReceipt } from '../data/mock'
 import { getNominationLabel } from '../utils/nomination'
-import { Printer, CheckCircle, ArrowLeft, CreditCard } from 'lucide-react'
+import { Printer, CheckCircle, ArrowLeft, CreditCard, ChevronDown, ChevronUp } from 'lucide-react'
 import ContextualHeader from '../components/ContextualHeader'
+import VisitBreakdownView from '../components/VisitBreakdownView'
+import { computeVisitBreakdown } from '../utils/visitBreakdown'
 import BottomActionBar from '../components/BottomActionBar'
 import { DangerButton, DarkButton, GhostButton } from '../components/Buttons'
 import PrintMethodModal from '../components/PrintMethodModal'
@@ -1449,11 +1451,14 @@ function BillingHistoryView({
   onReprintDetailed: (record: BillingRecord) => void
   onSplitIssue: (record: BillingRecord) => void
 }) {
-  const { voidBillingRecord } = useStore()
+  const { voidBillingRecord, menuCategories } = useStore()
   const [voidTarget, setVoidTarget] = useState<BillingRecord | null>(null)
   const [voidReason, setVoidReason] = useState('')
   const [voidError, setVoidError] = useState('')
   const [voiding, setVoiding] = useState(false)
+  // PDF/Word 要件「1組の中に複数伝票の内訳を紐づけて閲覧」用の展開状態。
+  // 行ごとに 1 つだけ開く（複数同時 expand すると履歴が縦に伸びすぎるため）。
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const today = new Date().toISOString().slice(0, 10)
   const sorted = [...records].sort((a, b) => {
@@ -1574,6 +1579,33 @@ function BillingHistoryView({
                 })()}
                 {!reprintable && (
                   <p className="text-[10px] text-gray-600 mt-1 text-center">※ 再印刷データなし</p>
+                )}
+                {/* 1組複数伝票の内訳閲覧。reprintable のとき (= receiptSnapshot あり)
+                    のみ意味のある breakdown が組めるため、無い場合は非表示。 */}
+                {reprintable && (
+                  <>
+                    <button
+                      onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}
+                      className="mt-2 w-full flex items-center justify-center gap-1 text-xs text-gray-400 hover:text-white py-1.5 border-t border-white/5"
+                    >
+                      {expandedId === r.id ? (
+                        <>
+                          <ChevronUp size={12} /> 伝票内訳を閉じる
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown size={12} /> 伝票内訳を表示
+                        </>
+                      )}
+                    </button>
+                    {expandedId === r.id && (
+                      <div className="mt-2 pt-3 border-t border-white/10">
+                        <VisitBreakdownView
+                          b={computeVisitBreakdown(r, menuCategories)}
+                        />
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )

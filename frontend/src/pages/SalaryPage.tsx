@@ -5,7 +5,8 @@ import { type BackType, type DailyWork, type UserAccount, type AttendanceRecord 
 import { computeDailyWork } from '../utils/dailyWork'
 import { calcHourlyPay } from '../utils/payroll'
 import { calcMonthlyGuaranteeShortfall } from '../utils/saleGuarantee'
-import { Plus, Trash2, FileText } from 'lucide-react'
+import { Plus, Trash2, FileText, FileDown } from 'lucide-react'
+import { buildMonthlyCastSalaryCsv, downloadCsv } from '../utils/taxCsv'
 import PayslipPopup from '../components/PayslipPopup'
 import { openPrintWindow } from '../utils/print'
 import { getPaymentDate, formatPaymentDate } from '../utils/paymentDate'
@@ -615,6 +616,25 @@ export default function SalaryPage() {
             className="w-full bg-white/5 border border-white/10 py-3 rounded-lg font-bold mb-4 text-sm text-gray-400 flex items-center justify-center gap-2"
           >
             月次日経表 PDF出力（ブラウザ印刷→PDFに保存）
+          </button>
+        )}
+
+        {/* 税理士向け: 月次キャスト給与 CSV (キャスト1人ぶんでも、対象月の全キャスト分でも出せる) */}
+        {user?.role !== 'cast' && (
+          <button
+            onClick={() => {
+              const now = new Date()
+              // 「月」セレクタを別途設けずに、今のところは「現在月」固定で出す。
+              // 必要になれば後続 PR で月指定 UI を追加する想定。
+              const monthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+              const csv = buildMonthlyCastSalaryCsv(
+                casts, billingRecords, attendanceRecords, monthPrefix,
+              )
+              downloadCsv(`cast-salary-${monthPrefix}.csv`, csv)
+            }}
+            className="w-full bg-white/5 border border-white/10 py-3 rounded-lg font-bold mb-4 text-sm text-gray-400 flex items-center justify-center gap-2"
+          >
+            <FileDown size={14} /> 月次キャスト給与 CSV (税理士提出用)
           </button>
         )}
 
