@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   DndContext,
@@ -23,7 +23,9 @@ import { calcHourlyPay } from '../utils/payroll'
 import type { Cast, BackType, GuestMenuItem, CastMenuItem, SetPrice, Table, StoreSettings, DailyWork, UserAccount, BillingRecord } from '../data/mock'
 import type { AttendanceRecord, Expense, ExpenseCategory, AdvancePayment, ArchivedData, DailyReport } from '../data/mock'
 import React from 'react'
-import { Pencil, Trash2, Plus, Save, Download, ChevronUp, ChevronDown, GripVertical, Clock, Printer, FileText, Wallet } from 'lucide-react'
+import { Pencil, Trash2, Plus, Save, Download, ChevronUp, ChevronDown, GripVertical, Clock, Printer, FileText, Wallet, Lock } from 'lucide-react'
+import { isBusinessDateClosed, LOCKED_TOOLTIP, getClosingState, getClosingStateLabel } from '../utils/closing'
+import { isUncollectedActive } from '../utils/uncollected'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { openPrintWindow } from '../utils/print'
 import ContextualHeader from '../components/ContextualHeader'
@@ -1515,7 +1517,7 @@ function AttendanceManager({
   const [payslipCast, setPayslipCast] = useState<Cast | null>(null)
   const [dailyPayCast, setDailyPayCast] = useState<Cast | null>(null)
   const [dailyPayAmount, setDailyPayAmount] = useState('')
-  const { addDailyPayRequest, addAttendanceEditLog, attendanceEditLogs } = useStore()
+  const { addDailyPayRequest, addAttendanceEditLog, attendanceEditLogs, dailyReports } = useStore()
   const { user } = useAuth()
   // 1 分ごとに再描画して 15 分枠の境界更新を反映
   const [, setNowTick] = useState(0)
@@ -1525,7 +1527,10 @@ function AttendanceManager({
   }, [])
 
   // PDF E: 出勤時刻を修正。15 分単位で丸め + workHours 再計算 + 監査ログ。
+  // PDF/Word 第2弾: 締め済み日のレコードはここで弾く（その営業日の DailyReport
+  // が closedAt 付きで存在すれば修正不可。reopen 後は再開可能）。
   const handleClockInEdit = (record: AttendanceRecord, rawClockIn: string) => {
+    if (isBusinessDateClosed(record.date, dailyReports)) return
     if (!rawClockIn || !/^\d{2}:\d{2}$/.test(rawClockIn)) return
     const newClockIn = roundClockInHHMM(rawClockIn)
     const oldClockIn = record.clockIn ?? null
@@ -1550,6 +1555,7 @@ function AttendanceManager({
 
   // PDF E: 退勤時刻も同様に修正可能（過去レコード復活）。
   const handleClockOutEdit = (record: AttendanceRecord, rawClockOut: string) => {
+    if (isBusinessDateClosed(record.date, dailyReports)) return
     if (!rawClockOut || !/^\d{2}:\d{2}$/.test(rawClockOut)) return
     const newClockOut = roundClockOutHHMM(rawClockOut)
     const oldClockOut = record.clockOut ?? null
@@ -1572,6 +1578,9 @@ function AttendanceManager({
 
   const handleDailyPaySubmit = () => {
     if (!dailyPayCast) return
+    // PDF/Word 第2弾: 本日が締め済みなら日払いも操作不可。
+    const today = new Date().toISOString().slice(0, 10)
+    if (isBusinessDateClosed(today, dailyReports)) return
     const amount = Number(dailyPayAmount)
     if (!Number.isFinite(amount) || amount <= 0) return
     addDailyPayRequest({
@@ -1668,6 +1677,7 @@ function AttendanceManager({
   }
 
   const handleBreakUpdate = (record: AttendanceRecord, minutes: number) => {
+    if (isBusinessDateClosed(record.date, dailyReports)) return
     const oldMin = record.breakMinutes
     updateAttendance(record.id, { breakMinutes: minutes })
     if (record.clockOut && record.clockIn) {
@@ -1828,7 +1838,9 @@ function AttendanceManager({
                     </button>
                     <button
                       onClick={() => { setDailyPayCast(castObj); setDailyPayAmount('') }}
-                      className="bg-white/5 hover:bg-white/10 text-gray-200 px-3 py-1 rounded text-xs flex items-center gap-1"
+                      disabled={isBusinessDateClosed(todayStr, dailyReports)}
+                      title={isBusinessDateClosed(todayStr, dailyReports) ? LOCKED_TOOLTIP : undefined}
+                      className="bg-white/5 hover:bg-white/10 text-gray-200 px-3 py-1 rounded text-xs flex items-center gap-1 disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       <Wallet size={11} /> 日払い
                     </button>
@@ -1967,39 +1979,122 @@ function AttendanceManager({
 
 // ─── 経費管理 ───
 
+// PDF/Word 第2弾 経費管理:
+//   - 経費追加時に「日付」を指定可能（打ち忘れ/まとめ入力に対応）
+//   - 一覧で 日付 / カテゴリ / 金額 / メモ / 登録日時 を見える形にする
+//   - 期間絞り込み (全期間 / 今日 / 今週 / 今月 / 期間指定)
+//   - 編集: 既存 API に PATCH が無いため delete + create で再登録する
+//     (旧 id は捨てられ新 id で再生成。メモに編集履歴を残す形で audit を担保)
+//   - 締め済み日 (DailyReport.closedAt 付き) の経費は追加/編集/削除すべて不可。
+//     既存ボタンを disable + tooltip で理由表示。
 function ExpenseManager({ expenses, addExpense, removeExpense }: {
   expenses: Expense[]
   addExpense: (expense: Expense) => void
   removeExpense: (id: number) => void
 }) {
+  const { dailyReports } = useStore()
   const [showAdd, setShowAdd] = useState(false)
   const [amount, setAmount] = useState('')
   const [category, setCategory] = useState<ExpenseCategory>('仕入れ（酒等）')
   const [note, setNote] = useState('')
   const [source, setSource] = useState<'register' | 'transfer'>('register')
+  const todayDateStr = new Date().toISOString().split('T')[0]
+  const [date, setDate] = useState<string>(todayDateStr)
+  const [editingId, setEditingId] = useState<number | null>(null)
   const [confirmTarget, setConfirmTarget] = useState<{ id: number; label: string } | null>(null)
+  // 期間絞り込み
+  const [rangeKey, setRangeKey] = useState<'all' | 'today' | 'week' | 'month' | 'custom'>('month')
+  const [fromDate, setFromDate] = useState<string>('')
+  const [toDate, setToDate] = useState<string>('')
 
-  const handleAdd = () => {
+  const categories: ExpenseCategory[] = ['仕入れ（酒等）', '税金', '雑費']
+
+  const resetForm = () => {
+    setAmount('')
+    setNote('')
+    setCategory('仕入れ（酒等）')
+    setSource('register')
+    setDate(todayDateStr)
+    setEditingId(null)
+    setShowAdd(false)
+  }
+
+  const isAddTargetClosed = isBusinessDateClosed(date, dailyReports)
+
+  const handleSubmit = () => {
     const amt = Number(amount)
     if (!amt || amt <= 0) return
+    if (isAddTargetClosed) return
+    // 編集: 古いレコードを delete してから新規 add (API 互換のため)。
+    // 編集された旨を note 末尾に追記して audit trail を残す。
+    if (editingId != null) {
+      const old = expenses.find((x) => x.id === editingId)
+      if (old) {
+        removeExpense(old.id)
+      }
+    }
     const now = new Date()
+    const baseNote = note.trim()
+    const auditNote = editingId != null
+      ? `${baseNote}${baseNote ? ' ' : ''}(${now.toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })} 編集)`
+      : baseNote
     addExpense({
       id: Date.now(),
       amount: amt,
       category,
-      note,
+      note: auditNote,
       source,
-      date: now.toISOString().split('T')[0],
+      date,
+      // timestamp は時刻のみ (既存スキーマ準拠)。登録日 (date) と組み合わせて
+      // 一覧画面で「2026/05/23 14:25」表示する。
       timestamp: now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
     })
-    setAmount('')
-    setNote('')
-    setShowAdd(false)
+    resetForm()
   }
 
-  const categories: ExpenseCategory[] = ['仕入れ（酒等）', '税金', '雑費']
-  const todayTotal = expenses.reduce((s, e) => s + e.amount, 0)
-  const registerTotal = expenses.filter((e) => e.source === 'register').reduce((s, e) => s + e.amount, 0)
+  const handleStartEdit = (e: Expense) => {
+    setEditingId(e.id)
+    setAmount(String(e.amount))
+    setCategory(e.category)
+    setNote(e.note)
+    setSource(e.source)
+    setDate(e.date)
+    setShowAdd(true)
+  }
+
+  // 期間フィルタ
+  const filteredExpenses = useMemo(() => {
+    const sorted = [...expenses].sort((a, b) => b.date.localeCompare(a.date))
+    const today = new Date()
+    const todayStr = today.toISOString().slice(0, 10)
+    if (rangeKey === 'all') return sorted
+    if (rangeKey === 'today') return sorted.filter((e) => e.date === todayStr)
+    if (rangeKey === 'week') {
+      const d = new Date(today); d.setDate(d.getDate() - 7)
+      const from = d.toISOString().slice(0, 10)
+      return sorted.filter((e) => e.date >= from)
+    }
+    if (rangeKey === 'month') {
+      const prefix = todayStr.slice(0, 7)
+      return sorted.filter((e) => e.date.startsWith(prefix))
+    }
+    return sorted.filter((e) => {
+      if (fromDate && e.date < fromDate) return false
+      if (toDate && e.date > toDate) return false
+      return true
+    })
+  }, [expenses, rangeKey, fromDate, toDate])
+
+  const totalAmount = filteredExpenses.reduce((s, e) => s + e.amount, 0)
+  const registerTotal = filteredExpenses.filter((e) => e.source === 'register').reduce((s, e) => s + e.amount, 0)
+
+  const rangeButtons: { k: typeof rangeKey; label: string }[] = [
+    { k: 'today', label: '今日' },
+    { k: 'week', label: '今週' },
+    { k: 'month', label: '今月' },
+    { k: 'all', label: '全期間' },
+    { k: 'custom', label: '期間指定' },
+  ]
 
   return (
     <div className="space-y-4">
@@ -2015,10 +2110,32 @@ function ExpenseManager({ expenses, addExpense, removeExpense }: {
       />
       <h3 className="text-sm font-bold text-gray-400 mb-2">経費管理</h3>
 
+      {/* 期間絞り込み */}
+      <div className="bg-white/5 rounded-lg p-3 space-y-2">
+        <div className="flex gap-1.5 flex-wrap">
+          {rangeButtons.map(({ k, label }) => (
+            <button
+              key={k}
+              onClick={() => setRangeKey(k)}
+              className={`px-3 py-1 rounded-lg text-xs font-bold ${rangeKey === k ? 'bg-white text-black' : 'bg-white/5 border border-white/10 text-gray-400'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {rangeKey === 'custom' && (
+          <div className="flex gap-2 items-center">
+            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-xs" />
+            <span className="text-gray-500 text-xs">〜</span>
+            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-xs" />
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-2 gap-2">
         <div className="bg-white/5 rounded-lg p-3 text-center">
-          <div className="text-xs text-gray-500">経費合計</div>
-          <div className="font-bold text-red-400 tabular-nums">¥{todayTotal.toLocaleString()}</div>
+          <div className="text-xs text-gray-500">経費合計 ({filteredExpenses.length}件)</div>
+          <div className="font-bold text-red-400 tabular-nums">¥{totalAmount.toLocaleString()}</div>
         </div>
         <div className="bg-white/5 rounded-lg p-3 text-center">
           <div className="text-xs text-gray-500">レジ現金支出</div>
@@ -2026,29 +2143,73 @@ function ExpenseManager({ expenses, addExpense, removeExpense }: {
         </div>
       </div>
 
-      {expenses.length > 0 && (
+      {filteredExpenses.length > 0 && (
         <div className="space-y-2">
-          {expenses.map((e) => (
-            <div key={e.id} className="bg-white/5 rounded-lg p-3 flex items-center justify-between">
-              <div>
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span className="text-sm font-bold">¥{e.amount.toLocaleString()}</span>
-                  <span className="text-xs bg-white/5 text-gray-400 px-1.5 py-0.5 rounded">{e.category}</span>
-                  <span className={`text-xs px-1.5 py-0.5 rounded ${e.source === 'register' ? 'bg-amber-500/10 text-amber-400' : 'bg-blue-500/10 text-blue-400'}`}>
-                    {e.source === 'register' ? 'レジ現金' : '振込・立替'}
-                  </span>
+          {filteredExpenses.map((e) => {
+            const closed = isBusinessDateClosed(e.date, dailyReports)
+            return (
+              <div key={e.id} className="bg-white/5 rounded-lg p-3 flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                    <span className="text-sm font-bold tabular-nums">¥{e.amount.toLocaleString()}</span>
+                    <span className="text-xs bg-white/5 text-gray-400 px-1.5 py-0.5 rounded">{e.category}</span>
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${e.source === 'register' ? 'bg-amber-500/10 text-amber-400' : 'bg-blue-500/10 text-blue-400'}`}>
+                      {e.source === 'register' ? 'レジ現金' : '振込・立替'}
+                    </span>
+                    {closed && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-gray-400 border border-white/20 flex items-center gap-1" title={LOCKED_TOOLTIP}>
+                        <Lock size={9} /> 締め済
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-gray-500 tabular-nums">
+                    {e.date} {e.timestamp}
+                  </div>
+                  {e.note && <div className="text-xs text-gray-400 mt-0.5 break-words">{e.note}</div>}
                 </div>
-                {e.note && <span className="text-xs text-gray-500">{e.note}</span>}
-                <span className="text-xs text-gray-600 ml-2">{e.timestamp}</span>
+                <div className="flex gap-1 shrink-0">
+                  <button
+                    onClick={() => handleStartEdit(e)}
+                    disabled={closed}
+                    title={closed ? LOCKED_TOOLTIP : '編集'}
+                    className="text-gray-600 hover:text-white p-1 disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <button
+                    onClick={() => setConfirmTarget({ id: e.id, label: `¥${e.amount.toLocaleString()} ${e.category}` })}
+                    disabled={closed}
+                    title={closed ? LOCKED_TOOLTIP : '削除'}
+                    className="text-gray-600 hover:text-red-400 p-1 disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
               </div>
-              <button onClick={() => setConfirmTarget({ id: e.id, label: `¥${e.amount.toLocaleString()} ${e.category}` })} className="text-gray-600 hover:text-red-400"><Trash2 size={13} /></button>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
       {showAdd ? (
         <div className="bg-white/5 rounded-lg p-3 space-y-2">
+          <div className="text-xs text-gray-500">
+            {editingId != null ? '経費を編集 (新 ID で再登録します)' : '経費を追加'}
+          </div>
+          <label className="block">
+            <span className="text-[10px] text-gray-500">対象日</span>
+            <input
+              type="date"
+              value={date}
+              onChange={(ev) => setDate(ev.target.value)}
+              className="w-full mt-0.5 bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm"
+            />
+            {isAddTargetClosed && (
+              <span className="block text-[10px] text-amber-300/80 mt-0.5">
+                ※ 締め済みの日付には追加・編集できません
+              </span>
+            )}
+          </label>
           <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="金額" className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" />
           <select value={category} onChange={(e) => setCategory(e.target.value as ExpenseCategory)} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm">
             {categories.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -2059,8 +2220,10 @@ function ExpenseManager({ expenses, addExpense, removeExpense }: {
           </div>
           <input type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder="メモ（任意）" className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" />
           <div className="flex gap-2">
-            <button onClick={handleAdd} disabled={!amount || Number(amount) <= 0} className="flex-1 bg-white text-black py-2 rounded-lg text-sm font-bold disabled:opacity-40">追加</button>
-            <button onClick={() => setShowAdd(false)} className="flex-1 bg-white/5 border border-white/10 py-2 rounded-lg text-sm text-gray-500">キャンセル</button>
+            <button onClick={handleSubmit} disabled={!amount || Number(amount) <= 0 || isAddTargetClosed} className="flex-1 bg-white text-black py-2 rounded-lg text-sm font-bold disabled:opacity-40">
+              {editingId != null ? '更新' : '追加'}
+            </button>
+            <button onClick={resetForm} className="flex-1 bg-white/5 border border-white/10 py-2 rounded-lg text-sm text-gray-500">キャンセル</button>
           </div>
         </div>
       ) : (
@@ -2405,8 +2568,11 @@ function DailyPayManager({
   dailyPayRequests: import('../data/mock').DailyPayRequest[]
   addDailyPayRequest: (req: import('../data/mock').DailyPayRequest) => void
 }) {
+  const { dailyReports } = useStore()
   // 追補02 R11-3: 営業日の定義 (朝 6:00 境界、開始日基準)
   const [targetDate, setTargetDate] = useState<string>(() => getTodayBusinessDay())
+  // PDF/Word 第2弾: 締め済み営業日の日払いは確定済給与の上書きになるため操作不可。
+  const targetDateClosed = isBusinessDateClosed(targetDate, dailyReports)
 
   // その営業日にシフト in / out があったキャストの集計
   const records = attendanceRecords.filter((r) => r.date === targetDate && r.staffType === 'cast')
@@ -2442,7 +2608,17 @@ function DailyPayManager({
           />
           <button onClick={() => setTargetDate(getTodayBusinessDay())} className="btn-ghost text-xs px-3 py-1">本日</button>
           <span className="text-xs text-gray-500">{formatBusinessDay(targetDate)}</span>
+          {targetDateClosed && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-gray-400 border border-white/20 flex items-center gap-1" title={LOCKED_TOOLTIP}>
+              <Lock size={9} /> 締め済
+            </span>
+          )}
         </div>
+        {targetDateClosed && (
+          <p className="text-xs text-amber-300/80 mt-2">
+            ※ 締め済み営業日のため日払い操作はロックされています。修正には「日報・レジ締め」で解除が必要です。
+          </p>
+        )}
       </div>
 
       <div className="panel p-4">
@@ -2478,7 +2654,9 @@ function DailyPayManager({
                   ) : (
                     <button
                       onClick={() => setPaying({ castId: c.id, castName: c.name, amount: net })}
-                      className="shrink-0 btn-gold text-xs px-3 py-1.5"
+                      disabled={targetDateClosed}
+                      title={targetDateClosed ? LOCKED_TOOLTIP : undefined}
+                      className="shrink-0 btn-gold text-xs px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       支払う
                     </button>
@@ -2497,6 +2675,11 @@ function DailyPayManager({
         confirmLabel="支払う"
         onConfirm={() => {
           if (!paying) return
+          if (targetDateClosed) {
+            // バックエンドが受理しても締め確定済給与とずれるため、ここで二重防御。
+            setPaying(null)
+            return
+          }
           addDailyPayRequest({
             id: Date.now(),
             castId: paying.castId,
@@ -2608,22 +2791,48 @@ function PrepayManager({
 
 // ────────────────────────────────────────────────────────────
 // 未収管理 (Fix 7-2): 未収 BillingRecord の確定・回収・締め相殺
+// PDF/Word 第2弾: 「空き卓にする」は廃止済みなので、未収は管理画面から
+// 明示的に「会計済み 1 組」を選んで `uncollectedStatus: 'pending'` で登録する。
+// 既存の isUncollected フラグ経由の未収も後方互換で扱う (utils/uncollected.ts)。
 // ────────────────────────────────────────────────────────────
-type UncollectedSubTab = 'pending' | 'written_off'
+type UncollectedSubTab = 'pending' | 'written_off' | 'register'
 
 function UncollectedManager({ billingRecords, updateBillingRecord }: {
   billingRecords: BillingRecord[]
   updateBillingRecord: (id: string, patch: Partial<Pick<BillingRecord, 'uncollectedStatus' | 'uncollectedReason' | 'writtenOffAt' | 'settledOff'>>) => void
 }) {
   const navigate = useNavigate()
+  const { dailyReports } = useStore()
   const [subTab, setSubTab] = useState<UncollectedSubTab>('pending')
   const [reasonFor, setReasonFor] = useState<BillingRecord | null>(null)
   const [reasonInput, setReasonInput] = useState('')
+  // 新規登録タブ用: 既存会計の検索キーワード（卓番号・キャスト名・日付など）
+  const [registerSearch, setRegisterSearch] = useState('')
+  const [registerTarget, setRegisterTarget] = useState<BillingRecord | null>(null)
+  const [registerReason, setRegisterReason] = useState('')
 
   const pendingList = billingRecords.filter(
-    (r) => r.isUncollected && r.uncollectedStatus !== 'written_off' && r.uncollectedStatus !== 'recovered',
+    (r) =>
+      isUncollectedActive(r) &&
+      r.uncollectedStatus !== 'written_off' &&
+      !r.voidedAt,
   )
   const writtenOffList = billingRecords.filter((r) => r.uncollectedStatus === 'written_off')
+  // 登録候補: 取消されていない・未収未登録の会計のみ
+  const registerCandidates = billingRecords
+    .filter((r) => !r.voidedAt && !isUncollectedActive(r))
+    .sort((a, b) => b.completedAt.localeCompare(a.completedAt))
+  const filteredCandidates = registerCandidates.filter((r) => {
+    if (!registerSearch.trim()) return true
+    const q = registerSearch.trim().toLowerCase()
+    const fields: string[] = [
+      r.tableNumber,
+      r.businessDate ?? r.date ?? '',
+      ...(r.castNamesSnapshot ?? []),
+      String(r.receiptSnapshot?.receiptNumber ?? ''),
+    ]
+    return fields.some((s) => s.toLowerCase().includes(q))
+  })
 
   const formatDateTime = (iso: string) => {
     try {
@@ -2645,6 +2854,22 @@ function UncollectedManager({ billingRecords, updateBillingRecord }: {
     })
     setReasonFor(null)
     setReasonInput('')
+  }
+
+  // PDF/Word 第2弾: 会計済み 1 組を未収として明示登録する。
+  // 既存スキーマの `isUncollected` フラグはバックエンド patch 不可なので、
+  // `uncollectedStatus: 'pending'` だけで「保留中（=未収扱い）」を表現する。
+  // isUncollectedActive() がこの状態も拾うため、売上集計から除外される。
+  const handleRegisterAsUncollected = () => {
+    if (!registerTarget) return
+    const reason = registerReason.trim()
+    if (!reason) return
+    updateBillingRecord(registerTarget.id, {
+      uncollectedStatus: 'pending',
+      uncollectedReason: reason,
+    })
+    setRegisterTarget(null)
+    setRegisterReason('')
   }
 
   return (
@@ -2676,20 +2901,56 @@ function UncollectedManager({ billingRecords, updateBillingRecord }: {
       )}
 
       {/* サブタブ */}
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap">
         <button
           onClick={() => setSubTab('pending')}
-          className={`flex-1 py-2 rounded-lg text-sm font-bold ${subTab === 'pending' ? 'bg-white text-black' : 'bg-white/5 text-gray-400 border border-white/10'}`}
+          className={`flex-1 min-w-[100px] py-2 rounded-lg text-sm font-bold ${subTab === 'pending' ? 'bg-white text-black' : 'bg-white/5 text-gray-400 border border-white/10'}`}
         >
           保留中 ({pendingList.length})
         </button>
         <button
           onClick={() => setSubTab('written_off')}
-          className={`flex-1 py-2 rounded-lg text-sm font-bold ${subTab === 'written_off' ? 'bg-white text-black' : 'bg-white/5 text-gray-400 border border-white/10'}`}
+          className={`flex-1 min-w-[100px] py-2 rounded-lg text-sm font-bold ${subTab === 'written_off' ? 'bg-white text-black' : 'bg-white/5 text-gray-400 border border-white/10'}`}
         >
           確定未収 ({writtenOffList.length})
         </button>
+        <button
+          onClick={() => setSubTab('register')}
+          className={`flex-1 min-w-[100px] py-2 rounded-lg text-sm font-bold ${subTab === 'register' ? 'bg-white text-black' : 'bg-white/5 text-gray-400 border border-white/10'}`}
+          title="会計済みの 1 組を選択して未収登録"
+        >
+          新規登録
+        </button>
       </div>
+
+      {/* 新規登録モーダル: 会計済み 1 組 → 未収扱い (保留中) として登録 */}
+      {registerTarget && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 border border-white/10 rounded-lg p-4 max-w-md w-full space-y-3">
+            <h3 className="text-sm font-bold text-white">未収として登録</h3>
+            <div className="text-xs text-gray-400">
+              {registerTarget.tableNumber}卓 / ¥{registerTarget.total.toLocaleString()} / {formatDateTime(registerTarget.completedAt)}
+            </div>
+            <div className="text-xs text-amber-300/80">
+              登録すると、この組は売上集計から除外されます (回収で取消可)。
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">事由（必須）</label>
+              <input
+                value={registerReason}
+                onChange={(e) => setRegisterReason(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm"
+                placeholder="例: カード端末エラーで未回収"
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => { setRegisterTarget(null); setRegisterReason('') }} className="flex-1 bg-white/5 border border-white/10 py-2 rounded-lg text-sm text-gray-400">キャンセル</button>
+              <button onClick={handleRegisterAsUncollected} disabled={!registerReason.trim()} className="flex-1 py-2 rounded-lg text-sm font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 disabled:opacity-40">未収登録する</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {subTab === 'pending' && (
         <div className="space-y-2">
@@ -2721,6 +2982,54 @@ function UncollectedManager({ billingRecords, updateBillingRecord }: {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {subTab === 'register' && (
+        <div className="space-y-2">
+          <div className="text-xs text-gray-400">
+            会計済みの 1 組を選んで未収として登録します。「空き卓にする」は廃止されたため、未収はここから明示的に登録してください。
+          </div>
+          <input
+            type="search"
+            value={registerSearch}
+            onChange={(e) => setRegisterSearch(e.target.value)}
+            placeholder="卓番号 / 担当キャスト / 日付 / 伝票No で絞り込み"
+            className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm"
+          />
+          {filteredCandidates.length === 0 ? (
+            <div className="text-center text-gray-500 text-sm py-8">
+              該当する会計記録がありません
+            </div>
+          ) : (
+            <div className="space-y-1.5 max-h-[60vh] overflow-y-auto">
+              {filteredCandidates.slice(0, 100).map((r) => {
+                const bd = r.businessDate ?? r.date ?? r.completedAt.slice(0, 10)
+                const closed = isBusinessDateClosed(bd, dailyReports)
+                return (
+                  <button
+                    key={r.id}
+                    onClick={() => { setRegisterTarget(r); setRegisterReason('') }}
+                    disabled={closed}
+                    title={closed ? LOCKED_TOOLTIP : undefined}
+                    className="w-full text-left bg-white/[0.03] hover:bg-white/[0.06] border border-white/5 rounded p-2.5 flex justify-between items-center disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <div className="text-xs text-gray-400 space-y-0.5 min-w-0">
+                      <div className="font-bold text-white">{r.tableNumber}卓 {closed && <span className="ml-1 text-[10px] text-gray-500">(締め済)</span>}</div>
+                      <div>{formatDateTime(r.completedAt)} / 担当: {(r.castNamesSnapshot ?? []).join(', ') || '-'}</div>
+                      {r.receiptSnapshot && <div className="text-gray-500">伝票No. {r.receiptSnapshot.receiptNumber}</div>}
+                    </div>
+                    <div className="text-base font-bold text-gold tabular-nums shrink-0 ml-3">¥{r.total.toLocaleString()}</div>
+                  </button>
+                )
+              })}
+              {filteredCandidates.length > 100 && (
+                <div className="text-[10px] text-gray-500 text-center py-2">
+                  ※ 上位 100 件のみ表示。さらに絞り込んでください。
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -2780,9 +3089,13 @@ function DailyReportManager({
 
   // 当該営業日の billingRecords から理論値を集計（取消は除外）。
   // 古い記録は businessDate を持たないため date にフォールバック。
-  const todayRecords = billingRecords.filter(
+  // PDF/Word 第2弾: 未収扱い (旧 isUncollected 或いは新 uncollectedStatus='pending'/'written_off')
+  // も売上集計から除外する。recovered (回収済) は通常会計扱いで含める。
+  const dateMatchedAll = billingRecords.filter(
     (r) => !r.voidedAt && ((r.businessDate ?? r.date) === businessDate),
   )
+  const todayRecords = dateMatchedAll.filter((r) => !isUncollectedActive(r))
+  const excludedUncollected = dateMatchedAll.filter((r) => isUncollectedActive(r))
   const cashSales = todayRecords.reduce((s, r) => s + (r.cashAmount ?? 0), 0)
   const cardSales = todayRecords.reduce((s, r) => s + (r.cardAmount ?? 0), 0)
   const totalSales = cashSales + cardSales
@@ -2917,6 +3230,14 @@ function DailyReportManager({
           <div>現金売上</div><div className="text-right">¥{cashSales.toLocaleString()}</div>
           <div>カード売上</div><div className="text-right">¥{cardSales.toLocaleString()}</div>
           <div>売上合計</div><div className="text-right">¥{totalSales.toLocaleString()}</div>
+          {excludedUncollected.length > 0 && (
+            <>
+              <div className="text-amber-300/80">未収除外</div>
+              <div className="text-right text-amber-300/80">
+                {excludedUncollected.length}件 / -¥{excludedUncollected.reduce((s, r) => s + r.total, 0).toLocaleString()}
+              </div>
+            </>
+          )}
           <div>理論有高</div><div className="text-right">¥{theoreticalCash.toLocaleString()}</div>
           <div className={difference === 0 ? 'text-emerald-400' : 'text-red-400'}>過不足</div>
           <div className={`text-right font-bold ${difference === 0 ? 'text-emerald-400' : 'text-red-400'}`}>
@@ -2949,11 +3270,25 @@ function DailyReportManager({
         {sortedReports.map((r) => {
           const bd = r.businessDate ?? r.date
           const isReopened = !r.closedAt && !!r.reopenedAt
+          // PDF/Word 第2弾: 締め状態をバッジで明示。closedAt あり = 締め済み (会計
+          // 修正・勤怠修正・経費追加すべてロック)、reopened = ロック解除中、open = 未締め。
+          const closingState = getClosingState(bd, dailyReports)
+          const stateLabel = getClosingStateLabel(closingState)
+          const stateClass = closingState === 'closed'
+            ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+            : closingState === 'reopened'
+              ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+              : 'bg-white/10 text-gray-400 border-white/20'
           return (
             <div key={`${bd}-${r.id}`} className="bg-white/5 rounded-lg p-3 space-y-2">
               <div className="flex justify-between items-start">
                 <div className="text-xs text-gray-400 space-y-0.5">
-                  <div className="text-white font-bold">{formatBusinessDay(bd)}</div>
+                  <div className="text-white font-bold flex items-center gap-2 flex-wrap">
+                    {formatBusinessDay(bd)}
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded border ${stateClass}`}>
+                      {stateLabel}
+                    </span>
+                  </div>
                   <div>売上 ¥{r.totalSales.toLocaleString()} / 実有高 ¥{r.actualCash.toLocaleString()}</div>
                   <div className={r.difference === 0 ? 'text-emerald-400' : 'text-red-400'}>
                     過不足 {r.difference >= 0 ? '+' : ''}¥{r.difference.toLocaleString()}
