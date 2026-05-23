@@ -38,22 +38,45 @@ export default function VisitBreakdownView({ b }: { b: VisitBreakdown }) {
         />
       </div>
 
-      {/* 伝票区分 (1Set目 / EX) */}
+      {/* 伝票区分 (1Set目 / EX) — 区分ごとに金額の概算を併記する。
+          ※ 指名・チャージは 1Set目 に集約。商品（メニュー注文）は組全体合計
+          のみ（注文単位の ticket 紐付けが残っていないため）。 */}
       <section>
-        <h4 className="text-xs text-gray-400 tracking-wider mb-1">伝票区分</h4>
+        <h4 className="text-xs text-gray-400 tracking-wider mb-1">
+          伝票区分（金額は概算 / 商品分は組全体合計に含む）
+        </h4>
         <div className="bg-white/[0.03] rounded border border-white/5">
           {b.tickets.map((t, i) => (
             <div
               key={`${t.kind}-${i}`}
-              className="flex items-center justify-between px-3 py-1.5 border-b border-white/5 last:border-b-0 text-sm"
+              className="px-3 py-2 border-b border-white/5 last:border-b-0 text-sm"
             >
-              <div className="flex items-center gap-3">
-                <span className="font-bold w-16 inline-block">{t.label}</span>
-                <span className="text-gray-400 tabular-nums">
-                  {t.rangeLabel || '-'}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="font-bold w-16 inline-block shrink-0">{t.label}</span>
+                  <span className="text-gray-400 tabular-nums">
+                    {t.rangeLabel || '-'}
+                  </span>
+                  <span className="text-[10px] text-gray-500 tabular-nums">
+                    {t.minutes}分
+                  </span>
+                </div>
+                <span className="text-gold font-bold tabular-nums">
+                  {yen(t.totalEstimate)}
                 </span>
               </div>
-              <span className="text-xs text-gray-500 tabular-nums">{t.minutes}分</span>
+              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-gray-400 pl-16">
+                <span className="tabular-nums">セット料金 {yen(t.setFeeAllocated)}</span>
+                {t.chargeAllocated > 0 && (
+                  <span className="tabular-nums">指名・チャージ {yen(t.chargeAllocated)}</span>
+                )}
+                {t.taxEstimate > 0 && (
+                  <span className="tabular-nums">TAX {yen(t.taxEstimate)}</span>
+                )}
+                {t.consumptionTaxEstimate > 0 && (
+                  <span className="tabular-nums">消費税 {yen(t.consumptionTaxEstimate)}</span>
+                )}
+              </div>
             </div>
           ))}
         </div>

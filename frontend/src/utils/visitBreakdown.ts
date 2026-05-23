@@ -23,6 +23,7 @@ import {
   type MenuCategory,
   type ReceiptSnapshot,
   SET_DURATION_MINUTES,
+  getSetPriceForTime,
   initialMenuCategories,
   isChargeOrNominationOrder,
 } from '../data/mock'
@@ -42,6 +43,25 @@ export interface VisitTicket {
   rangeLabel: string
   /** この区分の所要分数 (1Set目 = SET_DURATION_MINUTES、EX は entry.minutes) */
   minutes: number
+  /** この区分に按分されたセット/延長料金（円）。
+   *  - 1Set目: `getSetPriceForTime(startTime) × guestCount` (会計時単価で復元)
+   *  - EX:    残額（totals.setFee − 1Set目）を entry.minutes 比で按分
+   *  最後の EX で端数を吸収して setFee 合計と一致させる。 */
+  setFeeAllocated: number
+  /** 指名・同伴・チャージ系の合計（円）。
+   *  各 charge が「いつ発生したか」のタイムスタンプは記録されていないため、
+   *  便宜的に **1Set目** に全額集約する。EX 側は常に 0。 */
+  chargeAllocated: number
+  /** setFeeAllocated + chargeAllocated。商品（メニュー注文）は注文ごとの
+   *  ticket 紐付けが残っていないので含めない（visit 全体の `totals.menuSubtotal`
+   *  を別途参照する想定）。 */
+  subtotalEstimate: number
+  /** subtotalEstimate を visit 全体の subtotal で按分した TAX 概算（円）。 */
+  taxEstimate: number
+  /** 同じく消費税の按分概算（円）。 */
+  consumptionTaxEstimate: number
+  /** subtotalEstimate + taxEstimate + consumptionTaxEstimate。 */
+  totalEstimate: number
 }
 
 /** 注文・指名・チャージの 1 行を商品カテゴリ別に分けたもの。 */
@@ -133,13 +153,21 @@ function buildCategoryLabelMap(categories: readonly MenuCategory[]): Map<string,
   return m
 }
 
-/** 1Set目 ＋ 各 EX を時系列に並べたチケット行を返す。 */
-export function buildTickets(
+/** ベースの ticket 骨組み（時間帯まで）を作る内部 helper。金額は computeVisitBreakdown
+ *  側で配分してから上書きする。 */
+function buildTicketSkeletons(
   startTime: string | null,
   extensionHistory: readonly ExtensionEntry[] | undefined,
 ): VisitTicket[] {
+  const zeroMoney = {
+    setFeeAllocated: 0,
+    chargeAllocated: 0,
+    subtotalEstimate: 0,
+    taxEstimate: 0,
+    consumptionTaxEstimate: 0,
+    totalEstimate: 0,
+  }
   const tickets: VisitTicket[] = []
-  // 1Set目
   const setEnd = startTime ? addMinutesToHHmm(startTime, SET_DURATION_MINUTES) : null
   tickets.push({
     kind: 'set',
@@ -148,6 +176,7 @@ export function buildTickets(
     endHHMM: setEnd,
     rangeLabel: startTime && setEnd ? formatTimeRange(startTime, setEnd) : '',
     minutes: SET_DURATION_MINUTES,
+    ...zeroMoney,
   })
   // 延長分。entry.timestamp が ISO の場合は HH:MM に丸める。
   // 旧レコードで timestamp 欠落 / 不正な場合は、直前 ticket の endHHMM を起点に推定。
@@ -170,10 +199,55 @@ export function buildTickets(
       endHHMM: extEnd,
       rangeLabel: extStart && extEnd ? formatTimeRange(extStart, extEnd) : '',
       minutes: entry.minutes,
+      ...zeroMoney,
     })
     cursorHHMM = extEnd
   })
   return tickets
+}
+
+/**
+ * setFee の合計を 1Set目 / 各 EX に按分する。
+ * - 1Set目 = `getSetPriceForTime(startTime) × guestCount`（時間帯ごとの単価で復元）
+ * - 残額 = `setFeeTotal − 1Set目` を各 EX の minutes 比で按分
+ * - 端数は最後の EX が吸収して合計と一致させる
+ * - guestCount / startTime / 残額が取れない場合は均等割り（合計は保つ）
+ */
+export function allocateSetFee(
+  setFeeTotal: number,
+  startTime: string | null,
+  guestCount: number | null,
+  extensions: readonly ExtensionEntry[],
+): number[] {
+  const ticketCount = 1 + extensions.length
+  if (setFeeTotal <= 0 || ticketCount === 0) return new Array(ticketCount).fill(0)
+  // 1Set目 推定。startTime / guestCount があれば単価で復元、無ければ
+  // 「setFeeTotal を ticketCount で均等割り」のフォールバック。
+  let first = 0
+  if (startTime && guestCount != null && guestCount > 0) {
+    const unit = getSetPriceForTime(startTime)
+    first = Math.min(unit * guestCount, setFeeTotal)
+  } else {
+    first = Math.floor(setFeeTotal / ticketCount)
+  }
+  const out: number[] = [first]
+  const remaining = Math.max(0, setFeeTotal - first)
+  const totalExtMinutes = extensions.reduce((s, e) => s + e.minutes, 0)
+  let accum = 0
+  extensions.forEach((entry, i) => {
+    const isLast = i === extensions.length - 1
+    let portion: number
+    if (totalExtMinutes > 0) {
+      portion = isLast
+        ? Math.max(0, remaining - accum)
+        : Math.floor(remaining * (entry.minutes / totalExtMinutes))
+    } else {
+      portion = isLast ? Math.max(0, remaining - accum) : 0
+    }
+    out.push(portion)
+    accum += portion
+  })
+  return out
 }
 
 /**
@@ -191,7 +265,7 @@ export function computeVisitBreakdown(
   const labelMap = buildCategoryLabelMap(categories)
   const startTime = snap?.startTime ?? null
   const ext = record.extensionHistorySnapshot ?? []
-  const tickets = buildTickets(startTime, ext)
+  const tickets = buildTicketSkeletons(startTime, ext)
   const sessionEndHHMM = tickets.length > 0 ? tickets[tickets.length - 1].endHHMM : null
 
   // orders を charge / menu に分割し、subcategory 単位で集計する。
@@ -251,6 +325,35 @@ export function computeVisitBreakdown(
   const chargeSubtotal = chargeLines.reduce((s, l) => s + l.subtotal, 0)
   const menuSubtotal = menuLines.reduce((s, l) => s + l.subtotal, 0)
 
+  // ticket ごとに setFee / charge を按分し、subtotal と按分 tax を載せる。
+  // 商品 (menuSubtotal) は注文単位の ticket 紐付けが残っていないため、
+  // ticket には乗せず visit 全体合計だけ保持する（UI/CSV で注記する）。
+  const setFee = snap?.setFee ?? 0
+  const subtotal = snap?.subtotal ?? record.subtotalBeforeTax ?? 0
+  const tax = snap?.tax ?? 0
+  const consumptionTax = snap?.consumptionTax ?? 0
+  const guestCountVal = record.guestCountSnapshot ?? null
+  const setFeeByIndex = allocateSetFee(setFee, startTime, guestCountVal, ext)
+  let allocAccum = { tax: 0, ct: 0 }
+  tickets.forEach((t, i) => {
+    t.setFeeAllocated = setFeeByIndex[i] ?? 0
+    t.chargeAllocated = i === 0 ? chargeSubtotal : 0
+    t.subtotalEstimate = t.setFeeAllocated + t.chargeAllocated
+    const ratio = subtotal > 0 ? t.subtotalEstimate / subtotal : 0
+    const isLast = i === tickets.length - 1
+    // 最後の ticket は端数を吸収して合計と一致させる
+    if (isLast) {
+      t.taxEstimate = Math.max(0, tax - allocAccum.tax)
+      t.consumptionTaxEstimate = Math.max(0, consumptionTax - allocAccum.ct)
+    } else {
+      t.taxEstimate = Math.floor(tax * ratio)
+      t.consumptionTaxEstimate = Math.floor(consumptionTax * ratio)
+    }
+    t.totalEstimate = t.subtotalEstimate + t.taxEstimate + t.consumptionTaxEstimate
+    allocAccum.tax += t.taxEstimate
+    allocAccum.ct += t.consumptionTaxEstimate
+  })
+
   return {
     recordId: record.id,
     tableNumber: record.tableNumber,
@@ -267,12 +370,12 @@ export function computeVisitBreakdown(
     menuLines,
     categoryTotals,
     totals: {
-      setFee: snap?.setFee ?? 0,
+      setFee,
       chargeSubtotal,
       menuSubtotal,
-      subtotal: snap?.subtotal ?? record.subtotalBeforeTax ?? 0,
-      tax: snap?.tax ?? 0,
-      consumptionTax: snap?.consumptionTax ?? 0,
+      subtotal,
+      tax,
+      consumptionTax,
       discount: snap?.discount ?? 0,
       total: record.total,
     },

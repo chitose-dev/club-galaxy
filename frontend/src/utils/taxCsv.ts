@@ -17,10 +17,13 @@ import {
   type BillingRecord,
   type Cast,
   type AttendanceRecord,
+  type MenuCategory,
+  initialMenuCategories,
 } from '../data/mock'
 import { calcHourlyPay } from './payroll'
 import { computeDailyWork } from './dailyWork'
 import { calcMonthlyGuaranteeShortfall } from './saleGuarantee'
+import { computeVisitBreakdown } from './visitBreakdown'
 
 // ─────────────────────────────────────────────────────────────
 // 共通ユーティリティ
@@ -142,13 +145,21 @@ export function buildMonthlySalesCsv(
 /**
  * 月次売上 (内訳) CSV — 1組内の伝票区分・商品明細を 1 行ずつに展開した詳細版。
  * 「1組1件」の本 CSV とは別に、内訳確認用として税理士に補助提示する想定。
- * 列:
- *   営業日 / 会計日時 / 卓 / 伝票No / 行種別 / 区分 / 名称 / カテゴリ /
- *   数量 / 単価 / 小計 / 担当キャスト
+ *
+ * 行種別:
+ *   - 'セット料金'           : 1Set目 / EX(n) ごとに 1 行 (区分 = 'セット料金',
+ *                               名称 = '1Set目'/'EX(1)'/'EX(1)半'/...、
+ *                               小計 = computeVisitBreakdown の按分額)
+ *   - '指名・チャージ'       : 1Set目 に集約された charge 合計を 1 行 (>0 のときのみ)
+ *   - '注文'                 : 注文ごとに 1 行 (区分 = '組全体' = ticket 紐付け不可)
+ *
+ * @param categories - subcategory ID → 日本語ラベル解決元（store 由来）。
+ *   省略時は initialMenuCategories を使う（テスト用途・後方互換）。
  */
 export function buildMonthlySalesDetailCsv(
   records: readonly BillingRecord[],
   monthPrefix: string,
+  categories: readonly MenuCategory[] = initialMenuCategories,
 ): string {
   const header = [
     '営業日', '会計日時', '卓', '伝票No',
@@ -169,16 +180,26 @@ export function buildMonthlySalesDetailCsv(
     const base: (string | number | null | undefined)[] = [
       businessDate, r.completedAt, r.tableNumber, snap.receiptNumber,
     ]
-    // セット料金行
-    rows.push([
-      ...base, 'セット料金', '-', 'セット小計', '-', '', '',
-      snap.setFee, '',
-    ])
-    // 注文明細
+    const b = computeVisitBreakdown(r, categories)
+    // セット料金行を ticket ごとに 1 行ずつ出す（1Set目 / EX(n) / EX(n)半 ...）
+    for (const t of b.tickets) {
+      rows.push([
+        ...base, 'セット料金', t.label, 'セット料金', '-', '', '',
+        t.setFeeAllocated, '',
+      ])
+    }
+    // 指名・チャージ計（>0 のときのみ。1Set目 に集約済み）
+    if (b.totals.chargeSubtotal > 0) {
+      rows.push([
+        ...base, '指名・チャージ', '1Set目', '指名・チャージ計', '-', '', '',
+        b.totals.chargeSubtotal, '',
+      ])
+    }
+    // 注文明細 (組全体扱い — 注文ごとの ticket 紐付けは記録されていない)
     for (const o of snap.orders) {
       const qty = o.quantity ?? 1
       rows.push([
-        ...base, '注文', '-', o.menuItem.name,
+        ...base, '注文', '組全体', o.menuItem.name,
         o.menuItem.subcategory ?? '',
         qty, o.menuItem.price, qty * o.menuItem.price,
         o.castName ?? '',
@@ -221,6 +242,12 @@ export function buildMonthlyCastSalaryCsv(
 ): string {
   const monthRecords = filterMonthRecords(billingRecords, monthPrefix)
   const monthAttendance = attendanceRecords.filter((a) => a.date.startsWith(monthPrefix))
+  // PR #76/A2 仕様: 本指名ボトルバックを按分するため、computeDailyWork に
+  // **全キャスト分の `ボトルバック` 率マップ** を渡す必要がある（自キャスト分
+  // だけでは calcChampagneSplit が他の本指名割合を計算できず 0 になる）。
+  const bottleBackRateByCast = Object.fromEntries(
+    casts.map((c) => [c.name, c.backRates['ボトルバック'] ?? 0]),
+  )
 
   const header: string[] = [
     'キャストID', 'キャスト名', '本名',
@@ -238,10 +265,13 @@ export function buildMonthlyCastSalaryCsv(
     const attMine = monthAttendance.filter((a) => a.staffId === cast.id && a.staffType === 'cast')
     const totalHours = attMine.reduce((s, a) => s + (a.workHours ?? 0), 0)
     // 売上 / バックは computeDailyWork で日次集計してから月で合算。
-    // ボトルバック率は cast.backRates['本指名'] を渡す (extensionBackAmount の按分基準額)。
+    // shimeiRate = cast.backRates['本指名'] (extensionBackAmount の按分基準額)
+    // bottleBackRateByCast = 全キャスト分の率マップ (calcChampagneSplit が
+    //   レシート同卓の他キャストの率も参照するため、自キャストだけでは不足)
     const shimeiRate = cast.backRates['本指名'] ?? 0
     const dailyWork = computeDailyWork(
-      cast.id, cast.name, [...monthAttendance], [...monthRecords], shimeiRate,
+      cast.id, cast.name, [...monthAttendance], [...monthRecords],
+      shimeiRate, bottleBackRateByCast,
     )
     // 件数集計
     const backCounts: Partial<Record<BackType, number>> = {}

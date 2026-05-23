@@ -476,7 +476,9 @@ function StoreTrendView() {
                   </button>
                   <button
                     onClick={() => {
-                      const csv = buildMonthlySalesDetailCsv(billingRecords, monthPrefix)
+                      const csv = buildMonthlySalesDetailCsv(
+                        billingRecords, monthPrefix, menuCategories,
+                      )
                       downloadCsv(`sales-detail-${monthPrefix}.csv`, csv)
                     }}
                     className="flex items-center gap-1 text-xs px-3 py-1.5 bg-white/5 border border-white/10 rounded hover:bg-white/10"
