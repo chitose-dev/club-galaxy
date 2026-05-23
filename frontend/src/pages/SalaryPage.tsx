@@ -122,10 +122,20 @@ export default function SalaryPage() {
 
   const castDeductions = deductions.filter((d) => d.castId === selectedCastId)
   const deductionTotal = castDeductions.reduce((s, d) => s + d.amount, 0)
-  // PDF/Word 第3弾: 前借り合計を給与から自動天引きする。
-  // DataExport / DailyPayManager と整合するよう、同じキャスト ID の全前借り
-  // (期間絞り込みは現状未対応 = 月次累計) を引く。
-  const castAdvances = advancePayments.filter((p) => p.castId === selectedCastId)
+  // PDF/Word 第3弾 (重大2): 前借りを月次給与から自動天引き。
+  //   レビュー指摘: 全期間累計だと過去月の前借りが翌月以降も引かれ続ける二重控除
+  //   になる。**当月分のみ** + settledAt 済は除外する。
+  //   旧レコード (date が "5/23" 等の locale 表記) は YYYY-MM-DD 比較に失敗する
+  //   ため、当月扱いから外れて結果的に安全側 (= 引かれない) に倒れる。
+  const advanceMonthPrefix = useMemo(() => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  }, [])
+  const castAdvances = advancePayments.filter((p) => {
+    if (p.castId !== selectedCastId) return false
+    if (p.settledAt) return false                                // 既に精算済
+    return typeof p.date === 'string' && p.date.startsWith(advanceMonthPrefix)
+  })
   const advanceTotal = castAdvances.reduce((s, p) => s + p.amount, 0)
 
   // 指示書§4.1: 給与 = (時給×時間 + 各種バック) × 0.9 (ホステス税10%控除)

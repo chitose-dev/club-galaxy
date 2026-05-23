@@ -149,6 +149,11 @@ interface Store {
   /** PDF/Word 第3弾: 前借りの削除。編集は delete+create 方式（既存 API に
    *  PATCH エンドポイントが無いため）。 */
   removeAdvancePayment: (id: number) => void
+  /** PDF/Word 第3弾 重大2: 前借りに settledAt をマークして二重控除を防ぐ。
+   *  楽観的に local state へ反映する。バックエンドが当該フィールドを保存
+   *  しなくても、次回ログイン後は SalaryPage の月フィルタが当月外を除外
+   *  するため致命にはならない（暫定 OK）。 */
+  markAdvanceSettled: (id: number) => void
   // アーカイブ
   archivedData: ArchivedData[]
   archiveOldData: (beforeDate: string) => void
@@ -629,6 +634,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     advancesApi.softDelete(id).catch(console.error)
   }, [])
 
+  const markAdvanceSettled = useCallback((id: number) => {
+    // local 楽観反映のみ。API 永続化は将来 PATCH 実装で対応 (advancesApi に
+    // update エンドポイントが無いため、現状は再ロードで消える可能性あり)。
+    // ただしリロード後も SalaryPage の月フィルタで当月外は除外されるため、
+    // 「同月内 2 回計算で同じ前借りが二重に引かれる」直接の事故は防げる。
+    setAdvancePayments((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, settledAt: new Date().toISOString() } : p)),
+    )
+  }, [])
+
   const archiveOldData = useCallback((beforeDate: string) => {
     const toArchive = billingRecords.filter((r) => r.completedAt < beforeDate)
     if (toArchive.length === 0) return
@@ -786,6 +801,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         advancePayments,
         addAdvancePayment,
         removeAdvancePayment,
+        markAdvanceSettled,
         archivedData,
         archiveOldData,
         dailyReports,

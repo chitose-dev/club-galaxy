@@ -32,11 +32,8 @@ import ContextualHeader from '../components/ContextualHeader'
 import Tabs, { type TabItem } from '../components/Tabs'
 import NumberInput from '../components/NumberInput'
 import { getTodayBusinessDay, formatBusinessDay } from '../utils/businessDay'
-// PDF E: 勤怠 UI 拡張用
-import Modal from '../components/Modal'
-import { Input, Field } from '../components/Input'
-import { GoldButton, GhostButton } from '../components/Buttons'
 import PayslipPopup from '../components/PayslipPopup'
+import DailyPayDialog from '../components/DailyPayDialog'
 import { formatRealtimeWorkRange, roundClockInHHMM, roundClockOutHHMM, calcWorkHours } from '../utils/quarterHour'
 import { useAuth } from '../auth'
 
@@ -314,6 +311,8 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
   // PDF/Word 第3弾: カテゴリ名の編集 (ラベルだけ変更可能。id / kind / custom は不変)。
   // 既定カテゴリ (custom=false) も label だけは変えられるようにする
   // (例: 「単品ドリンク」→「ゲストドリンク」改名要件)。
+  // 永続化: setMenuCategories の wrapper (store.tsx) で menuApi.replaceCategories
+  // を呼ぶため、ここから setMenuCategories を呼ぶだけでバックエンドに反映される。
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null)
   const [editCategoryLabel, setEditCategoryLabel] = useState('')
   const handleSaveCategoryLabel = () => {
@@ -1557,8 +1556,10 @@ function AttendanceManager({
   const [staffType, setStaffType] = useState<'cast' | 'boy'>('cast')
   // PDF E: 給与明細ポップアップ / 日払い入力 / 15分リアルタイム再描画 / 監査ログ
   const [payslipCast, setPayslipCast] = useState<Cast | null>(null)
-  const [dailyPayCast, setDailyPayCast] = useState<Cast | null>(null)
-  const [dailyPayAmount, setDailyPayAmount] = useState('')
+  const [dailyPayTarget, setDailyPayTarget] = useState<
+    | { cast: Cast; calculatedAmount: number }
+    | null
+  >(null)
   const { addDailyPayRequest, addAttendanceEditLog, attendanceEditLogs, dailyReports } = useStore()
   const { user } = useAuth()
   // 1 分ごとに再描画して 15 分枠の境界更新を反映
@@ -1618,22 +1619,13 @@ function AttendanceManager({
     })
   }
 
-  const handleDailyPaySubmit = () => {
-    if (!dailyPayCast) return
-    // PDF/Word 第2弾: 本日が締め済みなら日払いも操作不可。
-    const today = new Date().toISOString().slice(0, 10)
-    if (isBusinessDateClosed(today, dailyReports)) return
-    const amount = Number(dailyPayAmount)
-    if (!Number.isFinite(amount) || amount <= 0) return
-    addDailyPayRequest({
-      id: Date.now(),
-      castId: dailyPayCast.id,
-      castName: dailyPayCast.name,
-      amount,
-      date: new Date().toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' }),
-    })
-    setDailyPayCast(null)
-    setDailyPayAmount('')
+  // 重大1: 共通の DailyPayDialog 経由で日払いを記録するヘルパー。
+  // date は YYYY-MM-DD 統一 (locale 表記 "5/23" との混在で history ソート破綻するため)。
+  const submitDailyPayFromDialog = (req: import('../data/mock').DailyPayRequest) => {
+    const todayJST = new Date().toISOString().slice(0, 10)
+    if (isBusinessDateClosed(todayJST, dailyReports)) return
+    addDailyPayRequest(req)
+    setDailyPayTarget(null)
   }
 
   // 追補02 R4: 事前予定登録フォーム用
@@ -1879,7 +1871,12 @@ function AttendanceManager({
                       <FileText size={11} /> 明細
                     </button>
                     <button
-                      onClick={() => { setDailyPayCast(castObj); setDailyPayAmount('') }}
+                      onClick={() => {
+                        // 自動計算額 = 時給 × 勤務時間 - 10% (DailyPayManager と同じ計算)
+                        const basePay = calcHourlyPay(castObj.hourlyRate, r.workHours ?? 0)
+                        const net = basePay - Math.floor(basePay * 0.1)
+                        setDailyPayTarget({ cast: castObj, calculatedAmount: net })
+                      }}
                       disabled={isBusinessDateClosed(todayStr, dailyReports)}
                       title={isBusinessDateClosed(todayStr, dailyReports) ? LOCKED_TOOLTIP : undefined}
                       className="bg-white/5 hover:bg-white/10 text-gray-200 px-3 py-1 rounded text-xs flex items-center gap-1 disabled:opacity-30 disabled:cursor-not-allowed"
@@ -1987,34 +1984,18 @@ function AttendanceManager({
         onClose={() => setPayslipCast(null)}
       />
 
-      {/* PDF E: 日払い入力ポップアップ */}
-      <Modal
-        open={!!dailyPayCast}
-        onClose={() => { setDailyPayCast(null); setDailyPayAmount('') }}
-        title={dailyPayCast ? `${dailyPayCast.name} - 日払い` : ''}
-        size="sm"
-        footer={
-          <>
-            <GhostButton onClick={() => { setDailyPayCast(null); setDailyPayAmount('') }} className="flex-1">キャンセル</GhostButton>
-            <GoldButton onClick={handleDailyPaySubmit} className="flex-1" disabled={!dailyPayAmount || Number(dailyPayAmount) <= 0}>
-              記録する
-            </GoldButton>
-          </>
-        }
-      >
-        <div className="space-y-2">
-          <Field label="日払い金額 (円)">
-            <Input
-              type="number"
-              value={dailyPayAmount}
-              onChange={(e) => setDailyPayAmount(e.target.value)}
-              placeholder="例: 5000"
-              className="tabular-nums"
-            />
-          </Field>
-          <p className="text-[10px] text-gray-500">※ 給与計算時の日払い済合計に反映されます。一律10%控除して手渡しが運用想定。</p>
-        </div>
-      </Modal>
+      {/* 重大1: AttendanceManager / WaitingCastPage / DailyPayManager で
+          UI を統一するため、共有 DailyPayDialog に置換。date は YYYY-MM-DD 統一。 */}
+      <DailyPayDialog
+        open={!!dailyPayTarget}
+        cast={dailyPayTarget ? { id: dailyPayTarget.cast.id, name: dailyPayTarget.cast.name } : null}
+        calculatedAmount={dailyPayTarget?.calculatedAmount ?? 0}
+        targetDate={todayStr}
+        operator={user?.displayName ?? user?.username}
+        staffType="cast"
+        onSubmit={submitDailyPayFromDialog}
+        onClose={() => setDailyPayTarget(null)}
+      />
     </div>
   )
 }
@@ -2291,7 +2272,7 @@ function AdvanceManager({ advancePayments, addAdvancePayment, casts, storeSettin
   casts: Cast[]
   storeSettings: StoreSettings
 }) {
-  const { dailyReports, removeAdvancePayment } = useStore()
+  const { dailyReports, removeAdvancePayment, markAdvanceSettled } = useStore()
   const todayDateStr = new Date().toISOString().slice(0, 10)
   const [showAdd, setShowAdd] = useState(false)
   const [castId, setCastId] = useState<number>(casts[0]?.id ?? 0)
@@ -2425,8 +2406,9 @@ function AdvanceManager({ advancePayments, addAdvancePayment, casts, storeSettin
         <div className="space-y-2">
           {sortedPayments.map((p) => {
             const closed = isBusinessDateClosed(p.date, dailyReports)
+            const settled = !!p.settledAt
             return (
-              <div key={p.id} className="bg-white/5 rounded-lg p-3">
+              <div key={p.id} className={`bg-white/5 rounded-lg p-3 ${settled ? 'opacity-60' : ''}`}>
                 <div className="flex items-center justify-between mb-0.5 gap-2 flex-wrap">
                   <div className="flex items-center gap-2 min-w-0 flex-wrap">
                     <span className="font-bold text-sm">{p.castName}</span>
@@ -2434,6 +2416,14 @@ function AdvanceManager({ advancePayments, addAdvancePayment, casts, storeSettin
                     <span className={`text-xs px-1.5 py-0.5 rounded ${p.source === 'register' ? 'bg-amber-500/10 text-amber-400' : 'bg-blue-500/10 text-blue-400'}`}>
                       {p.source === 'register' ? 'レジ現金' : '振込・立替'}
                     </span>
+                    {settled && (
+                      <span
+                        className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+                        title={p.settledAt ? `精算済: ${new Date(p.settledAt).toLocaleString('ja-JP')}` : '精算済'}
+                      >
+                        精算済
+                      </span>
+                    )}
                     {closed && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-gray-400 border border-white/20 flex items-center gap-1" title={LOCKED_TOOLTIP}>
                         <Lock size={9} /> 締め済
@@ -2445,18 +2435,28 @@ function AdvanceManager({ advancePayments, addAdvancePayment, casts, storeSettin
                     <button onClick={() => handlePrintReceipt(p)} className="text-gray-500 hover:text-white transition-colors p-1" title="受領書印刷">
                       <Printer size={13} />
                     </button>
+                    {!settled && (
+                      <button
+                        onClick={() => markAdvanceSettled(p.id)}
+                        disabled={closed}
+                        title={closed ? LOCKED_TOOLTIP : '給与で精算済としてマーク (翌月以降の天引き対象外にする)'}
+                        className="text-emerald-300 hover:bg-emerald-500/20 px-1.5 py-0.5 rounded text-[10px] disabled:opacity-30 disabled:cursor-not-allowed"
+                      >
+                        精算済に
+                      </button>
+                    )}
                     <button
                       onClick={() => handleStartEdit(p)}
-                      disabled={closed}
-                      title={closed ? LOCKED_TOOLTIP : '編集'}
+                      disabled={closed || settled}
+                      title={settled ? '精算済の前借りは編集できません' : closed ? LOCKED_TOOLTIP : '編集'}
                       className="text-gray-600 hover:text-white p-1 disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       <Pencil size={13} />
                     </button>
                     <button
                       onClick={() => setConfirmTarget({ id: p.id, label: `${p.castName} ¥${p.amount.toLocaleString()}` })}
-                      disabled={closed}
-                      title={closed ? LOCKED_TOOLTIP : '削除'}
+                      disabled={closed || settled}
+                      title={settled ? '精算済の前借りは削除できません' : closed ? LOCKED_TOOLTIP : '削除'}
                       className="text-gray-600 hover:text-red-400 p-1 disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       <Trash2 size={13} />
@@ -2753,11 +2753,9 @@ function DailyPayManager({
   const records = attendanceRecords.filter((r) => r.date === targetDate && r.staffType === 'cast')
   const activeTodayCasts = casts.filter((c) => records.some((r) => r.staffId === c.id))
 
-  // 第3弾: 支払い確認ダイアログを「自動計算 + 上書き + 理由 + メモ」入力可能な
-  // リッチダイアログに置換。手動入力は数値文字列で持ち、submit 時に Number 化。
+  // 第3弾: 支払い対象。共有 DailyPayDialog に渡す。
   const [paying, setPaying] = useState<
-    | { castId: number; castName: string; calculatedAmount: number; amountInput: string;
-        reason: string; note: string }
+    | { castId: number; castName: string; calculatedAmount: number }
     | null
   >(null)
 
@@ -2875,8 +2873,6 @@ function DailyPayManager({
                       onClick={() => setPaying({
                         castId: c.id, castName: c.name,
                         calculatedAmount: net,
-                        amountInput: String(net),
-                        reason: '', note: '',
                       })}
                       disabled={targetDateClosed}
                       title={targetDateClosed ? LOCKED_TOOLTIP : undefined}
@@ -2950,83 +2946,21 @@ function DailyPayManager({
         )}
       </div>
 
-      {/* 第3弾: 日払い額の手動上書き + 調整理由 + メモ を入力できるリッチダイアログ */}
-      {paying && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-900 border border-white/10 rounded-lg p-4 max-w-md w-full space-y-3">
-            <h3 className="text-sm font-bold text-white">日払い: {paying.castName}</h3>
-            <div className="text-xs text-gray-400 tabular-nums">
-              自動計算額: ¥{paying.calculatedAmount.toLocaleString()}
-            </div>
-            <div>
-              <label className="text-xs text-gray-500 block mb-1">実支給額（円）</label>
-              <input
-                type="number"
-                value={paying.amountInput}
-                onChange={(e) => setPaying({ ...paying, amountInput: e.target.value })}
-                className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm tabular-nums"
-                autoFocus
-              />
-            </div>
-            {Number(paying.amountInput) !== paying.calculatedAmount && (
-              <div>
-                <label className="text-xs text-amber-300/80 block mb-1">調整理由（推奨）</label>
-                <input
-                  type="text"
-                  value={paying.reason}
-                  onChange={(e) => setPaying({ ...paying, reason: e.target.value })}
-                  className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm"
-                  placeholder="例: ボーナス上乗せ / 研修費差引"
-                />
-              </div>
-            )}
-            <div>
-              <label className="text-xs text-gray-500 block mb-1">メモ（任意）</label>
-              <input
-                type="text"
-                value={paying.note}
-                onChange={(e) => setPaying({ ...paying, note: e.target.value })}
-                className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm"
-                placeholder="補足"
-              />
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setPaying(null)}
-                className="flex-1 bg-white/5 border border-white/10 py-2 rounded-lg text-sm text-gray-400"
-              >
-                キャンセル
-              </button>
-              <button
-                onClick={() => {
-                  if (!paying) return
-                  if (targetDateClosed) { setPaying(null); return }
-                  const amt = Number(paying.amountInput)
-                  if (!Number.isFinite(amt) || amt < 0) return
-                  addDailyPayRequest({
-                    id: Date.now(),
-                    castId: paying.castId,
-                    castName: paying.castName,
-                    amount: amt,
-                    calculatedAmount: paying.calculatedAmount,
-                    adjustReason: amt !== paying.calculatedAmount ? paying.reason.trim() || undefined : undefined,
-                    note: paying.note.trim() || undefined,
-                    paidAt: new Date().toISOString(),
-                    operator: user?.displayName ?? user?.username ?? undefined,
-                    date: targetDate,
-                    staffType: 'cast',
-                  })
-                  setPaying(null)
-                }}
-                disabled={!paying.amountInput || Number(paying.amountInput) < 0}
-                className="flex-1 py-2 rounded-lg text-sm font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 disabled:opacity-40"
-              >
-                支払う
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* 共有 DailyPayDialog: 自動計算 + 上書き + 理由 (必須) + メモ */}
+      <DailyPayDialog
+        open={!!paying}
+        cast={paying ? { id: paying.castId, name: paying.castName } : null}
+        calculatedAmount={paying?.calculatedAmount ?? 0}
+        targetDate={targetDate}
+        operator={user?.displayName ?? user?.username}
+        staffType="cast"
+        onSubmit={(req) => {
+          if (targetDateClosed) { setPaying(null); return }
+          addDailyPayRequest(req)
+          setPaying(null)
+        }}
+        onClose={() => setPaying(null)}
+      />
     </div>
   )
 }
