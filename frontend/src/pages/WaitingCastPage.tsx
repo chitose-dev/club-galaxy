@@ -22,6 +22,7 @@ import NumberInput from '../components/NumberInput'
 import { Edit2, Trash2, MapPin, ArrowRightCircle, Pause, Play, GripVertical, FileText, Wallet } from 'lucide-react'
 import type { Cast, Table } from '../data/mock'
 import { formatRealtimeWorkRange, roundClockInHHMM, roundClockOutHHMM, calcWorkHours } from '../utils/quarterHour'
+import { isBusinessDateClosed } from '../utils/closing'
 import PayslipPopup from '../components/PayslipPopup'
 import { useAuth } from '../auth'
 
@@ -44,7 +45,7 @@ const isInLooseTime = (c: Cast): boolean => {
 }
 
 export default function WaitingCastPage() {
-  const { casts, setCasts, tables, moveCast, attendanceRecords, addAttendance, addDailyPayRequest, updateAttendance, addAttendanceEditLog } = useStore()
+  const { casts, setCasts, tables, moveCast, attendanceRecords, addAttendance, addDailyPayRequest, updateAttendance, addAttendanceEditLog, dailyReports } = useStore()
   const { user } = useAuth()
   const navigate = useNavigate()
 
@@ -98,6 +99,8 @@ export default function WaitingCastPage() {
     if (!editClockInCast) return
     const rec = todayAttendanceByCastId.get(editClockInCast.id)
     if (!rec) return
+    // PDF/Word 第2弾: 締め済み営業日の勤怠は修正不可（reopen 後に再開）。
+    if (isBusinessDateClosed(rec.date, dailyReports)) return
     const raw = editClockInValue
     if (!raw || !/^\d{2}:\d{2}$/.test(raw)) return
     // PDF E: 修正値も 15 分単位で「切り上げ」に丸める（出勤側）

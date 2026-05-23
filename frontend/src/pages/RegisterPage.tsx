@@ -4,6 +4,7 @@ import { useAuth } from '../auth'
 import { Pencil, Trash2, Printer, Download } from 'lucide-react'
 import { openPrintWindow } from '../utils/print'
 import type { DailyReport } from '../data/mock'
+import { isUncollectedActive } from '../utils/uncollected'
 import ContextualHeader from '../components/ContextualHeader'
 import Tabs from '../components/Tabs'
 import Modal from '../components/Modal'
@@ -49,14 +50,15 @@ function ClosingView() {
   const [savedMessage, setSavedMessage] = useState('')
 
   // レジ締めは本日分の会計のみ対象。businessDate (JST 営業日) を優先参照。
-  // 未回収の未収分 (isUncollected && status !== 'recovered') は売上から除外。
+  // 未回収の未収分 (旧 isUncollected フラグ or 新 uncollectedStatus='pending'/'written_off')
+  // は売上から除外。判定は isUncollectedActive ヘルパーに集約。
   const todayStr = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
   const todaysAllRecords = useMemo(
     () => allBillingRecords.filter((r) => (r.businessDate ?? r.date ?? todayStr) === todayStr),
     [allBillingRecords, todayStr],
   )
   const billingRecords = useMemo(
-    () => todaysAllRecords.filter((r) => !(r.isUncollected && r.uncollectedStatus !== 'recovered')),
+    () => todaysAllRecords.filter((r) => !isUncollectedActive(r)),
     [todaysAllRecords],
   )
   // 締め相殺フラグが立っている本日分の合計（締め画面表示用、売上には含めない）

@@ -5,10 +5,11 @@ import { useAuth } from '../auth'
 import { getSetPriceForTime, getSetPriceLabel, displayOrderName } from '../data/mock'
 import type { DiscountLog, BillingRecord, IssuedReceipt } from '../data/mock'
 import { getNominationLabel } from '../utils/nomination'
-import { Printer, CheckCircle, ArrowLeft, CreditCard, ChevronDown, ChevronUp } from 'lucide-react'
+import { Printer, CheckCircle, ArrowLeft, CreditCard, ChevronDown, ChevronUp, Lock } from 'lucide-react'
 import ContextualHeader from '../components/ContextualHeader'
 import VisitBreakdownView from '../components/VisitBreakdownView'
 import { computeVisitBreakdown } from '../utils/visitBreakdown'
+import { isBusinessDateClosed, LOCKED_TOOLTIP } from '../utils/closing'
 import BottomActionBar from '../components/BottomActionBar'
 import { DangerButton, DarkButton, GhostButton } from '../components/Buttons'
 import PrintMethodModal from '../components/PrintMethodModal'
@@ -1451,7 +1452,7 @@ function BillingHistoryView({
   onReprintDetailed: (record: BillingRecord) => void
   onSplitIssue: (record: BillingRecord) => void
 }) {
-  const { voidBillingRecord, menuCategories } = useStore()
+  const { voidBillingRecord, menuCategories, dailyReports } = useStore()
   const [voidTarget, setVoidTarget] = useState<BillingRecord | null>(null)
   const [voidReason, setVoidReason] = useState('')
   const [voidError, setVoidError] = useState('')
@@ -1505,6 +1506,13 @@ function BillingHistoryView({
           {sorted.map((r) => {
             const reprintable = !!r.receiptSnapshot
             const isVoided = !!r.voidedAt
+            // PDF/Word 要件: 締め済み日のレコードは取消・修正をフロント側で先に弾く。
+            // 既存のバックエンド 422 ALREADY_CLOSED ガードは維持しつつ、ボタンを
+            // 押した時点でモーダルを出さずインラインで案内する。
+            const isClosed = isBusinessDateClosed(
+              r.businessDate ?? r.date ?? r.completedAt.slice(0, 10),
+              dailyReports,
+            )
             return (
               <div key={r.id} className={`panel p-3 ${isVoided ? 'opacity-60' : ''}`}>
                 <div className="flex justify-between items-start mb-2">
@@ -1519,6 +1527,14 @@ function BillingHistoryView({
                       {isVoided && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30">
                           取消済
+                        </span>
+                      )}
+                      {isClosed && !isVoided && (
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-gray-400 border border-white/20 flex items-center gap-1"
+                          title={LOCKED_TOOLTIP}
+                        >
+                          <Lock size={10} /> 締め済
                         </span>
                       )}
                     </div>
@@ -1560,7 +1576,8 @@ function BillingHistoryView({
                   {isOwner && (
                     <button
                       onClick={() => { setVoidTarget(r); setVoidReason(''); setVoidError('') }}
-                      disabled={isVoided}
+                      disabled={isVoided || isClosed}
+                      title={isClosed ? LOCKED_TOOLTIP : undefined}
                       className="px-3 py-2 text-xs font-bold rounded-lg bg-red-500/20 text-red-400 border border-red-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       取消
