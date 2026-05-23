@@ -10,6 +10,7 @@ import ContextualHeader from '../components/ContextualHeader'
 import VisitBreakdownView from '../components/VisitBreakdownView'
 import { computeVisitBreakdown } from '../utils/visitBreakdown'
 import { isBusinessDateClosed, LOCKED_TOOLTIP } from '../utils/closing'
+import { isUncollectedActive } from '../utils/uncollected'
 import BottomActionBar from '../components/BottomActionBar'
 import { DangerButton, DarkButton, GhostButton } from '../components/Buttons'
 import PrintMethodModal from '../components/PrintMethodModal'
@@ -199,11 +200,13 @@ export default function BillingPage() {
     )
   })() : null
 
-  // 未収回収モード: ?uncollectedId=<id> が付いている場合、対象未収レコードの
+  // 未収回収モード: ?uncollectedId=<id> が付いている場合、対象未収レコードの。
+  // 旧 `isUncollected` フラグ + 新 `uncollectedStatus='pending'/'written_off'` の
+  // どちらも回収対象に含めるため isUncollectedActive で統一判定する。
   // 通常会計（recovered 化）専用 UI を表示する（通常の卓選択 UI を bypass）
   const uncollectedId = searchParams.get('uncollectedId')
   const uncollectedRecord = uncollectedId
-    ? billingRecords.find((r) => r.id === uncollectedId && r.isUncollected) ?? null
+    ? billingRecords.find((r) => r.id === uncollectedId && isUncollectedActive(r)) ?? null
     : null
   if (uncollectedRecord) {
     return <UncollectedRecoveryView record={uncollectedRecord} />

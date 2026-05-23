@@ -1578,6 +1578,9 @@ function AttendanceManager({
 
   const handleDailyPaySubmit = () => {
     if (!dailyPayCast) return
+    // PDF/Word 第2弾: 本日が締め済みなら日払いも操作不可。
+    const today = new Date().toISOString().slice(0, 10)
+    if (isBusinessDateClosed(today, dailyReports)) return
     const amount = Number(dailyPayAmount)
     if (!Number.isFinite(amount) || amount <= 0) return
     addDailyPayRequest({
@@ -1835,7 +1838,9 @@ function AttendanceManager({
                     </button>
                     <button
                       onClick={() => { setDailyPayCast(castObj); setDailyPayAmount('') }}
-                      className="bg-white/5 hover:bg-white/10 text-gray-200 px-3 py-1 rounded text-xs flex items-center gap-1"
+                      disabled={isBusinessDateClosed(todayStr, dailyReports)}
+                      title={isBusinessDateClosed(todayStr, dailyReports) ? LOCKED_TOOLTIP : undefined}
+                      className="bg-white/5 hover:bg-white/10 text-gray-200 px-3 py-1 rounded text-xs flex items-center gap-1 disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       <Wallet size={11} /> 日払い
                     </button>
@@ -2563,8 +2568,11 @@ function DailyPayManager({
   dailyPayRequests: import('../data/mock').DailyPayRequest[]
   addDailyPayRequest: (req: import('../data/mock').DailyPayRequest) => void
 }) {
+  const { dailyReports } = useStore()
   // 追補02 R11-3: 営業日の定義 (朝 6:00 境界、開始日基準)
   const [targetDate, setTargetDate] = useState<string>(() => getTodayBusinessDay())
+  // PDF/Word 第2弾: 締め済み営業日の日払いは確定済給与の上書きになるため操作不可。
+  const targetDateClosed = isBusinessDateClosed(targetDate, dailyReports)
 
   // その営業日にシフト in / out があったキャストの集計
   const records = attendanceRecords.filter((r) => r.date === targetDate && r.staffType === 'cast')
@@ -2600,7 +2608,17 @@ function DailyPayManager({
           />
           <button onClick={() => setTargetDate(getTodayBusinessDay())} className="btn-ghost text-xs px-3 py-1">本日</button>
           <span className="text-xs text-gray-500">{formatBusinessDay(targetDate)}</span>
+          {targetDateClosed && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-gray-400 border border-white/20 flex items-center gap-1" title={LOCKED_TOOLTIP}>
+              <Lock size={9} /> 締め済
+            </span>
+          )}
         </div>
+        {targetDateClosed && (
+          <p className="text-xs text-amber-300/80 mt-2">
+            ※ 締め済み営業日のため日払い操作はロックされています。修正には「日報・レジ締め」で解除が必要です。
+          </p>
+        )}
       </div>
 
       <div className="panel p-4">
@@ -2636,7 +2654,9 @@ function DailyPayManager({
                   ) : (
                     <button
                       onClick={() => setPaying({ castId: c.id, castName: c.name, amount: net })}
-                      className="shrink-0 btn-gold text-xs px-3 py-1.5"
+                      disabled={targetDateClosed}
+                      title={targetDateClosed ? LOCKED_TOOLTIP : undefined}
+                      className="shrink-0 btn-gold text-xs px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       支払う
                     </button>
@@ -2655,6 +2675,11 @@ function DailyPayManager({
         confirmLabel="支払う"
         onConfirm={() => {
           if (!paying) return
+          if (targetDateClosed) {
+            // バックエンドが受理しても締め確定済給与とずれるため、ここで二重防御。
+            setPaying(null)
+            return
+          }
           addDailyPayRequest({
             id: Date.now(),
             castId: paying.castId,
@@ -3064,9 +3089,13 @@ function DailyReportManager({
 
   // 当該営業日の billingRecords から理論値を集計（取消は除外）。
   // 古い記録は businessDate を持たないため date にフォールバック。
-  const todayRecords = billingRecords.filter(
+  // PDF/Word 第2弾: 未収扱い (旧 isUncollected 或いは新 uncollectedStatus='pending'/'written_off')
+  // も売上集計から除外する。recovered (回収済) は通常会計扱いで含める。
+  const dateMatchedAll = billingRecords.filter(
     (r) => !r.voidedAt && ((r.businessDate ?? r.date) === businessDate),
   )
+  const todayRecords = dateMatchedAll.filter((r) => !isUncollectedActive(r))
+  const excludedUncollected = dateMatchedAll.filter((r) => isUncollectedActive(r))
   const cashSales = todayRecords.reduce((s, r) => s + (r.cashAmount ?? 0), 0)
   const cardSales = todayRecords.reduce((s, r) => s + (r.cardAmount ?? 0), 0)
   const totalSales = cashSales + cardSales
@@ -3201,6 +3230,14 @@ function DailyReportManager({
           <div>現金売上</div><div className="text-right">¥{cashSales.toLocaleString()}</div>
           <div>カード売上</div><div className="text-right">¥{cardSales.toLocaleString()}</div>
           <div>売上合計</div><div className="text-right">¥{totalSales.toLocaleString()}</div>
+          {excludedUncollected.length > 0 && (
+            <>
+              <div className="text-amber-300/80">未収除外</div>
+              <div className="text-right text-amber-300/80">
+                {excludedUncollected.length}件 / -¥{excludedUncollected.reduce((s, r) => s + r.total, 0).toLocaleString()}
+              </div>
+            </>
+          )}
           <div>理論有高</div><div className="text-right">¥{theoreticalCash.toLocaleString()}</div>
           <div className={difference === 0 ? 'text-emerald-400' : 'text-red-400'}>過不足</div>
           <div className={`text-right font-bold ${difference === 0 ? 'text-emerald-400' : 'text-red-400'}`}>

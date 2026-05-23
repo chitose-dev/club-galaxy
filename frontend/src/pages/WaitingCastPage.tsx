@@ -82,6 +82,8 @@ export default function WaitingCastPage() {
 
   const handleDailyPaySubmit = () => {
     if (!dailyPayCast) return
+    // PDF/Word 第2弾: 本日が締め済みなら日払いも操作不可。
+    if (isBusinessDateClosed(todayStr, dailyReports)) return
     const amount = Number(dailyPayAmount)
     if (!Number.isFinite(amount) || amount <= 0) return
     addDailyPayRequest({
@@ -341,7 +343,12 @@ export default function WaitingCastPage() {
                       setEditClockInValue(todayRec.clockIn ?? '')
                     } : undefined}
                     onPayslip={() => setPayslipCast(c)}
-                    onDailyPay={() => { setDailyPayCast(c); setDailyPayAmount('') }}
+                    /* PDF/Word 第2弾: 締め済み営業日は日払い操作不可 → ボタン自体を出さない */
+                    onDailyPay={
+                      isBusinessDateClosed(todayStr, dailyReports)
+                        ? undefined
+                        : () => { setDailyPayCast(c); setDailyPayAmount('') }
+                    }
                     onEdit={() => setEditing(c)}
                     onDelete={() => setPendingDelete(c)}
                     onToggleBreak={() => handleToggleBreak(c.id)}
