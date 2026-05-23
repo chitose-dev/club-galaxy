@@ -23,7 +23,7 @@ type StaffType = 'cast' | 'boy'
 const backTypeOrder: BackType[] = ['FD', '本D', 'Fカク', '本カク', '本カクW', '同伴', '本指名', '場内指名', 'ボトルバック', 'ヘルプ', 'その他']
 
 export default function SalaryPage() {
-  const { casts, dailyPayRequests, addDailyPayRequest, deductions, setDeductions, userAccounts, attendanceRecords, billingRecords, storeSettings } = useStore()
+  const { casts, dailyPayRequests, addDailyPayRequest, deductions, setDeductions, userAccounts, attendanceRecords, billingRecords, storeSettings, advancePayments } = useStore()
   const { user } = useAuth()
   const activeCasts = casts.filter((c) => c.active)
 
@@ -122,6 +122,11 @@ export default function SalaryPage() {
 
   const castDeductions = deductions.filter((d) => d.castId === selectedCastId)
   const deductionTotal = castDeductions.reduce((s, d) => s + d.amount, 0)
+  // PDF/Word 第3弾: 前借り合計を給与から自動天引きする。
+  // DataExport / DailyPayManager と整合するよう、同じキャスト ID の全前借り
+  // (期間絞り込みは現状未対応 = 月次累計) を引く。
+  const castAdvances = advancePayments.filter((p) => p.castId === selectedCastId)
+  const advanceTotal = castAdvances.reduce((s, p) => s + p.amount, 0)
 
   // 指示書§4.1: 給与 = (時給×時間 + 各種バック) × 0.9 (ホステス税10%控除)
   // 最終振込 = 給与 − 日払い − 天引き
@@ -159,7 +164,8 @@ export default function SalaryPage() {
   const grossSalary = Math.floor(taxablePre * 0.9)                                // 支給額 (10% ホステス税控除後)
   const hostessTax = taxablePre - grossSalary                                     // ホステス税
   const guaranteeApplied = guaranteeShortfall > 0                                 // 売上保証差額が上乗せされたか
-  const netSalary = grossSalary - dailyPayTotal - deductionTotal                  // 最終振込
+  // 最終振込 = 支給額 − 日払い − 天引き − 前借り (第3弾で advanceTotal を追加)
+  const netSalary = grossSalary - dailyPayTotal - deductionTotal - advanceTotal
 
   const getDayBackAmount = (w: DailyWork): number => {
     if (!cast) return 0
@@ -521,11 +527,18 @@ export default function SalaryPage() {
               <span className="tabular-nums">-¥{deductionTotal.toLocaleString()}</span>
             </div>
           )}
+          {/* PDF/Word 第3弾: 前借りを天引きとは別の独立行で表示する。 */}
+          {advanceTotal > 0 && (
+            <div className="flex justify-between text-sm text-red-400">
+              <span>前借り合計 ({castAdvances.length}件)</span>
+              <span className="tabular-nums">-¥{advanceTotal.toLocaleString()}</span>
+            </div>
+          )}
           <div className="border-t border-white/10 pt-2 flex justify-between">
             <span className="font-bold text-lg">最終振込額</span>
             <span className="font-bold text-2xl text-gold tabular-nums">¥{netSalary.toLocaleString()}</span>
           </div>
-          <div className="text-xs text-gray-600">= 支給額 - 日払い - 天引き</div>
+          <div className="text-xs text-gray-600">= 支給額 - 日払い - 天引き - 前借り</div>
           {/* PDF F: 月単位の売上保証集計を参考表示。'first' 期間でも判定可能。 */}
           {cast && monthlyShortfallBreakdown && monthlyShortfallBreakdown.shortfall > 0 && (
             <div className="text-[10px] text-amber-400/70 mt-1 border-t border-amber-500/20 pt-2">

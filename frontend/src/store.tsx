@@ -146,6 +146,9 @@ interface Store {
   // 前借り管理
   advancePayments: AdvancePayment[]
   addAdvancePayment: (payment: AdvancePayment) => void
+  /** PDF/Word 第3弾: 前借りの削除。編集は delete+create 方式（既存 API に
+   *  PATCH エンドポイントが無いため）。 */
+  removeAdvancePayment: (id: number) => void
   // アーカイブ
   archivedData: ArchivedData[]
   archiveOldData: (beforeDate: string) => void
@@ -621,6 +624,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     advancesApi.create(payment).catch(console.error)
   }, [])
 
+  const removeAdvancePayment = useCallback((id: number) => {
+    setAdvancePayments((prev) => prev.filter((p) => p.id !== id))
+    advancesApi.softDelete(id).catch(console.error)
+  }, [])
+
   const archiveOldData = useCallback((beforeDate: string) => {
     const toArchive = billingRecords.filter((r) => r.completedAt < beforeDate)
     if (toArchive.length === 0) return
@@ -777,6 +785,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         removeExpense,
         advancePayments,
         addAdvancePayment,
+        removeAdvancePayment,
         archivedData,
         archiveOldData,
         dailyReports,

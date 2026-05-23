@@ -311,6 +311,22 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
     setMenuCategories((prev) => prev.filter((c) => c.id !== id))
   }
 
+  // PDF/Word 第3弾: カテゴリ名の編集 (ラベルだけ変更可能。id / kind / custom は不変)。
+  // 既定カテゴリ (custom=false) も label だけは変えられるようにする
+  // (例: 「単品ドリンク」→「ゲストドリンク」改名要件)。
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null)
+  const [editCategoryLabel, setEditCategoryLabel] = useState('')
+  const handleSaveCategoryLabel = () => {
+    if (!editingCategoryId) return
+    const label = editCategoryLabel.trim()
+    if (!label) return
+    setMenuCategories((prev) =>
+      prev.map((c) => (c.id === editingCategoryId ? { ...c, label } : c)),
+    )
+    setEditingCategoryId(null)
+    setEditCategoryLabel('')
+  }
+
   return (
     <div className="space-y-6">
       <ConfirmDialog
@@ -345,21 +361,47 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
           {[...menuCategories].sort((a, b) => a.order - b.order).map((c) => (
             <div key={c.id} className={`flex items-center gap-2 text-xs bg-white/5 px-2 py-1.5 rounded ${c.hidden ? 'opacity-40' : ''}`}>
               <span className="text-[10px] text-gray-500 w-12">{c.kind === 'guest' ? 'ゲスト' : 'キャスト'}</span>
-              <span className="flex-1 truncate">{c.label}</span>
+              {editingCategoryId === c.id ? (
+                <input
+                  value={editCategoryLabel}
+                  onChange={(e) => setEditCategoryLabel(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleSaveCategoryLabel() }}
+                  autoFocus
+                  className="flex-1 bg-white/10 border border-gold/30 rounded px-2 py-0.5 text-xs"
+                />
+              ) : (
+                <span className="flex-1 truncate">{c.label}</span>
+              )}
               {c.custom && <span className="text-[9px] text-gold/70 bg-gold/10 px-1.5 py-0.5 rounded">カスタム</span>}
-              <button onClick={() => moveCategory(c.id, -1)} className="text-gray-400 hover:text-white" title="上に移動">
-                <ChevronUp size={12} />
-              </button>
-              <button onClick={() => moveCategory(c.id, +1)} className="text-gray-400 hover:text-white" title="下に移動">
-                <ChevronDown size={12} />
-              </button>
-              <button onClick={() => toggleCategoryHidden(c.id)} className={`text-xs px-2 py-0.5 rounded ${c.hidden ? 'bg-white/10 text-gray-400' : 'bg-emerald-500/20 text-emerald-300'}`}>
-                {c.hidden ? '非表示' : '表示中'}
-              </button>
-              {c.custom && (
-                <button onClick={() => deleteCategory(c.id)} className="text-red-400 hover:bg-red-500/20 p-0.5 rounded">
-                  <Trash2 size={12} />
-                </button>
+              {editingCategoryId === c.id ? (
+                <>
+                  <button onClick={handleSaveCategoryLabel} disabled={!editCategoryLabel.trim()} className="text-emerald-400 hover:bg-emerald-500/20 p-0.5 rounded disabled:opacity-40" title="保存">
+                    <Save size={12} />
+                  </button>
+                  <button onClick={() => { setEditingCategoryId(null); setEditCategoryLabel('') }} className="text-gray-400 hover:text-white px-1 text-[10px]">
+                    キャンセル
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button onClick={() => { setEditingCategoryId(c.id); setEditCategoryLabel(c.label) }} className="text-gray-400 hover:text-white" title="名前を編集">
+                    <Pencil size={12} />
+                  </button>
+                  <button onClick={() => moveCategory(c.id, -1)} className="text-gray-400 hover:text-white" title="上に移動">
+                    <ChevronUp size={12} />
+                  </button>
+                  <button onClick={() => moveCategory(c.id, +1)} className="text-gray-400 hover:text-white" title="下に移動">
+                    <ChevronDown size={12} />
+                  </button>
+                  <button onClick={() => toggleCategoryHidden(c.id)} className={`text-xs px-2 py-0.5 rounded ${c.hidden ? 'bg-white/10 text-gray-400' : 'bg-emerald-500/20 text-emerald-300'}`}>
+                    {c.hidden ? '非表示' : '表示中'}
+                  </button>
+                  {c.custom && (
+                    <button onClick={() => deleteCategory(c.id)} className="text-red-400 hover:bg-red-500/20 p-0.5 rounded" title="削除">
+                      <Trash2 size={12} />
+                    </button>
+                  )}
+                </>
               )}
             </div>
           ))}
@@ -2237,21 +2279,44 @@ function ExpenseManager({ expenses, addExpense, removeExpense }: {
 
 // ─── 前借り管理 ───
 
+// PDF/Word 第3弾 前借り管理:
+//   - 入力に「対象日 (YYYY-MM-DD)」を追加。締め済み日には登録/編集/削除不可
+//   - 編集 = delete + create (既存 API に PATCH が無いため、Expense と同方式)
+//   - 削除 = softDelete (新規 removeAdvancePayment 経由)
+//   - キャスト別累計 / 出金元別合計を表示
+//   - 月次給与から自動天引きされるのは SalaryPage 側で実装済
 function AdvanceManager({ advancePayments, addAdvancePayment, casts, storeSettings }: {
   advancePayments: AdvancePayment[]
   addAdvancePayment: (payment: AdvancePayment) => void
   casts: Cast[]
   storeSettings: StoreSettings
 }) {
+  const { dailyReports, removeAdvancePayment } = useStore()
+  const todayDateStr = new Date().toISOString().slice(0, 10)
   const [showAdd, setShowAdd] = useState(false)
   const [castId, setCastId] = useState<number>(casts[0]?.id ?? 0)
   const [amount, setAmount] = useState('')
-  const [reason, setReason] = useState('')
+  const [reason, setReason] = useState('') // メモ扱い
   const [source, setSource] = useState<'register' | 'transfer'>('register')
+  const [date, setDate] = useState<string>(todayDateStr)
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [confirmTarget, setConfirmTarget] = useState<{ id: number; label: string } | null>(null)
 
-  const handleAdd = () => {
+  const isAddTargetClosed = isBusinessDateClosed(date, dailyReports)
+
+  const resetForm = () => {
+    setAmount(''); setReason(''); setSource('register'); setDate(todayDateStr)
+    setCastId(casts[0]?.id ?? 0)
+    setEditingId(null); setShowAdd(false)
+  }
+
+  const handleSubmit = () => {
     const amt = Number(amount)
-    if (!amt || amt <= 0 || !reason) return
+    if (!amt || amt <= 0) return
+    if (isAddTargetClosed) return
+    if (editingId != null) {
+      removeAdvancePayment(editingId)
+    }
     const cast = casts.find((c) => c.id === castId)
     const now = new Date()
     addAdvancePayment({
@@ -2260,16 +2325,44 @@ function AdvanceManager({ advancePayments, addAdvancePayment, casts, storeSettin
       castName: cast?.name ?? '',
       amount: amt,
       source,
-      reason,
-      date: now.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' }),
+      reason: reason.trim(),
+      // 第3弾: 日付は YYYY-MM-DD に統一 (締め判定・月次集計と整合)。
+      date,
       timestamp: now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
     })
-    setAmount('')
-    setReason('')
-    setShowAdd(false)
+    resetForm()
+  }
+
+  const handleStartEdit = (p: AdvancePayment) => {
+    setEditingId(p.id)
+    setCastId(p.castId)
+    setAmount(String(p.amount))
+    setReason(p.reason)
+    setSource(p.source)
+    // 旧レコードは locale 表記 (例 "5/23") なので date input に入れられない。
+    // その場合は今日付にフォールバックして編集可能にする。
+    setDate(/^\d{4}-\d{2}-\d{2}$/.test(p.date) ? p.date : todayDateStr)
+    setShowAdd(true)
   }
 
   const registerTotal = advancePayments.filter((p) => p.source === 'register').reduce((s, p) => s + p.amount, 0)
+  const transferTotal = advancePayments.filter((p) => p.source === 'transfer').reduce((s, p) => s + p.amount, 0)
+  // キャスト別累計 (新→古順)
+  const byCast = useMemo(() => {
+    const m = new Map<number, { name: string; total: number; count: number }>()
+    for (const p of advancePayments) {
+      const e = m.get(p.castId)
+      if (e) { e.total += p.amount; e.count += 1 }
+      else m.set(p.castId, { name: p.castName, total: p.amount, count: 1 })
+    }
+    return [...m.entries()]
+      .map(([castId, v]) => ({ castId, ...v }))
+      .sort((a, b) => b.total - a.total)
+  }, [advancePayments])
+  const sortedPayments = useMemo(
+    () => [...advancePayments].sort((a, b) => b.date.localeCompare(a.date)),
+    [advancePayments],
+  )
 
   const handlePrintReceipt = (p: AdvancePayment) => {
     const sourceLabel = p.source === 'register' ? 'レジ現金' : '振込・オーナー立替'
@@ -2281,7 +2374,7 @@ function AdvanceManager({ advancePayments, addAdvancePayment, casts, storeSettin
         <tr><th>お名前</th><td>${p.castName} 様</td></tr>
         <tr><th>金額</th><td class="bold">¥${p.amount.toLocaleString()}</td></tr>
         <tr><th>出金元</th><td>${sourceLabel}</td></tr>
-        <tr><th>理由</th><td>${p.reason}</td></tr>
+        <tr><th>メモ</th><td>${p.reason}</td></tr>
       </table>
       <p class="muted">上記金額を前借り金として確かに受領いたしました。</p>
       <p class="muted">給与支払時に天引きによる精算とすることに同意いたします。</p>
@@ -2292,52 +2385,124 @@ function AdvanceManager({ advancePayments, addAdvancePayment, casts, storeSettin
 
   return (
     <div className="space-y-4">
+      <ConfirmDialog
+        open={confirmTarget !== null}
+        title="前借りを削除"
+        message={`「${confirmTarget?.label ?? ''}」を削除しますか？`}
+        onConfirm={() => {
+          if (confirmTarget) removeAdvancePayment(confirmTarget.id)
+          setConfirmTarget(null)
+        }}
+        onCancel={() => setConfirmTarget(null)}
+      />
       <h3 className="text-sm font-bold text-gray-400 mb-2">前借り管理</h3>
 
-      <div className="bg-white/5 rounded-lg p-3 text-center">
-        <div className="text-xs text-gray-500">レジ現金からの前借り合計</div>
-        <div className="font-bold text-red-400 tabular-nums">¥{registerTotal.toLocaleString()}</div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="bg-white/5 rounded-lg p-3 text-center">
+          <div className="text-xs text-gray-500">レジ現金 前借り合計</div>
+          <div className="font-bold text-red-400 tabular-nums">¥{registerTotal.toLocaleString()}</div>
+        </div>
+        <div className="bg-white/5 rounded-lg p-3 text-center">
+          <div className="text-xs text-gray-500">振込・立替 前借り合計</div>
+          <div className="font-bold text-red-400 tabular-nums">¥{transferTotal.toLocaleString()}</div>
+        </div>
       </div>
 
-      {advancePayments.length > 0 && (
+      {byCast.length > 0 && (
+        <div className="bg-white/5 rounded-lg p-3">
+          <div className="text-xs text-gray-500 mb-1">キャスト別 累計</div>
+          <div className="flex flex-wrap gap-1.5">
+            {byCast.map((b) => (
+              <span key={b.castId} className="text-[11px] bg-white/[0.04] border border-white/10 rounded px-2 py-0.5 tabular-nums">
+                {b.name}: {b.count}件 / ¥{b.total.toLocaleString()}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {sortedPayments.length > 0 && (
         <div className="space-y-2">
-          {advancePayments.map((p) => (
-            <div key={p.id} className="bg-white/5 rounded-lg p-3">
-              <div className="flex items-center justify-between mb-0.5">
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-sm">{p.castName}</span>
-                  <span className="text-sm text-red-400 tabular-nums">¥{p.amount.toLocaleString()}</span>
-                  <span className={`text-xs px-1.5 py-0.5 rounded ${p.source === 'register' ? 'bg-amber-500/10 text-amber-400' : 'bg-blue-500/10 text-blue-400'}`}>
-                    {p.source === 'register' ? 'レジ現金' : '振込・立替'}
-                  </span>
+          {sortedPayments.map((p) => {
+            const closed = isBusinessDateClosed(p.date, dailyReports)
+            return (
+              <div key={p.id} className="bg-white/5 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-0.5 gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                    <span className="font-bold text-sm">{p.castName}</span>
+                    <span className="text-sm text-red-400 tabular-nums">¥{p.amount.toLocaleString()}</span>
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${p.source === 'register' ? 'bg-amber-500/10 text-amber-400' : 'bg-blue-500/10 text-blue-400'}`}>
+                      {p.source === 'register' ? 'レジ現金' : '振込・立替'}
+                    </span>
+                    {closed && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-gray-400 border border-white/20 flex items-center gap-1" title={LOCKED_TOOLTIP}>
+                        <Lock size={9} /> 締め済
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs text-gray-500 tabular-nums">{p.date} {p.timestamp}</span>
+                    <button onClick={() => handlePrintReceipt(p)} className="text-gray-500 hover:text-white transition-colors p-1" title="受領書印刷">
+                      <Printer size={13} />
+                    </button>
+                    <button
+                      onClick={() => handleStartEdit(p)}
+                      disabled={closed}
+                      title={closed ? LOCKED_TOOLTIP : '編集'}
+                      className="text-gray-600 hover:text-white p-1 disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      <Pencil size={13} />
+                    </button>
+                    <button
+                      onClick={() => setConfirmTarget({ id: p.id, label: `${p.castName} ¥${p.amount.toLocaleString()}` })}
+                      disabled={closed}
+                      title={closed ? LOCKED_TOOLTIP : '削除'}
+                      className="text-gray-600 hover:text-red-400 p-1 disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-500">{p.date}</span>
-                  <button onClick={() => handlePrintReceipt(p)} className="text-gray-500 hover:text-white transition-colors" title="受領書印刷">
-                    <Printer size={13} />
-                  </button>
-                </div>
+                {p.reason && <span className="text-xs text-gray-500 break-words">{p.reason}</span>}
               </div>
-              <span className="text-xs text-gray-500">{p.reason}</span>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
       {showAdd ? (
         <div className="bg-white/5 rounded-lg p-3 space-y-2">
+          <div className="text-xs text-gray-500">
+            {editingId != null ? '前借りを編集 (新 ID で再登録します)' : '前借りを記録'}
+          </div>
+          <label className="block">
+            <span className="text-[10px] text-gray-500">対象日</span>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="w-full mt-0.5 bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm"
+            />
+            {isAddTargetClosed && (
+              <span className="block text-[10px] text-amber-300/80 mt-0.5">
+                ※ 締め済みの日付には登録・編集できません
+              </span>
+            )}
+          </label>
           <select value={castId} onChange={(e) => setCastId(Number(e.target.value))} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm">
             {casts.filter((c) => c.active).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
           <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="金額" className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" />
-          <input type="text" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="理由（必須）" className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" />
+          <input type="text" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="メモ（任意、受領書にも印字）" className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" />
           <div className="flex gap-2">
             <button onClick={() => setSource('register')} className={`flex-1 py-2 rounded-lg text-sm font-bold border transition-colors ${source === 'register' ? 'bg-amber-500/20 border-amber-500/30 text-amber-400' : 'border-white/10 text-gray-500'}`}>レジ現金</button>
             <button onClick={() => setSource('transfer')} className={`flex-1 py-2 rounded-lg text-sm font-bold border transition-colors ${source === 'transfer' ? 'bg-blue-500/20 border-blue-500/30 text-blue-400' : 'border-white/10 text-gray-500'}`}>振込・立替</button>
           </div>
           <div className="flex gap-2">
-            <button onClick={handleAdd} disabled={!amount || Number(amount) <= 0 || !reason} className="flex-1 bg-white text-black py-2 rounded-lg text-sm font-bold disabled:opacity-40">記録</button>
-            <button onClick={() => setShowAdd(false)} className="flex-1 bg-white/5 border border-white/10 py-2 rounded-lg text-sm text-gray-500">キャンセル</button>
+            <button onClick={handleSubmit} disabled={!amount || Number(amount) <= 0 || isAddTargetClosed} className="flex-1 bg-white text-black py-2 rounded-lg text-sm font-bold disabled:opacity-40">
+              {editingId != null ? '更新' : '記録'}
+            </button>
+            <button onClick={resetForm} className="flex-1 bg-white/5 border border-white/10 py-2 rounded-lg text-sm text-gray-500">キャンセル</button>
           </div>
         </div>
       ) : (
@@ -2560,6 +2725,13 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
 // ────────────────────────────────────────────────────────────
 // 追補02 R11-1: 日払い管理 (基本運用)
 // ────────────────────────────────────────────────────────────
+// PDF/Word 第3弾 日払い調整:
+//   - 既存 #82 の日払い明細ポップアップ + 15 分単位丸めはそのまま活用
+//   - 支払時に「自動計算額」を一旦表示し、オーナーが実支給額を上書き可
+//   - 調整理由 / メモを保存（DailyPayRequest 拡張）
+//   - 「未払い / 支払済 / 全て」フィルタ
+//   - 日払い履歴一覧: 営業日 / キャスト / 自動計算 / 実支給 / 調整 / 支払日時 / 担当
+//   - 締め済み営業日ロックは第2弾のまま維持
 function DailyPayManager({
   casts, attendanceRecords, dailyPayRequests, addDailyPayRequest,
 }: {
@@ -2569,16 +2741,25 @@ function DailyPayManager({
   addDailyPayRequest: (req: import('../data/mock').DailyPayRequest) => void
 }) {
   const { dailyReports } = useStore()
+  const { user } = useAuth()
   // 追補02 R11-3: 営業日の定義 (朝 6:00 境界、開始日基準)
   const [targetDate, setTargetDate] = useState<string>(() => getTodayBusinessDay())
   // PDF/Word 第2弾: 締め済み営業日の日払いは確定済給与の上書きになるため操作不可。
   const targetDateClosed = isBusinessDateClosed(targetDate, dailyReports)
+  // PDF/Word 第3弾: 出勤キャスト一覧の表示フィルタ
+  const [statusFilter, setStatusFilter] = useState<'unpaid' | 'paid' | 'all'>('unpaid')
 
   // その営業日にシフト in / out があったキャストの集計
   const records = attendanceRecords.filter((r) => r.date === targetDate && r.staffType === 'cast')
   const activeTodayCasts = casts.filter((c) => records.some((r) => r.staffId === c.id))
 
-  const [paying, setPaying] = useState<{ castId: number; castName: string; amount: number } | null>(null)
+  // 第3弾: 支払い確認ダイアログを「自動計算 + 上書き + 理由 + メモ」入力可能な
+  // リッチダイアログに置換。手動入力は数値文字列で持ち、submit 時に Number 化。
+  const [paying, setPaying] = useState<
+    | { castId: number; castName: string; calculatedAmount: number; amountInput: string;
+        reason: string; note: string }
+    | null
+  >(null)
 
   const computePay = (cast: Cast, rec?: AttendanceRecord) => {
     const hours = rec?.workHours ?? 0
@@ -2590,6 +2771,23 @@ function DailyPayManager({
 
   const alreadyPaid = (castId: number) =>
     dailyPayRequests.some((r) => r.castId === castId && r.date === targetDate)
+
+  // 表示フィルタ適用
+  const visibleCasts = activeTodayCasts.filter((c) => {
+    const paid = alreadyPaid(c.id)
+    if (statusFilter === 'unpaid') return !paid
+    if (statusFilter === 'paid') return paid
+    return true
+  })
+
+  // 履歴 (target 営業日とは関係なく全期間。一覧側で営業日でグルーピング)。
+  // 新しい順に並べる。
+  const allHistory = [...dailyPayRequests].sort((a, b) => {
+    const ad = a.date ?? ''
+    const bd = b.date ?? ''
+    if (ad !== bd) return bd.localeCompare(ad)
+    return (b.paidAt ?? '').localeCompare(a.paidAt ?? '')
+  })
 
   return (
     <div className="space-y-4">
@@ -2622,14 +2820,35 @@ function DailyPayManager({
       </div>
 
       <div className="panel p-4">
-        <div className="text-xs text-gray-400 tracking-wider mb-2">
-          出勤キャスト ({activeTodayCasts.length} 名)
+        <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+          <div className="text-xs text-gray-400 tracking-wider">
+            出勤キャスト ({activeTodayCasts.length} 名)
+          </div>
+          {/* 第3弾: 未払い / 支払済 / 全て フィルタ */}
+          <div className="flex gap-1">
+            {([
+              { k: 'unpaid', label: '未払い' },
+              { k: 'paid', label: '支払済' },
+              { k: 'all', label: '全て' },
+            ] as const).map(({ k, label }) => (
+              <button
+                key={k}
+                onClick={() => setStatusFilter(k)}
+                className={`px-2.5 py-1 rounded text-[11px] font-bold ${statusFilter === k ? 'bg-white text-black' : 'bg-white/5 border border-white/10 text-gray-400'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
-        {activeTodayCasts.length === 0 ? (
-          <div className="text-center text-gray-500 py-6 text-sm">この営業日の出勤キャストがいません</div>
+        {visibleCasts.length === 0 ? (
+          <div className="text-center text-gray-500 py-6 text-sm">
+            {activeTodayCasts.length === 0 ? 'この営業日の出勤キャストがいません'
+              : `「${statusFilter === 'unpaid' ? '未払い' : statusFilter === 'paid' ? '支払済' : '全て'}」に該当するキャストがいません`}
+          </div>
         ) : (
           <div className="divide-y divide-white/5">
-            {activeTodayCasts.map((c) => {
+            {visibleCasts.map((c) => {
               const rec = records.find((r) => r.staffId === c.id)
               const { basePay, net, hours } = computePay(c, rec)
               const paid = alreadyPaid(c.id)
@@ -2653,7 +2872,12 @@ function DailyPayManager({
                     <span className="shrink-0 text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-1 rounded">支払済</span>
                   ) : (
                     <button
-                      onClick={() => setPaying({ castId: c.id, castName: c.name, amount: net })}
+                      onClick={() => setPaying({
+                        castId: c.id, castName: c.name,
+                        calculatedAmount: net,
+                        amountInput: String(net),
+                        reason: '', note: '',
+                      })}
                       disabled={targetDateClosed}
                       title={targetDateClosed ? LOCKED_TOOLTIP : undefined}
                       className="shrink-0 btn-gold text-xs px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -2668,30 +2892,141 @@ function DailyPayManager({
         )}
       </div>
 
-      <ConfirmDialog
-        open={!!paying}
-        title="日払い確認"
-        message={paying ? `${paying.castName} に ¥${paying.amount.toLocaleString()} を日払いしますか?` : ''}
-        confirmLabel="支払う"
-        onConfirm={() => {
-          if (!paying) return
-          if (targetDateClosed) {
-            // バックエンドが受理しても締め確定済給与とずれるため、ここで二重防御。
-            setPaying(null)
-            return
-          }
-          addDailyPayRequest({
-            id: Date.now(),
-            castId: paying.castId,
-            castName: paying.castName,
-            amount: paying.amount,
-            date: targetDate,
-            staffType: 'cast',
-          })
-          setPaying(null)
-        }}
-        onCancel={() => setPaying(null)}
-      />
+      {/* 第3弾: 日払い履歴一覧 (全期間 / 新しい順) */}
+      <div className="panel p-4">
+        <div className="text-xs text-gray-400 tracking-wider mb-2">
+          日払い履歴 ({allHistory.length} 件)
+        </div>
+        {allHistory.length === 0 ? (
+          <div className="text-center text-gray-500 py-6 text-sm">履歴がありません</div>
+        ) : (
+          <div className="divide-y divide-white/5 max-h-[50vh] overflow-y-auto">
+            {allHistory.slice(0, 200).map((p) => {
+              const adjusted = p.calculatedAmount != null && p.calculatedAmount !== p.amount
+              const paidAtDisp = p.paidAt
+                ? new Date(p.paidAt).toLocaleString('ja-JP', {
+                    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+                  })
+                : '-'
+              return (
+                <div key={p.id} className="py-2 text-xs">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-gray-400 tabular-nums">{p.date}</span>
+                      <span className="font-bold text-white truncate">{p.castName}</span>
+                      {adjusted && (
+                        <span className="text-[10px] px-1.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/30">
+                          調整あり
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-sm font-bold text-gold tabular-nums shrink-0">
+                      ¥{p.amount.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 text-gray-500 flex items-center gap-2 flex-wrap">
+                    {adjusted && (
+                      <span className="tabular-nums">自動計算 ¥{(p.calculatedAmount ?? 0).toLocaleString()}</span>
+                    )}
+                    <span>支払 {paidAtDisp}</span>
+                    {p.operator && <span>by {p.operator}</span>}
+                  </div>
+                  {(p.adjustReason || p.note) && (
+                    <div className="mt-0.5 text-[11px] text-gray-400 break-words">
+                      {p.adjustReason && <span>理由: {p.adjustReason}</span>}
+                      {p.adjustReason && p.note && <span> / </span>}
+                      {p.note && <span>メモ: {p.note}</span>}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+            {allHistory.length > 200 && (
+              <div className="text-[10px] text-gray-500 text-center py-2">
+                ※ 直近 200 件のみ表示
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* 第3弾: 日払い額の手動上書き + 調整理由 + メモ を入力できるリッチダイアログ */}
+      {paying && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 border border-white/10 rounded-lg p-4 max-w-md w-full space-y-3">
+            <h3 className="text-sm font-bold text-white">日払い: {paying.castName}</h3>
+            <div className="text-xs text-gray-400 tabular-nums">
+              自動計算額: ¥{paying.calculatedAmount.toLocaleString()}
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">実支給額（円）</label>
+              <input
+                type="number"
+                value={paying.amountInput}
+                onChange={(e) => setPaying({ ...paying, amountInput: e.target.value })}
+                className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm tabular-nums"
+                autoFocus
+              />
+            </div>
+            {Number(paying.amountInput) !== paying.calculatedAmount && (
+              <div>
+                <label className="text-xs text-amber-300/80 block mb-1">調整理由（推奨）</label>
+                <input
+                  type="text"
+                  value={paying.reason}
+                  onChange={(e) => setPaying({ ...paying, reason: e.target.value })}
+                  className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm"
+                  placeholder="例: ボーナス上乗せ / 研修費差引"
+                />
+              </div>
+            )}
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">メモ（任意）</label>
+              <input
+                type="text"
+                value={paying.note}
+                onChange={(e) => setPaying({ ...paying, note: e.target.value })}
+                className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm"
+                placeholder="補足"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPaying(null)}
+                className="flex-1 bg-white/5 border border-white/10 py-2 rounded-lg text-sm text-gray-400"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={() => {
+                  if (!paying) return
+                  if (targetDateClosed) { setPaying(null); return }
+                  const amt = Number(paying.amountInput)
+                  if (!Number.isFinite(amt) || amt < 0) return
+                  addDailyPayRequest({
+                    id: Date.now(),
+                    castId: paying.castId,
+                    castName: paying.castName,
+                    amount: amt,
+                    calculatedAmount: paying.calculatedAmount,
+                    adjustReason: amt !== paying.calculatedAmount ? paying.reason.trim() || undefined : undefined,
+                    note: paying.note.trim() || undefined,
+                    paidAt: new Date().toISOString(),
+                    operator: user?.displayName ?? user?.username ?? undefined,
+                    date: targetDate,
+                    staffType: 'cast',
+                  })
+                  setPaying(null)
+                }}
+                disabled={!paying.amountInput || Number(paying.amountInput) < 0}
+                className="flex-1 py-2 rounded-lg text-sm font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 disabled:opacity-40"
+              >
+                支払う
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

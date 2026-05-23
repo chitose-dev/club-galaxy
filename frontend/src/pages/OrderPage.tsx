@@ -83,7 +83,7 @@ export default function OrderPage() {
   const {
     tables, casts, guestMenu, castMenu, storeSettings,
     addOrderToTable, removeOrderFromTable, setOrderBonus,
-    moveCast, updateTable,
+    moveCast, updateTable, menuCategories,
   } = useStore()
   const extendTable = useExtendTable()
   const [showAddCast, setShowAddCast] = useState(false)
@@ -350,9 +350,31 @@ export default function OrderPage() {
       />
 
       <div className="flex-1 overflow-hidden grid grid-cols-1 md:grid-cols-[160px_minmax(0,1fr)_170px_minmax(0,1.3fr)]">
-        {/* ── Column 1: カテゴリー (ISSUE-011: カテゴリ別カラー識別) ── */}
+        {/* ── Column 1: カテゴリー (ISSUE-011: カテゴリ別カラー識別) ──
+            PDF/Word 第3弾: 設定 → メニューカテゴリで `hidden: true` のものは
+            非表示。'all' / 'charge' / 'cast-drink' / 'shot-pitcher' は集約
+            カテゴリ (複数の subcategory をまとめる) で、対応するゲスト/キャスト
+            サブカテゴリが全て hidden の場合に隠す。bottle 系 (champagne /
+            whisky / shochu / brandy / wine) は subcategory.id とカテゴリ.id が
+            1:1 対応するので、その hidden をそのまま使う。 */}
         <div className="border-r border-white/10 overflow-y-auto bg-primary-dark">
-          {categories.map((cat) => {
+          {categories.filter((cat) => {
+            // 引数キーごとに「どの menuCategory.id を見るか」を解決
+            const hiddenIds = new Set(
+              menuCategories.filter((c) => c.hidden).map((c) => c.id),
+            )
+            if (cat.key === 'all' || cat.key === 'charge') return true
+            if (cat.key === 'cast-drink') {
+              // キャストドリンク = kind:'cast' のいずれかが表示中なら出す
+              return menuCategories.some((c) => c.kind === 'cast' && !c.hidden)
+            }
+            if (cat.key === 'shot-pitcher') {
+              return ['shot', 'pitcher', 'beer', 'warimono']
+                .some((id) => !hiddenIds.has(id))
+            }
+            // bottle 系: id 直接マッピング
+            return !hiddenIds.has(cat.key)
+          }).map((cat) => {
             const isActive = activeCategory === cat.key
             return (
               <button

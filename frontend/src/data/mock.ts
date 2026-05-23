@@ -421,10 +421,25 @@ export interface DailyPayRequest {
   id: number
   castId: number           // ボーイの場合は一意なstaffId(負数等)で代用
   castName: string
+  /** 実支給額（手動調整後 / 控除前の額）。
+   *  PDF/Word 第3弾: オペレーターがその場で上書き可能。
+   *  `calculatedAmount` と一致しない場合「調整あり」とみなす。 */
   amount: number
   date: string
   /** 省略時は 'cast' として扱う */
   staffType?: 'cast' | 'boy'
+  // ─── 第3弾 (PDF/Word 日払い調整) で追加: 旧レコードは全て optional ───
+  /** 自動計算額（時給×時間 - 10% 控除 等の理論値）。amount と異なれば
+   *  「手動調整あり」として履歴に表示。旧レコードでは未設定。 */
+  calculatedAmount?: number
+  /** 調整理由（amount を calculatedAmount から動かした場合のみ必須運用） */
+  adjustReason?: string
+  /** メモ（任意の補足、例: 「ボーナス上乗せ」「研修費差引」） */
+  note?: string
+  /** 支払日時 (ISO 8601)。null/undefined は「未払い」扱い。 */
+  paidAt?: string
+  /** 操作担当（user.displayName ?? username）。誰が支払ったかの監査用。 */
+  operator?: string
 }
 
 // ─── ボトルキープ ───
