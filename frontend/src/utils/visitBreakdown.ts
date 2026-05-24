@@ -22,11 +22,13 @@ import {
   type ExtensionEntry,
   type MenuCategory,
   type ReceiptSnapshot,
+  type SetPrice,
   SET_DURATION_MINUTES,
   getSetPriceForTime,
   initialMenuCategories,
   isChargeOrNominationOrder,
   isExtensionRow,
+  setPrices as initialSetPrices,
 } from '../data/mock'
 import { addMinutesToHHmm, formatTimeRange, getExLabel } from './setCountLabel'
 
@@ -248,6 +250,7 @@ export function allocateSetFee(
   startTime: string | null,
   guestCount: number | null,
   extensions: readonly ExtensionEntry[],
+  bands: readonly SetPrice[] = initialSetPrices,
 ): number[] {
   const ticketCount = 1 + extensions.length
   if (setFeeTotal <= 0 || ticketCount === 0) return new Array(ticketCount).fill(0)
@@ -255,7 +258,7 @@ export function allocateSetFee(
   // 「setFeeTotal を ticketCount で均等割り」のフォールバック。
   let first = 0
   if (startTime && guestCount != null && guestCount > 0) {
-    const unit = getSetPriceForTime(startTime)
+    const unit = getSetPriceForTime(startTime, bands as SetPrice[])
     first = Math.min(unit * guestCount, setFeeTotal)
   } else {
     first = Math.floor(setFeeTotal / ticketCount)
@@ -290,6 +293,7 @@ export function allocateSetFee(
 export function computeVisitBreakdown(
   record: BillingRecord,
   categories: readonly MenuCategory[] = initialMenuCategories,
+  bands: readonly SetPrice[] = initialSetPrices,
 ): VisitBreakdown {
   const snap: ReceiptSnapshot | undefined = record.receiptSnapshot
   const labelMap = buildCategoryLabelMap(categories)
@@ -372,7 +376,7 @@ export function computeVisitBreakdown(
   const tax = snap?.tax ?? 0
   const consumptionTax = snap?.consumptionTax ?? 0
   const guestCountVal = record.guestCountSnapshot ?? null
-  const setFeeByIndex = allocateSetFee(setFee, startTime, guestCountVal, ext)
+  const setFeeByIndex = allocateSetFee(setFee, startTime, guestCountVal, ext, bands)
   let allocAccum = { tax: 0, ct: 0 }
   tickets.forEach((t, i) => {
     t.setFeeAllocated = setFeeByIndex[i] ?? 0

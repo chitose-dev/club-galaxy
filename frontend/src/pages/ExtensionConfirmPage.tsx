@@ -53,7 +53,7 @@ export default function ExtensionConfirmPage() {
   const location = useLocation()
   const state = (location.state ?? {}) as LocationState
   const config = state.config
-  const { tables, casts, storeSettings, updateTable, moveCast } = useStore()
+  const { tables, casts, storeSettings, updateTable, moveCast, setPrices } = useStore()
   const table = useMemo(() => tables.find((t) => String(t.id) === params.id), [tables, params.id])
 
   if (!table || !config) {
@@ -88,7 +88,7 @@ export default function ExtensionConfirmPage() {
 
   // 通し計算: 1セット目 + 過去確定 EX + 今回確定 EX + 指名料系を全部合算する。
   // 旧実装は今回 EX 分だけで小計を出していたため、画面の合計が実料金より少なかった。
-  const baseSetUnit = table.startTime ? getSetPriceForTime(table.startTime) : 0
+  const baseSetUnit = table.startTime ? getSetPriceForTime(table.startTime, setPrices) : 0
   const baseSetFee = baseSetUnit * table.guestCount * Math.max(1, table.setCount || 1)
   // 過去 EX 各エントリは entry.minutes に応じた現行 storeSettings 単価で計算（過去
   // 単価は履歴未保存のため概算）。
@@ -235,7 +235,7 @@ export default function ExtensionConfirmPage() {
                   注文（ドリンク・チャージ等）も 1セット目ブロックに各行で表示し、
                   合計に含めて表示する。 */}
               {table.startTime && (() => {
-                const baseUnit = getSetPriceForTime(table.startTime)
+                const baseUnit = getSetPriceForTime(table.startTime, setPrices)
                 const baseFee = baseUnit * table.guestCount
                 const baseEnd = addMinutes(table.startTime, SET_DURATION_MINUTES)
                 return (
@@ -244,7 +244,7 @@ export default function ExtensionConfirmPage() {
                       1Set目（{table.startTime} 〜 {baseEnd}, {SET_DURATION_MINUTES}分）
                     </div>
                     <div className="flex justify-between">
-                      <span>セット料金（{getSetPriceLabel(table.startTime)}）</span>
+                      <span>セット料金（{getSetPriceLabel(table.startTime, setPrices)}）</span>
                       <span className="tabular-nums">¥{baseUnit.toLocaleString()} × {table.guestCount}名 = ¥{baseFee.toLocaleString()}</span>
                     </div>
                     {orderEntries.map((o, i) => (
@@ -358,10 +358,9 @@ export default function ExtensionConfirmPage() {
             </section>
           )}
 
-          {/* 参考情報: getSetPriceForTime / getSetPriceLabel — タイポ防止チェック用には呼ぶだけ */}
           {table.startTime && (
             <div className="text-[10px] text-gray-600">
-              通常セット料金: ¥{getSetPriceForTime(table.startTime).toLocaleString()}（{getSetPriceLabel(table.startTime)}）
+              通常セット料金: ¥{getSetPriceForTime(table.startTime, setPrices).toLocaleString()}（{getSetPriceLabel(table.startTime, setPrices)}）
             </div>
           )}
         </div>

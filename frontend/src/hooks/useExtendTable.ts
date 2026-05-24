@@ -15,10 +15,10 @@ import { getExLabel } from '../utils/setCountLabel'
  *   - 延長料金 = 時間帯セット料金 × 人数(60分時)、30分時は半額
  */
 export function useExtendTable() {
-  const { updateTable, moveCast, chargeItems } = useStore()
+  const { updateTable, moveCast, chargeItems, setPrices } = useStore()
   return useCallback(
     (table: Table, minutes: 30 | 60, castNames: ReadonlyArray<string>) => {
-      const setUnit = table.startTime ? getSetPriceForTime(table.startTime) : 0
+      const setUnit = table.startTime ? getSetPriceForTime(table.startTime, setPrices) : 0
       const setUnitAdjusted = Math.max(0, setUnit - (table.setDiscountPerSet ?? 0))
       const fullSetCharge = setUnitAdjusted * table.guestCount
       const charge = minutes === 60 ? fullSetCharge : Math.round(fullSetCharge / 2)
@@ -89,6 +89,6 @@ export function useExtendTable() {
         isBanaiShimei: false,
       })
     },
-    [updateTable, moveCast, chargeItems],
+    [updateTable, moveCast, chargeItems, setPrices],
   )
 }

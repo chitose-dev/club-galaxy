@@ -130,7 +130,7 @@ function flColor(rate: number) {
 }
 
 export default function FloorPage() {
-  const { tables, casts, setCasts, updateTable, flMetrics, storeSettings } = useStore()
+  const { tables, casts, setCasts, updateTable, flMetrics, storeSettings, setPrices } = useStore()
   const extendTable = useExtendTable()
   // ISSUE-010: 延長交渉モーダル経由（UsageDetailPage → /floor?action=extend&from=...）の戻り遷移先
   const [searchParams] = useSearchParams()
@@ -575,12 +575,12 @@ export default function FloorPage() {
                 <div className="panel p-3">
                   <div className="text-gray-500 text-xs mb-1">セット料金</div>
                   <div className="font-medium">
-                    {selected.startTime ? `¥${Math.max(0, getSetPriceForTime(selected.startTime) - (selected.setDiscountPerSet ?? 0)).toLocaleString()}` : '-'}
+                    {selected.startTime ? `¥${Math.max(0, getSetPriceForTime(selected.startTime, setPrices) - (selected.setDiscountPerSet ?? 0)).toLocaleString()}` : '-'}
                     {(selected.setDiscountPerSet ?? 0) > 0 && (
                       <span className="text-[10px] text-amber-300 ml-1">(値引¥{selected.setDiscountPerSet!.toLocaleString()})</span>
                     )}
                   </div>
-                  <div className="text-gray-600 text-xs">{selected.startTime ? getSetPriceLabel(selected.startTime) : ''}</div>
+                  <div className="text-gray-600 text-xs">{selected.startTime ? getSetPriceLabel(selected.startTime, setPrices) : ''}</div>
                 </div>
                 <div className="panel p-3">
                   <div className="text-gray-500 text-xs mb-1">セット数</div>
@@ -672,7 +672,7 @@ export default function FloorPage() {
                 <button onClick={() => setCiTime(defaultStartTime())} className="btn-ghost px-5 whitespace-nowrap text-base min-h-[52px]">今すぐ</button>
               </div>
               <div className="text-sm text-gold mt-2 tabular-nums">
-                セット料金: ¥{getSetPriceForTime(ciTime).toLocaleString()} <span className="text-gray-400">({getSetPriceLabel(ciTime)})</span>
+                セット料金: ¥{getSetPriceForTime(ciTime, setPrices).toLocaleString()} <span className="text-gray-400">({getSetPriceLabel(ciTime, setPrices)})</span>
               </div>
             </div>
             <div>
@@ -834,7 +834,7 @@ export default function FloorPage() {
       >
         {pendingExtend && selected && (() => {
           // ビデオレビュー B7: 延長料金は時間帯セット料金 × 人数 で計算
-          const setUnit = selected.startTime ? getSetPriceForTime(selected.startTime) : 0
+          const setUnit = selected.startTime ? getSetPriceForTime(selected.startTime, setPrices) : 0
           const setUnitAdjusted = Math.max(0, setUnit - (selected.setDiscountPerSet ?? 0))
           const fullSetCharge = setUnitAdjusted * selected.guestCount
           const extCharge = pendingExtend.minutes === 60 ? fullSetCharge : Math.round(fullSetCharge / 2)

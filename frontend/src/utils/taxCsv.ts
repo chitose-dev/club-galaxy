@@ -18,8 +18,10 @@ import {
   type Cast,
   type AttendanceRecord,
   type MenuCategory,
+  type SetPrice,
   initialMenuCategories,
   isExtensionRow,
+  setPrices as initialSetPrices,
 } from '../data/mock'
 import { calcHourlyPay } from './payroll'
 import { computeDailyWork } from './dailyWork'
@@ -161,6 +163,7 @@ export function buildMonthlySalesDetailCsv(
   records: readonly BillingRecord[],
   monthPrefix: string,
   categories: readonly MenuCategory[] = initialMenuCategories,
+  bands: readonly SetPrice[] = initialSetPrices,
 ): string {
   const header = [
     '営業日', '会計日時', '卓', '伝票No',
@@ -181,7 +184,7 @@ export function buildMonthlySalesDetailCsv(
     const base: (string | number | null | undefined)[] = [
       businessDate, r.completedAt, r.tableNumber, snap.receiptNumber,
     ]
-    const b = computeVisitBreakdown(r, categories)
+    const b = computeVisitBreakdown(r, categories, bands)
     // セット料金行を ticket ごとに 1 行ずつ出す（1Set目 / EX(n) / EX(n)半 ...）
     for (const t of b.tickets) {
       rows.push([

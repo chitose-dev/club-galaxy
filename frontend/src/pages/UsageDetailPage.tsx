@@ -31,7 +31,7 @@ export default function UsageDetailPage() {
   const params = useParams<{ id: string }>()
   const [searchParams] = useSearchParams()
   const from = searchParams.get('from') || undefined
-  const { tables, removeOrderFromTable, storeSettings } = useStore()
+  const { tables, removeOrderFromTable, storeSettings, setPrices } = useStore()
   // spec.md §5.2: 延長押下 → キャスト継承選択モーダル → 確定で /table/:id/extend へ
   const [showExtModal, setShowExtModal] = useState(false)
 
@@ -59,7 +59,7 @@ export default function UsageDetailPage() {
   const guestCount = table.guestCount ?? 0
   const setCount = table.setCount ?? 0
 
-  const setPrice = table.startTime ? getSetPriceForTime(table.startTime) : 0
+  const setPrice = table.startTime ? getSetPriceForTime(table.startTime, setPrices) : 0
   const discountPerSet = table.setDiscountPerSet ?? 0
   const adjustedSetPrice = Math.max(0, setPrice - discountPerSet)
   const setSubtotal = adjustedSetPrice * guestCount * setCount

@@ -79,7 +79,7 @@ export default function ProfitPage() {
 // ─── 本日ビュー ───
 
 function TodayView() {
-  const { flMetrics, billingRecords, menuCategories } = useStore()
+  const { flMetrics, billingRecords, menuCategories, setPrices } = useStore()
   // JST 営業日 (UTC 起点だと 0〜9 時で前日になるので +9h して slice)
   const todayBusinessDate = new Date(Date.now() + 9 * 60 * 60 * 1000)
     .toISOString().slice(0, 10)
@@ -157,6 +157,7 @@ function TodayView() {
         emptyText="本日の会計はまだありません"
         records={todayVisits}
         menuCategories={menuCategories}
+        setPrices={setPrices}
       />
     </div>
   )
@@ -177,11 +178,13 @@ function DailyVisitDetailPanel({
   emptyText,
   records,
   menuCategories,
+  setPrices,
 }: {
   title: string
   emptyText: string
   records: import('../data/mock').BillingRecord[]
   menuCategories: import('../data/mock').MenuCategory[]
+  setPrices: import('../data/mock').SetPrice[]
 }) {
   const navigate = useNavigate()
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -199,7 +202,7 @@ function DailyVisitDetailPanel({
     const agg = new Map<string, { label: string; qty: number; sub: number }>()
     for (const r of sorted) {
       if (r.voidedAt) continue
-      const b = computeVisitBreakdown(r, menuCategories)
+      const b = computeVisitBreakdown(r, menuCategories, setPrices)
       for (const c of b.categoryTotals) {
         const e = agg.get(c.subcategory)
         if (e) {
@@ -290,7 +293,7 @@ function DailyVisitDetailPanel({
                 {isExpanded && r.receiptSnapshot && (
                   <div className="border-t border-white/5 p-3 space-y-3">
                     <VisitBreakdownView
-                      b={computeVisitBreakdown(r, menuCategories)}
+                      b={computeVisitBreakdown(r, menuCategories, setPrices)}
                     />
                     {/* BillingPage の SplitIssueModal を `?splitId=...&returnTo=/profit`
                         で開き、閉じた時に /profit に戻る。 */}
@@ -322,7 +325,7 @@ function DailyVisitDetailPanel({
 // ─── 店舗推移ビュー (日/月/年別) ───
 
 function StoreTrendView() {
-  const { billingRecords, expenses, storeSettings, menuCategories } = useStore()
+  const { billingRecords, expenses, storeSettings, menuCategories, setPrices } = useStore()
   const [granularity, setGranularity] = useState<Granularity>('month')
   /** 追補03 R22: ドリルダウン用 — 年/月から day へ降りる際の絞り込みキー */
   const [drilldownScope, setDrilldownScope] = useState<string | null>(null)
@@ -490,7 +493,7 @@ function StoreTrendView() {
                   <button
                     onClick={() => {
                       const csv = buildMonthlySalesDetailCsv(
-                        billingRecords, monthPrefix, menuCategories,
+                        billingRecords, monthPrefix, menuCategories, setPrices,
                       )
                       downloadCsv(`sales-detail-${monthPrefix}.csv`, csv)
                     }}
@@ -611,6 +614,7 @@ function StoreTrendView() {
               emptyText="この日の会計はありません"
               records={dayRecords}
               menuCategories={menuCategories}
+              setPrices={setPrices}
             />
           </div>
         )
@@ -873,7 +877,7 @@ function CastTrendView() {
 // ─── カレンダービュー (らくな会計簿風) ───
 
 function CalendarView() {
-  const { billingRecords, casts, expenses, menuCategories } = useStore()
+  const { billingRecords, casts, expenses, menuCategories, setPrices } = useStore()
   const today = new Date()
   const [year, setYear] = useState(today.getFullYear())
   const [month, setMonth] = useState(today.getMonth() + 1)  // 1-12
@@ -1073,6 +1077,7 @@ function CalendarView() {
             emptyText="この日の会計記録はありません"
             records={dayDetail.records}
             menuCategories={menuCategories}
+            setPrices={setPrices}
           />
         </>
       )}
