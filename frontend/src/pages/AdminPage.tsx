@@ -17,7 +17,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { useStore } from '../store'
 import { castsApi } from '../api/casts'
 import { dailyReportsApi } from '../api/dailyReports'
-import { isPercentBackType } from '../data/mock'
+import { isPercentBackType, inferStartHour } from '../data/mock'
 import { computeDailyWork } from '../utils/dailyWork'
 import { calcHourlyPay } from '../utils/payroll'
 import type { Cast, BackType, GuestMenuItem, CastMenuItem, SetPrice, Table, StoreSettings, DailyWork, UserAccount, BillingRecord } from '../data/mock'
@@ -935,8 +935,10 @@ function PriceManager({ setPrices, chargeItems, setSetPrices, setChargeItems }: 
     </div>
   )
 
-  const renderSetRow = (item: SetPrice) => {
+  const renderSetRow = (item: SetPrice, index: number) => {
     const isEditing = editingId === item.id
+    // 旧 cache などで startHour が欠落した band を表示するときの推定値。
+    const resolvedHour = typeof item.startHour === 'number' ? item.startHour : inferStartHour(item, index)
     return (
       <div key={item.id} className="py-2.5">
         {isEditing ? (
@@ -973,7 +975,7 @@ function PriceManager({ setPrices, chargeItems, setSetPrices, setChargeItems }: 
           <div className="flex items-center justify-between">
             <div className="flex items-baseline gap-2">
               <span className="text-sm">{item.label}</span>
-              <span className="text-[10px] text-gray-500 tabular-nums">開始 {item.startHour ?? '-'}時</span>
+              <span className="text-[10px] text-gray-500 tabular-nums">開始 {resolvedHour ?? '-'}時</span>
             </div>
             <div className="flex items-center gap-3">
               <span className="text-sm tabular-nums">¥{item.price.toLocaleString()}</span>
@@ -982,7 +984,7 @@ function PriceManager({ setPrices, chargeItems, setSetPrices, setChargeItems }: 
                   setEditingId(item.id)
                   setEditPrice(String(item.price))
                   setEditLabel(item.label)
-                  setEditStartHour(String(item.startHour ?? 0))
+                  setEditStartHour(String(resolvedHour ?? 0))
                 }}
                 className="text-gray-600 hover:text-white transition-colors"
               >
@@ -1000,7 +1002,7 @@ function PriceManager({ setPrices, chargeItems, setSetPrices, setChargeItems }: 
       <div>
         <h3 className="text-sm font-bold text-gray-400 mb-2">セット料金（時間帯別）</h3>
         <p className="text-[10px] text-gray-600 mb-1">深夜帯（0〜3時帯にまたがる band）は開始時を 24〜27 で入力。</p>
-        <div className="divide-y divide-white/5">{setPrices.map((item) => renderSetRow(item))}</div>
+        <div className="divide-y divide-white/5">{setPrices.map((item, i) => renderSetRow(item, i))}</div>
       </div>
       <div>
         <h3 className="text-sm font-bold text-gray-400 mb-2">チャージ・指名料</h3>
