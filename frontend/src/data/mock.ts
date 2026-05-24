@@ -816,6 +816,39 @@ export function displayOrderName(o: OrderItem): string {
   return `${normalized}${o.castName}`
 }
 
+/** startHour 欠落の旧データを救済する推定器。
+ *  - id 末尾 4 桁 (例: `set-2200`) → 22
+ *  - label 先頭 (例: `22:00〜`, `24:00〜LAST`) → 22 / 24
+ *  - "00:00" 表記は深夜帯扱いで 24 に丸める
+ *  - いずれも当たらない場合は index ベースで [20, 22, 24, 26, 28] フォールバック
+ *  運用上 setPrices は 3 band 想定なので、上記順序で要件定義書の初期値に戻る。 */
+export function inferStartHour(item: Pick<SetPrice, 'id' | 'label'>, fallbackIndex?: number): number | undefined {
+  const idMatch = item.id?.match(/(\d{2})(\d{2})$/)
+  if (idMatch) {
+    const h = parseInt(idMatch[1], 10)
+    if (Number.isFinite(h) && h >= 0 && h <= 29) return h
+  }
+  const labelMatch = item.label?.match(/^\s*(\d{1,2})\s*:/)
+  if (labelMatch) {
+    const h = parseInt(labelMatch[1], 10)
+    if (Number.isFinite(h)) return h === 0 ? 24 : h
+  }
+  if (typeof fallbackIndex === 'number') {
+    const defaults = [20, 22, 24, 26, 28]
+    return defaults[fallbackIndex] ?? (20 + fallbackIndex * 2)
+  }
+  return undefined
+}
+
+/** API/cache から読み込んだ setPrices に startHour が欠けていれば補完する。
+ *  store の load パスと、保険として resolveBand 内部でも呼ぶ。 */
+export function migrateSetPrices(bands: readonly SetPrice[]): SetPrice[] {
+  return bands.map((b, i) => ({
+    ...b,
+    startHour: typeof b.startHour === 'number' ? b.startHour : inferStartHour(b, i),
+  }))
+}
+
 /** 深夜帯 (hour 0〜3) を hour+24 (24〜27) に正規化し、setPrices の startHour 以上のうち
  *  最大の band を返す。bands が空のときは null を返す。 */
 function resolveBand(startTime: string, bands: SetPrice[]): SetPrice | null {
@@ -823,11 +856,13 @@ function resolveBand(startTime: string, bands: SetPrice[]): SetPrice | null {
   const raw = parseInt(startTime.split(':')[0], 10)
   if (!Number.isFinite(raw)) return null
   const hour = raw < 4 ? raw + 24 : raw
-  const sorted = bands
+  // startHour が欠落した旧データは inferStartHour で補完してから band を選ぶ。
+  const normalized = migrateSetPrices(bands)
+  const sorted = normalized
     .filter((b) => typeof b.startHour === 'number')
     .slice()
     .sort((a, b) => (a.startHour ?? 0) - (b.startHour ?? 0))
-  if (sorted.length === 0) return bands[0]
+  if (sorted.length === 0) return normalized[0]
   let picked = sorted[0]
   for (const b of sorted) {
     if ((b.startHour ?? 0) <= hour) picked = b
