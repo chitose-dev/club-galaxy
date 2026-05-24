@@ -17,6 +17,7 @@ import {
   castMenuItems as initialCastMenu,
   setPrices as initialSetPrices,
   chargeItems as initialChargeItems,
+  migrateSetPrices,
   initialMenuCategories,
   type MenuCategory,
   defaultStoreSettings,
@@ -209,7 +210,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [guestMenu, setGuestMenuRaw] = useState<GuestMenuItem[]>(cache.guestMenu ?? initialGuestMenu)
   const [castMenu, setCastMenuRaw] = useState<CastMenuItem[]>(cache.castMenu ?? initialCastMenu)
   const [menuCategories, setMenuCategoriesRaw] = useState<MenuCategory[]>(cache.menuCategories ?? initialMenuCategories)
-  const [setPricesState, setSetPricesRaw] = useState<SetPrice[]>(cache.setPrices ?? initialSetPrices)
+  const [setPricesState, setSetPricesRaw] = useState<SetPrice[]>(migrateSetPrices(cache.setPrices ?? initialSetPrices))
   const [chargeItemsState, setChargeItemsRaw] = useState<SetPrice[]>(cache.chargeItems ?? initialChargeItems)
   const [discountLogs, setDiscountLogs] = useState<DiscountLog[]>([])
   // PDF C: 分割発行領収書履歴。最新を先頭に push する（履歴表示時に降順で出すため）。
@@ -269,7 +270,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [])
   const setSetPrices = useCallback<React.Dispatch<React.SetStateAction<SetPrice[]>>>((value) => {
     setSetPricesRaw((prev) => {
-      const next = typeof value === 'function' ? (value as (p: SetPrice[]) => SetPrice[])(prev) : value
+      const raw = typeof value === 'function' ? (value as (p: SetPrice[]) => SetPrice[])(prev) : value
+      // UI 経由でも startHour を持たない band が紛れたら補完して保存する。
+      const next = migrateSetPrices(raw)
       menuApi.replaceSetPrices(next).catch(console.error)
       return next
     })
@@ -318,7 +321,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       billingApi.list({ limit: 1000 }).then(setBillingRecords),
       menuApi.listGuest().then((v) => { setGuestMenuRaw(v); saveCache({ guestMenu: v }) }),
       menuApi.listCast().then((v) => { setCastMenuRaw(v); saveCache({ castMenu: v }) }),
-      menuApi.listSetPrices().then((v) => { setSetPricesRaw(v); saveCache({ setPrices: v }) }),
+      menuApi.listSetPrices().then((v) => { const m = migrateSetPrices(v); setSetPricesRaw(m); saveCache({ setPrices: m }) }),
       menuApi.listCharges().then((v) => { setChargeItemsRaw(v); saveCache({ chargeItems: v }) }),
       menuApi.listCategories().then((v) => { setMenuCategoriesRaw(v); saveCache({ menuCategories: v }) }),
       settingsApi.get().then((v) => { setStoreSettingsRaw(v); saveCache({ storeSettings: v }) }),
