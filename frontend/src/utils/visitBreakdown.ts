@@ -26,6 +26,7 @@ import {
   getSetPriceForTime,
   initialMenuCategories,
   isChargeOrNominationOrder,
+  normalizeMenuItemName,
 } from '../data/mock'
 import { addMinutesToHHmm, formatTimeRange, getExLabel } from './setCountLabel'
 
@@ -283,7 +284,8 @@ export function computeVisitBreakdown(
         ? '指名・チャージ'
         : (labelMap.get(subcategory) ?? subcategory)
       const line: VisitOrderLine = {
-        name: o.menuItem.name,
+        // 旧 `延長 +N分` を `EX(?)半` / `EX(?)` に正規化して表示する。
+        name: normalizeMenuItemName(o.menuItem.name),
         isCharge,
         subcategory,
         categoryLabel,

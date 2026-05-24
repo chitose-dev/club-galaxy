@@ -86,6 +86,56 @@ export default function PayslipPopup({ open, cast, period: forcedPeriod, onClose
     return total
   }, [filteredWork, cast])
 
+  // バック内訳 (本指名 / 場内指名 / 同伴 / ドリンク系 / ボトル / 延長指名) を
+  // 件数+金額で表示する。ドリンク系 (FD/本D/Fカク/本カク/本カクW/Fショ/本ショ/
+  // FP/本P/FB/本B) はメニュー数が多いのでまとめて「ドリンク」1 行に集約する。
+  const breakdown = useMemo(() => {
+    const init = {
+      shimei: { count: 0, amount: 0 },
+      banai: { count: 0, amount: 0 },
+      douhan: { count: 0, amount: 0 },
+      drinks: { count: 0, amount: 0 },
+      bottleAmount: 0,
+      extensionAmount: 0,
+    }
+    if (!cast) return init
+    for (const w of filteredWork) {
+      for (const [type, count] of Object.entries(w.backs) as [BackType, number][]) {
+        const rate = cast.backRates[type] ?? 0
+        switch (type) {
+          case '本指名':   init.shimei.count += count; init.shimei.amount += count * rate; break
+          case '場内指名': init.banai.count += count;  init.banai.amount  += count * rate; break
+          case '同伴':     init.douhan.count += count; init.douhan.amount += count * rate; break
+          case 'ボトルバック': break  // bottleBackAmount を正本
+          default:
+            // ドリンク系全種 + ヘルプ / その他 はまとめる
+            init.drinks.count += count
+            init.drinks.amount += count * rate
+        }
+      }
+      init.bottleAmount += w.bottleBackAmount ?? 0
+      init.extensionAmount += w.extensionBackAmount ?? 0
+    }
+    return init
+  }, [filteredWork, cast])
+
+  // 日払いの自動計算と実支給の差分 (= プラス/マイナス調整)。理由付き。
+  // 第3弾 DailyPayDialog 経由のレコードのみ calculatedAmount が入る。
+  const adjustments = useMemo(() => {
+    if (!cast) return []
+    return dailyPayRequests
+      .filter((r) => r.castId === cast.id
+        && r.calculatedAmount != null
+        && r.amount !== r.calculatedAmount)
+      .map((r) => ({
+        diff: r.amount - (r.calculatedAmount ?? 0),
+        reason: r.adjustReason ?? '',
+        date: r.date,
+      }))
+  }, [dailyPayRequests, cast])
+  const adjustTotal = adjustments.reduce((s, a) => s + a.diff, 0)
+  const hourlyPay = cast ? calcHourlyPay(cast.hourlyRate, totalHours) : 0
+
   const hourlyAndBackTotal = cast ? calcHourlyPay(cast.hourlyRate, totalHours) + totalBackAmount : 0
 
   // 月締めの売上保証差額（PDF F）
@@ -162,8 +212,46 @@ export default function PayslipPopup({ open, cast, period: forcedPeriod, onClose
               <td className="text-right tabular-nums">{totalHours.toFixed(1)} h</td>
             </tr>
             <tr>
-              <th className="text-left text-gray-400 py-1.5 font-normal">時給+バック</th>
-              <td className="text-right tabular-nums">¥{hourlyAndBackTotal.toLocaleString()}</td>
+              <th className="text-left text-gray-400 py-1.5 font-normal pl-3">時給分</th>
+              <td className="text-right tabular-nums">¥{hourlyPay.toLocaleString()}</td>
+            </tr>
+            <tr>
+              <th className="text-left text-gray-400 py-1.5 font-normal pl-3">本指名</th>
+              <td className="text-right tabular-nums">
+                {breakdown.shimei.count}件 / ¥{breakdown.shimei.amount.toLocaleString()}
+              </td>
+            </tr>
+            <tr>
+              <th className="text-left text-gray-400 py-1.5 font-normal pl-3">場内指名</th>
+              <td className="text-right tabular-nums">
+                {breakdown.banai.count}件 / ¥{breakdown.banai.amount.toLocaleString()}
+              </td>
+            </tr>
+            <tr>
+              <th className="text-left text-gray-400 py-1.5 font-normal pl-3">同伴</th>
+              <td className="text-right tabular-nums">
+                {breakdown.douhan.count}件 / ¥{breakdown.douhan.amount.toLocaleString()}
+              </td>
+            </tr>
+            <tr>
+              <th className="text-left text-gray-400 py-1.5 font-normal pl-3">ドリンク (バック)</th>
+              <td className="text-right tabular-nums">
+                {breakdown.drinks.count}件 / ¥{breakdown.drinks.amount.toLocaleString()}
+              </td>
+            </tr>
+            <tr>
+              <th className="text-left text-gray-400 py-1.5 font-normal pl-3">ボトルバック</th>
+              <td className="text-right tabular-nums">¥{breakdown.bottleAmount.toLocaleString()}</td>
+            </tr>
+            {breakdown.extensionAmount > 0 && (
+              <tr>
+                <th className="text-left text-gray-400 py-1.5 font-normal pl-3">延長指名バック</th>
+                <td className="text-right tabular-nums">¥{breakdown.extensionAmount.toLocaleString()}</td>
+              </tr>
+            )}
+            <tr>
+              <th className="text-left text-gray-400 py-1.5 font-normal border-t border-white/10">時給+バック 小計</th>
+              <td className="text-right tabular-nums border-t border-white/10">¥{hourlyAndBackTotal.toLocaleString()}</td>
             </tr>
             {guaranteeShortfall > 0 && (
               <tr className="text-emerald-400">
@@ -194,6 +282,31 @@ export default function PayslipPopup({ open, cast, period: forcedPeriod, onClose
                 <th className="text-left py-1.5 font-normal">天引き合計</th>
                 <td className="text-right tabular-nums">-¥{deductionTotal.toLocaleString()}</td>
               </tr>
+            )}
+            {/* 日払い時に手動調整 (calculatedAmount との差) が入った場合、内訳を表示。
+                プラス: 自動計算より多く支給 (ボーナス等)、マイナス: 控除 (研修費等)。
+                合計だけ「日払い済」行に含まれるので、ここは内訳のみ参考表示。 */}
+            {adjustments.length > 0 && (
+              <>
+                <tr className={adjustTotal >= 0 ? 'text-emerald-400/80' : 'text-amber-400/80'}>
+                  <th className="text-left py-1.5 font-normal text-xs">
+                    プラス/マイナス調整 (日払い、参考)
+                  </th>
+                  <td className="text-right tabular-nums text-xs">
+                    {adjustTotal >= 0 ? '+' : ''}¥{adjustTotal.toLocaleString()}
+                  </td>
+                </tr>
+                {adjustments.map((a, i) => (
+                  <tr key={`adj-${i}`} className="text-xs">
+                    <th className="text-left text-gray-500 py-0.5 font-normal pl-3">
+                      {a.date} {a.reason || '(理由未記入)'}
+                    </th>
+                    <td className={`text-right tabular-nums ${a.diff >= 0 ? 'text-emerald-400/60' : 'text-amber-400/60'}`}>
+                      {a.diff >= 0 ? '+' : ''}¥{a.diff.toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </>
             )}
             <tr>
               <th className="text-left text-gold py-2 text-base">最終振込額</th>

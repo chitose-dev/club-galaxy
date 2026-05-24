@@ -425,6 +425,17 @@ export interface DailyPayRequest {
   date: string
   /** 省略時は 'cast' として扱う */
   staffType?: 'cast' | 'boy'
+  /** 自動計算額（時給×時間 - 10% 控除 等の理論値）。`amount` と異なれば
+   *  「手動調整あり」として給与明細に表示される。旧レコードは未設定。 */
+  calculatedAmount?: number
+  /** 調整理由（amount を calculatedAmount から動かした場合の必須運用） */
+  adjustReason?: string
+  /** メモ（任意の補足、例: 「ボーナス上乗せ」「研修費差引」） */
+  note?: string
+  /** 支払日時 (ISO 8601)。null/undefined は「未払い」扱い。 */
+  paidAt?: string
+  /** 操作担当（user.displayName ?? username）。誰が支払ったかの監査用。 */
+  operator?: string
 }
 
 // ─── ボトルキープ ───
@@ -773,12 +784,24 @@ export const casts: Cast[] = [
 /**
  * 注文の表示名。キャスト名が紐づいていれば「本指名あいり」「本カクみく」等を返す。
  */
+/** 旧 useExtendTable で `延長 +30分` / `延長 +60分` という menuItem.name で
+ *  記録された注文を、表示時点で `EX(?)半` / `EX(?)` に正規化する。
+ *  実際の EX 序数は orders 配列単体からは特定できないため `?` 表記とする。
+ *  新規記録は useExtendTable 側で最初から `EX(n)` 形式で書き込むため、本変換は
+ *  バックフィル目的でのみ機能する。 */
+export function normalizeMenuItemName(name: string): string {
+  const legacyExt = name.match(/^延長\s*\+(30|60)分$/)
+  if (legacyExt) return legacyExt[1] === '30' ? 'EX(?)半' : 'EX(?)'
+  return name
+}
+
 export function displayOrderName(o: OrderItem): string {
-  if (!o.castName) return o.menuItem.name
+  const normalized = normalizeMenuItemName(o.menuItem.name)
+  if (!o.castName) return normalized
   // メニュー名末尾が「(FD)」「(本カク)」のような括弧付きの場合、キャスト名をその前に挿入
-  const match = o.menuItem.name.match(/^(.*)\s*\(([^)]+)\)\s*$/)
+  const match = normalized.match(/^(.*)\s*\(([^)]+)\)\s*$/)
   if (match) return `${match[1]}${o.castName} (${match[2]})`
-  return `${o.menuItem.name}${o.castName}`
+  return `${normalized}${o.castName}`
 }
 
 export function getSetPriceForTime(startTime: string): number {

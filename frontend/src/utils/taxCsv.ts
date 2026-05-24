@@ -19,6 +19,7 @@ import {
   type AttendanceRecord,
   type MenuCategory,
   initialMenuCategories,
+  normalizeMenuItemName,
 } from '../data/mock'
 import { calcHourlyPay } from './payroll'
 import { computeDailyWork } from './dailyWork'
@@ -199,7 +200,7 @@ export function buildMonthlySalesDetailCsv(
     for (const o of snap.orders) {
       const qty = o.quantity ?? 1
       rows.push([
-        ...base, '注文', '組全体', o.menuItem.name,
+        ...base, '注文', '組全体', normalizeMenuItemName(o.menuItem.name),
         o.menuItem.subcategory ?? '',
         qty, o.menuItem.price, qty * o.menuItem.price,
         o.castName ?? '',
