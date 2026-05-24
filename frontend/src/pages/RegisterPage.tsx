@@ -212,18 +212,23 @@ function ClosingView() {
 
           <div className="panel p-4 mb-4">
             <h3 className="text-sm font-bold mb-3 text-gray-400">日払い支払</h3>
-            {dailyPayRequests.length === 0 ? (
-              <p className="text-sm text-gray-600">日払いなし</p>
-            ) : (
-              <div className="divide-y divide-white/5 mb-2">
-                {dailyPayRequests.map((r) => (
-                  <div key={r.id} className="flex justify-between text-sm py-1.5">
-                    <span className="text-gray-500">{r.castName} ({r.date})</span>
-                    <span className="tabular-nums">¥{r.amount.toLocaleString()}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+            {(() => {
+              // 表示も理論有高と同じく当該営業日のみ。amount===0 はノイズなので除外。
+              const todaysDailyPays = dailyPayRequests.filter((r) => r.date === todayBusinessDate && r.amount > 0)
+              if (todaysDailyPays.length === 0) {
+                return <p className="text-sm text-gray-600">日払いなし</p>
+              }
+              return (
+                <div className="divide-y divide-white/5 mb-2">
+                  {todaysDailyPays.map((r) => (
+                    <div key={r.id} className="flex justify-between text-sm py-1.5">
+                      <span className="text-gray-500">{r.castName} ({r.date})</span>
+                      <span className="tabular-nums">¥{r.amount.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
             <div className="border-t border-white/10 pt-2 flex justify-between text-sm font-bold">
               <span>日払い合計</span>
               <span className="text-red-400 tabular-nums">-¥{dailyPayTotal.toLocaleString()}</span>
