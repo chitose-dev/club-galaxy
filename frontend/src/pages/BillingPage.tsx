@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useStore } from '../store'
 import { useAuth } from '../auth'
@@ -252,6 +252,33 @@ export default function BillingPage() {
     setShowSplitIssue(true)
   }
 
+  // `?splitId=<billingRecordId>&returnTo=<path>` で開かれた場合、対象会計の
+  // SplitIssueModal を自動起動する。取消済 (voidedAt) の会計は領収書発行不可。
+  // 他ページの詳細画面から領収書発行に飛ばし、完了後に元画面へ戻る導線として使う。
+  const splitIdParam = searchParams.get('splitId')
+  const rawReturnTo = searchParams.get('returnTo')
+  // 同一オリジン内パスのみ許可 (`//` 始まりは scheme-relative URL になり外部
+  // ホストへ飛べてしまうため弾く)。先頭 `/` 1 つで始まる相対パスだけ通す。
+  const returnToParam = rawReturnTo && /^\/(?!\/)/.test(rawReturnTo)
+    ? rawReturnTo
+    : null
+  const splitAutoOpenedRef = useRef(false)
+  useEffect(() => {
+    if (!splitIdParam || splitAutoOpenedRef.current) return
+    const target = billingRecords.find((r) => r.id === splitIdParam)
+    if (!target || !target.receiptSnapshot) return
+    if (target.voidedAt) return  // 取消済会計の自動起動は抑止
+    splitAutoOpenedRef.current = true
+    openSplitIssue({
+      billingRecordId: target.id,
+      tableNumber: target.tableNumber,
+      total: target.total,
+      consumptionTax: target.receiptSnapshot.consumptionTax,
+      receiptNumber: target.receiptSnapshot.receiptNumber,
+      guestCount: Math.max(1, target.guestCountSnapshot ?? 1),
+    })
+  }, [splitIdParam, billingRecords])
+
   // 分割スロット 1 枚を「発行 & 印刷」する。
   // 既存の receiptPrintBlock を splitPrintOverride で動的差し替えし、
   // 印刷後に IssuedReceipt を保存する。
@@ -326,14 +353,24 @@ export default function BillingPage() {
     setSplitContext({ ...splitContext, guestCount: safe })
   }
 
+  // returnTo が指定されている場合、modal を閉じたら復帰する。
+  const closeSplitIssue = () => {
+    setShowSplitIssue(false)
+    setSplitContext(null)
+    setSplitSlots([])
+    if (returnToParam) {
+      navigate(returnToParam)
+    }
+  }
+
   function renderSplitIssueModal() { return (
     <Modal
       open={showSplitIssue && !!splitContext}
-      onClose={() => { setShowSplitIssue(false); setSplitContext(null); setSplitSlots([]) }}
+      onClose={closeSplitIssue}
       size="lg"
       title="領収書 分割発行"
       footer={
-        <GhostButton onClick={() => { setShowSplitIssue(false); setSplitContext(null); setSplitSlots([]) }} className="flex-1">閉じる</GhostButton>
+        <GhostButton onClick={closeSplitIssue} className="flex-1">閉じる</GhostButton>
       }
     >
       {splitContext && (() => {

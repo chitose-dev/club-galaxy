@@ -35,6 +35,7 @@ import { getTodayBusinessDay, formatBusinessDay } from '../utils/businessDay'
 // PDF E: 勤怠 UI 拡張用
 import PayslipPopup from '../components/PayslipPopup'
 import DailyPayDialog from '../components/DailyPayDialog'
+import TimeInput from '../components/TimeInput'
 import { formatRealtimeWorkRange, roundClockInHHMM, roundClockOutHHMM, calcWorkHours } from '../utils/quarterHour'
 import { useAuth } from '../auth'
 
@@ -1554,28 +1555,8 @@ function AttendanceManager({
     })
   }
 
-  // PDF E: 退勤時刻も同様に修正可能（過去レコード復活）。
-  const handleClockOutEdit = (record: AttendanceRecord, rawClockOut: string) => {
-    if (isBusinessDateClosed(record.date, dailyReports)) return
-    if (!rawClockOut || !/^\d{2}:\d{2}$/.test(rawClockOut)) return
-    const newClockOut = roundClockOutHHMM(rawClockOut)
-    const oldClockOut = record.clockOut ?? null
-    if (oldClockOut === newClockOut) return
-    const inHHMM = record.clockIn ?? newClockOut
-    const workHours = calcWorkHours(inHHMM, newClockOut, record.breakMinutes ?? 0)
-    updateAttendance(record.id, { clockOut: newClockOut, workHours })
-    addAttendanceEditLog({
-      id: Date.now(),
-      recordId: record.id,
-      castId: record.staffId,
-      castName: record.staffName,
-      field: 'clockOut',
-      before: oldClockOut,
-      after: newClockOut,
-      editedAt: new Date().toISOString(),
-      editedBy: user?.displayName ?? 'スタッフ',
-    })
-  }
+  // 退勤打刻は handleClockOut (本日のみ) を使う。過去日の退勤時刻修正は監査ログ
+  // 経由でのみ行う運用に集約しているため、ここでは Out 編集 handler を提供しない。
 
   // 共通 DailyPayDialog 経由で日払いを記録するヘルパー。
   // date は YYYY-MM-DD 統一 (locale 表記との混在で履歴ソート破綻を防ぐ)。
@@ -1735,7 +1716,7 @@ function AttendanceManager({
               </div>
               <div>
                 <label className="text-xs text-gray-500 block mb-1">予定時刻</label>
-                <input type="time" value={schTime} onChange={(e) => setSchTime(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm" />
+                <TimeInput value={schTime} onChange={(v) => setSchTime(v)} className="w-full" />
               </div>
             </div>
             <button onClick={handleAddSchedule} className="btn-gold text-xs px-3 py-1.5">登録する</button>
@@ -1789,12 +1770,10 @@ function AttendanceManager({
                 </div>
                 <div className="flex items-center gap-2">
                   <Clock size={12} className="text-gray-500" />
-                  {/* PDF E: 出勤時刻は input type="time" で数字選択（丸時計UIを廃止） */}
-                  <input
-                    type="time"
+                  {/* 15分丸めの業務制約に合わせて時/分 select の TimeInput を使う。 */}
+                  <TimeInput
                     value={r.clockIn ?? ''}
-                    onChange={(e) => handleClockInEdit(r, e.target.value)}
-                    className="bg-white/5 border border-white/10 rounded px-2 py-1 text-sm tabular-nums w-24"
+                    onChange={(v) => handleClockInEdit(r, v)}
                     title="出勤時刻を修正"
                   />
                   <span className="text-gray-600">〜</span>
@@ -1877,42 +1856,7 @@ function AttendanceManager({
         </button>
       )}
 
-      {/* PDF E: 「過去の出勤記録」一覧 — クロウ指示で復活。
-          過去レコードからも出勤・退勤時刻を修正可能（15分丸め + 監査ログ）。
-          PDF spec の「過去の出勤記録、こちらは不要です」は当該キャストの
-          給与明細ポップアップ等での履歴表示の話で、運用画面側では修正導線が
-          必要との判断（修正履歴は別途監査ログに残る）。 */}
-      {attendanceRecords.filter((r) => r.date !== todayStr).length > 0 && (
-        <div className="mt-4">
-          <h3 className="text-sm font-bold text-gray-400 mb-2">過去の出勤記録（修正可）</h3>
-          <div className="space-y-1.5">
-            {attendanceRecords.filter((r) => r.date !== todayStr).map((r) => (
-              <div key={r.id} className="flex items-center gap-2 text-xs py-1.5 border-b border-white/5">
-                <span className="text-gray-400 w-24">{r.date}</span>
-                <span className="text-gray-200 flex-1 truncate">{r.staffName}</span>
-                <input
-                  type="time"
-                  value={r.clockIn ?? ''}
-                  onChange={(e) => handleClockInEdit(r, e.target.value)}
-                  className="bg-white/5 border border-white/10 rounded px-2 py-1 tabular-nums w-20"
-                  title="出勤時刻を修正 (15分丸め)"
-                />
-                <span className="text-gray-600">〜</span>
-                <input
-                  type="time"
-                  value={r.clockOut ?? ''}
-                  onChange={(e) => handleClockOutEdit(r, e.target.value)}
-                  className="bg-white/5 border border-white/10 rounded px-2 py-1 tabular-nums w-20"
-                  title="退勤時刻を修正 (15分丸め)"
-                />
-                <span className="text-gray-500 tabular-nums w-12 text-right">{r.workHours}h</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* PDF E: 勤怠修正監査ログ — 誰がいつ何を変更したか */}
+      {/* 勤怠修正監査ログ — 誰がいつ何を変更したか */}
       {attendanceEditLogs.length > 0 && (
         <div className="mt-4 panel p-3">
           <h3 className="text-sm font-bold text-gray-400 mb-2">勤怠修正履歴（監査ログ）</h3>

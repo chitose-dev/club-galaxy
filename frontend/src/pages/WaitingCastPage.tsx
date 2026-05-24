@@ -25,6 +25,7 @@ import { formatRealtimeWorkRange, roundClockInHHMM, roundClockOutHHMM, calcWorkH
 import { isBusinessDateClosed } from '../utils/closing'
 import PayslipPopup from '../components/PayslipPopup'
 import DailyPayDialog from '../components/DailyPayDialog'
+import TimeInput from '../components/TimeInput'
 import { calcHourlyPay } from '../utils/payroll'
 import { useAuth } from '../auth'
 
@@ -537,11 +538,11 @@ export default function WaitingCastPage() {
       >
         <div className="space-y-2">
           <Field label="出勤時刻 (HH:MM)">
-            <input
-              type="time"
+            {/* 15分丸めの業務制約に合わせて時/分 select の TimeInput を使う。 */}
+            <TimeInput
               value={editClockInValue}
-              onChange={(e) => setEditClockInValue(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-base tabular-nums"
+              onChange={(v) => setEditClockInValue(v)}
+              className="w-full"
             />
           </Field>
           <p className="text-[10px] text-gray-500">※ 修正すると当日の勤務時間 (clockOut 既存時) が自動再計算されます。</p>

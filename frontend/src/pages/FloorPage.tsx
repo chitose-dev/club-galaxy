@@ -26,6 +26,7 @@ import { GoldButton, DangerButton, GhostButton, DarkButton } from '../components
 import Modal from '../components/Modal'
 import CastChip from '../components/CastChip'
 import NumberInput from '../components/NumberInput'
+import TimeInput from '../components/TimeInput'
 
 /**
  * 卓ステータスの色 (TRUST 準拠配色提案)
@@ -553,12 +554,10 @@ export default function FloorPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="panel p-3">
                   <div className="text-gray-500 text-xs mb-1">入店時刻</div>
-                  {/* C3: 入店時刻を後から変更可能 */}
-                  <input
-                    type="time"
+                  {/* C3: 入店時刻を後から変更可能。TimeInput で時/分の数字選択。 */}
+                  <TimeInput
                     value={selected.startTime ?? ''}
-                    onChange={(e) => updateTable(selected.id, { startTime: e.target.value })}
-                    className="bg-primary-dark/60 border border-gold/20 rounded px-2 py-1 text-sm w-full"
+                    onChange={(v) => updateTable(selected.id, { startTime: v })}
                   />
                 </div>
                 <div className="panel p-3">
@@ -669,7 +668,7 @@ export default function FloorPage() {
             <div>
               <label className="text-sm text-gray-200 block mb-2 font-medium">セット開始時刻</label>
               <div className="flex gap-2">
-                <input type="time" value={ciTime} onChange={(e) => setCiTime(e.target.value)} className="flex-1 bg-primary-dark/60 border border-gold/30 rounded-md px-4 py-3.5 text-base focus:border-gold focus:outline-none" />
+                <TimeInput value={ciTime} onChange={(v) => setCiTime(v)} className="flex-1" />
                 <button onClick={() => setCiTime(defaultStartTime())} className="btn-ghost px-5 whitespace-nowrap text-base min-h-[52px]">今すぐ</button>
               </div>
               <div className="text-sm text-gold mt-2 tabular-nums">

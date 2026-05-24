@@ -84,9 +84,14 @@ export default function OrderPage() {
     tables, casts, guestMenu, castMenu, storeSettings,
     addOrderToTable, removeOrderFromTable, setOrderBonus,
     moveCast, updateTable,
+    // 早見ボタン (本日売上 / 日払い) 表示用
+    billingRecords, dailyPayRequests,
   } = useStore()
   const extendTable = useExtendTable()
   const [showAddCast, setShowAddCast] = useState(false)
+  // 注文中でも本日の売上/日払いをヘッダ右の小バッジから即確認できるよう、
+  // タップでサマリモーダルを開く state を持つ。
+  const [showQuickSummary, setShowQuickSummary] = useState(false)
   /** 追補03 R18: ボーナス設定対象の注文行 */
   const [bonusTarget, setBonusTarget] = useState<OrderItem | null>(null)
   const [bonusCastName, setBonusCastName] = useState<string>('')
@@ -314,6 +319,24 @@ export default function OrderPage() {
     )
   }
 
+  // 本日 (JST 営業日) の売上 / 日払い合計の早見データ。
+  const todayBusinessDate = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const todaySalesSummary = useMemo(() => {
+    const todays = billingRecords.filter((r) => {
+      if (r.voidedAt) return false
+      const d = r.businessDate ?? r.date ?? r.completedAt.slice(0, 10)
+      return d === todayBusinessDate
+    })
+    const total = todays.reduce((s, r) => s + r.total, 0)
+    const cash = todays.reduce((s, r) => s + (r.cashAmount ?? 0), 0)
+    const card = todays.reduce((s, r) => s + (r.cardAmount ?? 0), 0)
+    return { count: todays.length, total, cash, card }
+  }, [billingRecords, todayBusinessDate])
+  const todayDailyPay = useMemo(() => {
+    const todays = dailyPayRequests.filter((r) => r.date === todayBusinessDate)
+    return { count: todays.length, total: todays.reduce((s, r) => s + r.amount, 0) }
+  }, [dailyPayRequests, todayBusinessDate])
+
   return (
     <div className="flex flex-col h-full">
       <ContextualHeader
@@ -322,6 +345,17 @@ export default function OrderPage() {
         // 遷移元を `?from=...` で受け取り戻り先を決める。
         // 指定なし or 不正値はホール画面を default にする。
         backTo={searchParams.get('from') || '/floor'}
+        right={
+          <button
+            onClick={() => setShowQuickSummary(true)}
+            className="bg-white/5 hover:bg-white/10 border border-white/10 rounded px-3 py-1.5 text-xs tabular-nums flex items-center gap-2"
+            title="本日の売上 / 日払いを表示"
+          >
+            <span className="text-gold">¥{(todaySalesSummary.total / 1000).toFixed(0)}k</span>
+            <span className="text-gray-500">/</span>
+            <span className="text-red-300">日払 ¥{(todayDailyPay.total / 1000).toFixed(0)}k</span>
+          </button>
+        }
         leftExtra={
           <div className="flex gap-1.5 overflow-x-auto max-w-[60vw] py-0.5">
             {occupiedTables.map((t) => {
@@ -924,6 +958,45 @@ export default function OrderPage() {
             </div>
           )
         })()}
+      </Modal>
+
+      {/* 本日売上 / 日払い 早見モーダル */}
+      <Modal
+        open={showQuickSummary}
+        onClose={() => setShowQuickSummary(false)}
+        size="sm"
+        title={`本日 (${todayBusinessDate}) のサマリ`}
+      >
+        <div className="space-y-3 text-sm">
+          <div className="bg-white/5 rounded-lg p-3 space-y-2">
+            <div className="flex justify-between">
+              <span className="text-gray-400">売上合計</span>
+              <span className="text-gold font-bold tabular-nums">¥{todaySalesSummary.total.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-gray-500">　うち現金</span>
+              <span className="tabular-nums">¥{todaySalesSummary.cash.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-gray-500">　うちカード</span>
+              <span className="tabular-nums">¥{todaySalesSummary.card.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-gray-500">　会計件数</span>
+              <span className="tabular-nums">{todaySalesSummary.count} 件</span>
+            </div>
+          </div>
+          <div className="bg-white/5 rounded-lg p-3 space-y-2">
+            <div className="flex justify-between">
+              <span className="text-gray-400">日払い合計</span>
+              <span className="text-red-300 font-bold tabular-nums">¥{todayDailyPay.total.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-gray-500">　件数</span>
+              <span className="tabular-nums">{todayDailyPay.count} 件</span>
+            </div>
+          </div>
+        </div>
       </Modal>
     </div>
   )

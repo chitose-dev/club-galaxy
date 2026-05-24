@@ -65,12 +65,19 @@ const NumberInput = forwardRef<HTMLInputElement, NumberInputProps>(function Numb
   const [text, setText] = useState<string>(() => String(value))
   const isFocusedRef = useRef(false)
 
-  // 外部から value が変わったら text を同期 (フォーカス中は干渉しない)
+  // 外部から value が変わったら text を同期 (フォーカス中は干渉しない)。
+  // 過去に min/max 範囲外の値が保存されていた場合に備えて、表示時点で
+  // clamp し、超過分は親 state にも書き戻す。
   useEffect(() => {
-    if (!isFocusedRef.current) {
-      setText(String(value))
+    if (isFocusedRef.current) return
+    let clamped = value
+    if (min !== undefined && clamped < min) clamped = min
+    if (max !== undefined && clamped > max) clamped = max
+    setText(String(clamped))
+    if (clamped !== value) {
+      onChange(clamped)
     }
-  }, [value])
+  }, [value, min, max, onChange])
 
   const emit = (raw: string) => {
     // 空文字列はそのまま保持 (blur 時に emptyValue に戻す)
@@ -80,13 +87,17 @@ const NumberInput = forwardRef<HTMLInputElement, NumberInputProps>(function Numb
     }
     // 先頭の 0 を自動除去 (R12-3)。ただし 0. や 0.05 は保持。
     const normalized = /^0\d/.test(raw) ? raw.replace(/^0+/, '') : raw
-    setText(normalized)
     const n = Number(normalized)
     if (!Number.isNaN(n)) {
       let clamped = n
       if (min !== undefined && clamped < min) clamped = min
       if (max !== undefined && clamped > max) clamped = max
+      // 表示も clamp 後の値で揃える (raw 表示のままだと「打った値」と「保存される値」
+      // が乖離し、ユーザーが超過に気付けなくなる)。
+      setText(String(clamped))
       onChange(clamped)
+    } else {
+      setText(normalized)
     }
   }
 
