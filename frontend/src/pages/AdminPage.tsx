@@ -892,20 +892,35 @@ function PriceManager({ setPrices, chargeItems, setSetPrices, setChargeItems }: 
 }) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editPrice, setEditPrice] = useState('')
+  const [editLabel, setEditLabel] = useState('')
+  const [editStartHour, setEditStartHour] = useState('')
 
-  const handleSave = (id: string, isCharge: boolean) => {
-    const setter = isCharge ? setChargeItems : setSetPrices
-    setter((prev) => prev.map((p) => p.id === id ? { ...p, price: Number(editPrice) } : p))
+  const handleSaveCharge = (id: string) => {
+    setChargeItems((prev) => prev.map((p) => p.id === id ? { ...p, price: Number(editPrice) } : p))
     setEditingId(null)
   }
 
-  const renderRow = (item: { id: string; label: string; price: number }, isCharge: boolean) => (
+  const handleSaveSet = (id: string) => {
+    // startHour は 0〜29 を許容 (深夜帯は 24/25/26 を入力)。範囲外は無視して既存値を維持。
+    const rawHour = Number(editStartHour)
+    const hour = Number.isFinite(rawHour) ? Math.max(0, Math.min(29, Math.round(rawHour))) : NaN
+    const trimmed = editLabel.trim()
+    setSetPrices((prev) => prev.map((p) => p.id === id ? {
+      ...p,
+      price: Number(editPrice),
+      label: trimmed.length > 0 ? trimmed : p.label,
+      startHour: Number.isFinite(hour) ? hour : p.startHour,
+    } : p))
+    setEditingId(null)
+  }
+
+  const renderChargeRow = (item: SetPrice) => (
     <div key={item.id} className="flex items-center justify-between py-2.5">
       <span className="text-sm">{item.label}</span>
       {editingId === item.id ? (
         <div className="flex items-center gap-2">
           <input type="number" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} className="w-24 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm text-right" />
-          <button onClick={() => handleSave(item.id, isCharge)} className="text-white hover:text-gray-300">
+          <button onClick={() => handleSaveCharge(item.id)} className="text-white hover:text-gray-300">
             <Save size={14} />
           </button>
         </div>
@@ -920,15 +935,76 @@ function PriceManager({ setPrices, chargeItems, setSetPrices, setChargeItems }: 
     </div>
   )
 
+  const renderSetRow = (item: SetPrice) => {
+    const isEditing = editingId === item.id
+    return (
+      <div key={item.id} className="py-2.5">
+        {isEditing ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              value={editLabel}
+              onChange={(e) => setEditLabel(e.target.value)}
+              placeholder="表示名"
+              className="w-32 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm"
+            />
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                min={0}
+                max={29}
+                value={editStartHour}
+                onChange={(e) => setEditStartHour(e.target.value)}
+                className="w-16 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm text-right"
+              />
+              <span className="text-xs text-gray-500">時〜</span>
+            </div>
+            <input
+              type="number"
+              value={editPrice}
+              onChange={(e) => setEditPrice(e.target.value)}
+              className="w-24 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm text-right"
+            />
+            <button onClick={() => handleSaveSet(item.id)} className="text-white hover:text-gray-300">
+              <Save size={14} />
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between">
+            <div className="flex items-baseline gap-2">
+              <span className="text-sm">{item.label}</span>
+              <span className="text-[10px] text-gray-500 tabular-nums">開始 {item.startHour ?? '-'}時</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-sm tabular-nums">¥{item.price.toLocaleString()}</span>
+              <button
+                onClick={() => {
+                  setEditingId(item.id)
+                  setEditPrice(String(item.price))
+                  setEditLabel(item.label)
+                  setEditStartHour(String(item.startHour ?? 0))
+                }}
+                className="text-gray-600 hover:text-white transition-colors"
+              >
+                <Pencil size={13} />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <div>
         <h3 className="text-sm font-bold text-gray-400 mb-2">セット料金（時間帯別）</h3>
-        <div className="divide-y divide-white/5">{setPrices.map((item) => renderRow(item, false))}</div>
+        <p className="text-[10px] text-gray-600 mb-1">深夜帯（0〜3時帯にまたがる band）は開始時を 24〜27 で入力。</p>
+        <div className="divide-y divide-white/5">{setPrices.map((item) => renderSetRow(item))}</div>
       </div>
       <div>
         <h3 className="text-sm font-bold text-gray-400 mb-2">チャージ・指名料</h3>
-        <div className="divide-y divide-white/5">{chargeItems.map((item) => renderRow(item, true))}</div>
+        <div className="divide-y divide-white/5">{chargeItems.map((item) => renderChargeRow(item))}</div>
       </div>
     </div>
   )

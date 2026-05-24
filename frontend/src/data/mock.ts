@@ -213,6 +213,10 @@ export interface SetPrice {
   label: string
   price: number
   cost: number
+  /** 時間帯セットのみ: この値以上の hour から適用される。
+   *  chargeItems では未設定。20 = 20:00〜 / 22 = 22:00〜 / 24 = 24:00〜 (深夜帯)。
+   *  深夜の startTime (hour 0〜3) は hour+24 = 24〜27 として最後の band に流す。 */
+  startHour?: number
 }
 
 // ─── 会計関連 ───
@@ -588,9 +592,9 @@ export interface ArchivedData {
 // ─── セット料金（時間帯別） ───
 
 export const setPrices: SetPrice[] = [
-  { id: 'set-2000', label: '20:00〜', price: 4000, cost: 300 },
-  { id: 'set-2200', label: '22:00〜', price: 5000, cost: 300 },
-  { id: 'set-2400', label: '24:00〜LAST', price: 6000, cost: 300 },
+  { id: 'set-2000', label: '20:00〜', price: 4000, cost: 300, startHour: 20 },
+  { id: 'set-2200', label: '22:00〜', price: 5000, cost: 300, startHour: 22 },
+  { id: 'set-2400', label: '24:00〜LAST', price: 6000, cost: 300, startHour: 24 },
 ]
 
 export const chargeItems: SetPrice[] = [
@@ -812,22 +816,33 @@ export function displayOrderName(o: OrderItem): string {
   return `${normalized}${o.castName}`
 }
 
-export function getSetPriceForTime(startTime: string): number {
-  // 要件定義書 Ver.20.0: 20:00〜 4000 / 22:00〜 5000 / 24:00〜LAST 6000
-  // startTime が "00:00"〜"03:00" 等、日付をまたいだ時刻の場合は「24:00〜」区分(深夜帯)として扱う
-  const hour = parseInt(startTime.split(':')[0], 10)
-  if (hour < 4) return 6000               // 0時台〜3時台(ラスト前)
-  if (hour < 22) return 4000              // 20:00〜21:59
-  if (hour < 24) return 5000              // 22:00〜23:59
-  return 6000
+/** 深夜帯 (hour 0〜3) を hour+24 (24〜27) に正規化し、setPrices の startHour 以上のうち
+ *  最大の band を返す。bands が空のときは null を返す。 */
+function resolveBand(startTime: string, bands: SetPrice[]): SetPrice | null {
+  if (bands.length === 0) return null
+  const raw = parseInt(startTime.split(':')[0], 10)
+  if (!Number.isFinite(raw)) return null
+  const hour = raw < 4 ? raw + 24 : raw
+  const sorted = bands
+    .filter((b) => typeof b.startHour === 'number')
+    .slice()
+    .sort((a, b) => (a.startHour ?? 0) - (b.startHour ?? 0))
+  if (sorted.length === 0) return bands[0]
+  let picked = sorted[0]
+  for (const b of sorted) {
+    if ((b.startHour ?? 0) <= hour) picked = b
+  }
+  return picked
 }
 
-export function getSetPriceLabel(startTime: string): string {
-  const hour = parseInt(startTime.split(':')[0], 10)
-  if (hour < 4) return '24:00〜LAST'
-  if (hour < 22) return '20:00〜'
-  if (hour < 24) return '22:00〜'
-  return '24:00〜LAST'
+export function getSetPriceForTime(startTime: string, bands: SetPrice[]): number {
+  const band = resolveBand(startTime, bands)
+  return band?.price ?? 0
+}
+
+export function getSetPriceLabel(startTime: string, bands: SetPrice[]): string {
+  const band = resolveBand(startTime, bands)
+  return band?.label ?? ''
 }
 
 // ─── 卓データ（デモ用10卓） ───

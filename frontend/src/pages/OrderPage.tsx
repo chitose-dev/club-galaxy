@@ -83,7 +83,7 @@ export default function OrderPage() {
   const {
     tables, casts, guestMenu, castMenu, storeSettings,
     addOrderToTable, removeOrderFromTable, setOrderBonus,
-    moveCast, updateTable,
+    moveCast, updateTable, setPrices,
     // 早見ボタン (本日売上 / 日払い) 表示用
     billingRecords, dailyPayRequests,
   } = useStore()
@@ -840,7 +840,7 @@ export default function OrderPage() {
         }
       >
         {pendingExtend && selectedTable && (() => {
-          const setUnit = selectedTable.startTime ? getSetPriceForTime(selectedTable.startTime) : 0
+          const setUnit = selectedTable.startTime ? getSetPriceForTime(selectedTable.startTime, setPrices) : 0
           const setUnitAdjusted = Math.max(0, setUnit - (selectedTable.setDiscountPerSet ?? 0))
           const fullSetCharge = setUnitAdjusted * selectedTable.guestCount
           const extCharge = pendingExtend.minutes === 60 ? fullSetCharge : Math.round(fullSetCharge / 2)

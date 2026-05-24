@@ -24,7 +24,7 @@ type PaymentMethod = 'cash' | 'card' | 'mixed'
 type BillingTab = 'total' | 'individual' | 'audit' | 'history'
 
 export default function BillingPage() {
-  const { tables, resetTable, discountLogs, addDiscountLog, addBillingRecord, billingRecords, issuedReceipts, addIssuedReceipt, storeSettings, getNextReceiptNumber, casts, chargeItems } = useStore()
+  const { tables, resetTable, discountLogs, addDiscountLog, addBillingRecord, billingRecords, issuedReceipts, addIssuedReceipt, storeSettings, getNextReceiptNumber, casts, chargeItems, setPrices } = useStore()
   const { user } = useAuth()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -561,7 +561,7 @@ export default function BillingPage() {
     )
   }
 
-  const setPrice = table.startTime ? getSetPriceForTime(table.startTime) : 0
+  const setPrice = table.startTime ? getSetPriceForTime(table.startTime, setPrices) : 0
   const discountPerSet = table.setDiscountPerSet ?? 0
   const setPriceAfterDiscount = Math.max(0, setPrice - discountPerSet)
   const setPriceTotal = setPriceAfterDiscount * table.guestCount * table.setCount
@@ -587,7 +587,7 @@ export default function BillingPage() {
   const mergedTables = tables.filter((t) => mergeTableIds.includes(t.id))
   const mergedSetFee = mergedTables.reduce((acc, t) => {
     if (!t.startTime) return acc
-    const mSet = getSetPriceForTime(t.startTime)
+    const mSet = getSetPriceForTime(t.startTime, setPrices)
     const mDiscount = t.setDiscountPerSet ?? 0
     return acc + Math.max(0, mSet - mDiscount) * t.guestCount * t.setCount
   }, 0)
@@ -755,7 +755,7 @@ export default function BillingPage() {
     for (const mid of mergeTableIds) {
       const mt = tables.find((t) => t.id === mid)
       if (!mt || !mt.startTime) continue
-      const mSet = getSetPriceForTime(mt.startTime)
+      const mSet = getSetPriceForTime(mt.startTime, setPrices)
       const mDisc = mt.setDiscountPerSet ?? 0
       const mSetTotal = Math.max(0, mSet - mDisc) * mt.guestCount * mt.setCount
       const mDrink = mt.orders.reduce((s, o) => s + o.menuItem.price * o.quantity, 0)
@@ -990,7 +990,7 @@ export default function BillingPage() {
             <h3 className="text-sm font-bold mb-3 text-gray-400">{table.number}卓 内訳</h3>
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
-                <span>セット料金 <span className="text-gray-600">({table.startTime ? getSetPriceLabel(table.startTime) : '-'})</span></span>
+                <span>セット料金 <span className="text-gray-600">({table.startTime ? getSetPriceLabel(table.startTime, setPrices) : '-'})</span></span>
                 <span className="tabular-nums">¥{setPriceTotal.toLocaleString()}</span>
               </div>
               <div className="text-xs text-gray-600 ml-2">
@@ -1095,7 +1095,7 @@ export default function BillingPage() {
                   <h3 className="text-xs text-gray-400 tracking-wider mb-3">明細</h3>
                   <div className="space-y-1.5 text-sm">
                     <div className="flex justify-between">
-                      <span>セット料金 <span className="text-gray-500 text-xs">({table.startTime ? getSetPriceLabel(table.startTime) : '-'}) x{table.guestCount}名 x{table.setCount}</span>
+                      <span>セット料金 <span className="text-gray-500 text-xs">({table.startTime ? getSetPriceLabel(table.startTime, setPrices) : '-'}) x{table.guestCount}名 x{table.setCount}</span>
                         {discountPerSet > 0 && <span className="text-amber-300 text-xs"> (値引¥{discountPerSet.toLocaleString()}/セット)</span>}
                       </span>
                       <span className="tabular-nums">¥{setPriceTotal.toLocaleString()}</span>
@@ -1338,7 +1338,7 @@ export default function BillingPage() {
                     <h3 className="text-xs text-gray-400 tracking-wider mb-2">合算会計</h3>
                     <div className="space-y-1.5">
                       {occupiedTables.filter((t) => t.id !== selectedTableId).map((t) => {
-                        const mSet = t.startTime ? getSetPriceForTime(t.startTime) : 0
+                        const mSet = t.startTime ? getSetPriceForTime(t.startTime, setPrices) : 0
                         const mDisc = t.setDiscountPerSet ?? 0
                         const mSetTotal = Math.max(0, mSet - mDisc) * t.guestCount * t.setCount
                         const mDrink = t.orders.reduce((s, o) => s + o.menuItem.price * o.quantity, 0)
@@ -1542,7 +1542,7 @@ function BillingHistoryView({
   onReprintDetailed: (record: BillingRecord) => void
   onSplitIssue: (record: BillingRecord) => void
 }) {
-  const { voidBillingRecord, menuCategories, dailyReports } = useStore()
+  const { voidBillingRecord, menuCategories, dailyReports, setPrices } = useStore()
   const [voidTarget, setVoidTarget] = useState<BillingRecord | null>(null)
   const [voidReason, setVoidReason] = useState('')
   const [voidError, setVoidError] = useState('')
@@ -1708,7 +1708,7 @@ function BillingHistoryView({
                     {expandedId === r.id && (
                       <div className="mt-2 pt-3 border-t border-white/10">
                         <VisitBreakdownView
-                          b={computeVisitBreakdown(r, menuCategories)}
+                          b={computeVisitBreakdown(r, menuCategories, setPrices)}
                         />
                       </div>
                     )}
