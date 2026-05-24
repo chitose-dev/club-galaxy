@@ -2004,7 +2004,9 @@ function ExpenseManager({ expenses, addExpense, removeExpense }: {
   const [category, setCategory] = useState<ExpenseCategory>('仕入れ（酒等）')
   const [note, setNote] = useState('')
   const [source, setSource] = useState<'register' | 'transfer'>('register')
-  const todayDateStr = new Date().toISOString().split('T')[0]
+  // 深夜帯の経費を前営業日に乗せるため、デフォルト日付は UTC 暦日ではなく businessDate。
+  // 編集時にユーザーが意図的に別日を選べる UI はそのまま。
+  const todayDateStr = getTodayBusinessDay()
   const [date, setDate] = useState<string>(todayDateStr)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [confirmTarget, setConfirmTarget] = useState<{ id: number; label: string } | null>(null)
@@ -2267,7 +2269,9 @@ function AdvanceManager({ advancePayments, addAdvancePayment, casts, storeSettin
       amount: amt,
       source,
       reason,
-      date: now.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' }),
+      // レジ理論有高との突合のため YYYY-MM-DD 営業日で揃える。
+      // 旧 `M/D` (ja-JP) 形式では businessDate と一致せず、レジ画面の前借り集計が 0 になっていた。
+      date: getTodayBusinessDay(),
       timestamp: now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
     })
     setAmount('')
@@ -2723,7 +2727,8 @@ function PrepayManager({
       amount,
       source: 'register',
       reason: `前払い: ${reason || '理由なし'}`,
-      date: new Date().toISOString().slice(0, 10),
+      // 深夜帯の前払いを前営業日に乗せるため UTC 暦日ではなく businessDate を使う。
+      date: getTodayBusinessDay(),
       timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
     })
     setAmount(0)

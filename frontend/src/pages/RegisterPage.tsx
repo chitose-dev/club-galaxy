@@ -383,8 +383,9 @@ function HistoryView() {
     }
     if (range === 'custom') {
       return sorted.filter((r) => {
-        if (fromDate && r.date < fromDate) return false
-        if (toDate && r.date > toDate) return false
+        const key = reportKey(r)
+        if (fromDate && key < fromDate) return false
+        if (toDate && key > toDate) return false
         return true
       })
     }
