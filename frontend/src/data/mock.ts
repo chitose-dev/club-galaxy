@@ -784,11 +784,19 @@ export const casts: Cast[] = [
 /**
  * 注文の表示名。キャスト名が紐づいていれば「本指名あいり」「本カクみく」等を返す。
  */
+/** 延長確定で挿入された order 行か判定する。
+ *  新形式: `EX(n)` / `EX(n)半`、旧形式: `延長 +30分` / `延長 +60分`、
+ *  序数不明の正規化済: `EX(?)` / `EX(?)半`。
+ *  伝票区分セクションで個別表示するため、注文/明細一覧からは除外する用途。 */
+export function isExtensionRow(name: string): boolean {
+  return /^EX\((\d+|\?)\)半?$/.test(name) || /^延長\s*\+(30|60)分$/.test(name)
+}
+
 /** 旧 useExtendTable で `延長 +30分` / `延長 +60分` という menuItem.name で
  *  記録された注文を、表示時点で `EX(?)半` / `EX(?)` に正規化する。
- *  実際の EX 序数は orders 配列単体からは特定できないため `?` 表記とする。
- *  新規記録は useExtendTable 側で最初から `EX(n)` 形式で書き込むため、本変換は
- *  バックフィル目的でのみ機能する。 */
+ *  実際の EX 序数は orders 配列単体からは特定できないため `?` 表記。
+ *  新規記録は useExtendTable 側で最初から `EX(n)` 形式で書き込むため、
+ *  本変換はバックフィル目的でのみ機能する。 */
 export function normalizeMenuItemName(name: string): string {
   const legacyExt = name.match(/^延長\s*\+(30|60)分$/)
   if (legacyExt) return legacyExt[1] === '30' ? 'EX(?)半' : 'EX(?)'

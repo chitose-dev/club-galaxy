@@ -26,6 +26,7 @@ import {
   getSetPriceForTime,
   initialMenuCategories,
   isChargeOrNominationOrder,
+  isExtensionRow,
 } from '../data/mock'
 import { addMinutesToHHmm, formatTimeRange, getExLabel } from './setCountLabel'
 
@@ -144,14 +145,33 @@ export interface VisitBreakdown {
   voided: boolean
 }
 
-/** 延長確定で挿入された order 行か判定する。
- *  新形式: `EX(n)` / `EX(n)半` / 旧形式: `延長 +30分` / `延長 +60分`。
- *  伝票区分セクションで個別表示するので order 経由の表示からは除外する用。 */
-function isExtensionRow(name: string): boolean {
-  if (/^EX\(\d+\)半?$/.test(name)) return true
-  if (/^EX\(\?\)半?$/.test(name)) return true  // index 不明の旧データ
-  if (/^延長\s*\+(30|60)分$/.test(name)) return true
-  return false
+/** snapshot 欠落の旧データ向け: orders 内の延長行から擬似 ExtensionEntry 配列を
+ *  生成する。timestamp は復元できないため空文字 (`buildTicketSkeletons` 側で
+ *  cursorHHMM フォールバックされる)。 */
+function extractExtensionsFromOrders(
+  orders: ReceiptSnapshot['orders'] | undefined,
+): ExtensionEntry[] {
+  if (!orders) return []
+  const out: ExtensionEntry[] = []
+  for (const o of orders) {
+    const name = o.menuItem.name
+    let minutes: 30 | 60 | null = null
+    const legacy = /^延長\s*\+(30|60)分$/.exec(name)
+    if (legacy) minutes = legacy[1] === '30' ? 30 : 60
+    else {
+      const ex = /^EX\((?:\d+|\?)\)(半?)$/.exec(name)
+      if (ex) minutes = ex[1] === '半' ? 30 : 60
+    }
+    if (minutes == null) continue
+    out.push({
+      id: out.length + 1,
+      minutes,
+      timestamp: '',
+      nominatedCastName: o.castName,
+      nominatedCastNames: o.castName ? [o.castName] : [],
+    })
+  }
+  return out
 }
 
 function buildCategoryLabelMap(categories: readonly MenuCategory[]): Map<string, string> {
@@ -274,7 +294,14 @@ export function computeVisitBreakdown(
   const snap: ReceiptSnapshot | undefined = record.receiptSnapshot
   const labelMap = buildCategoryLabelMap(categories)
   const startTime = snap?.startTime ?? null
-  const ext = record.extensionHistorySnapshot ?? []
+  // extensionHistorySnapshot を一次ソースに ticket を組み立てる。snapshot 欠落の
+  // 旧データ救済として、snapshot が空で orders 内に延長行があれば、orders から
+  // 擬似的に ExtensionEntry を合成して ticket 化する (序数は登場順)。
+  const snapshotExt = record.extensionHistorySnapshot ?? []
+  const fallbackExt = snapshotExt.length === 0
+    ? extractExtensionsFromOrders(snap?.orders)
+    : []
+  const ext: readonly ExtensionEntry[] = snapshotExt.length > 0 ? snapshotExt : fallbackExt
   const tickets = buildTicketSkeletons(startTime, ext)
   const sessionEndHHMM = tickets.length > 0 ? tickets[tickets.length - 1].endHHMM : null
 
@@ -284,9 +311,7 @@ export function computeVisitBreakdown(
   const categoryAgg = new Map<string, VisitCategoryTotal>()
   if (snap?.orders) {
     for (const o of snap.orders) {
-      // BUG-010: 延長行 (EX(n) / EX(n)半 / 旧 `延長 +N分`) は伝票区分セクションで
-      // 個別表示されるため、orders 由来の表示からは除外する。これがないと
-      // 「指名・チャージ」または商品明細に EX(?) 表記で混入する。
+      // 延長行は伝票区分セクションで個別表示するため、注文/カテゴリ集計からは除外。
       if (isExtensionRow(o.menuItem.name)) continue
       const qty = o.quantity ?? 1
       const unit = o.menuItem.price ?? 0

@@ -292,9 +292,8 @@ function DailyVisitDetailPanel({
                     <VisitBreakdownView
                       b={computeVisitBreakdown(r, menuCategories)}
                     />
-                    {/* BUG-011: 利益管理から領収書発行導線。BillingPage の
-                        SplitIssueModal を `?splitId=...&returnTo=/profit` で
-                        開いて、閉じた時に /profit に戻ってくる。 */}
+                    {/* BillingPage の SplitIssueModal を `?splitId=...&returnTo=/profit`
+                        で開き、閉じた時に /profit に戻る。 */}
                     <button
                       onClick={() => {
                         const ret = encodeURIComponent('/profit')

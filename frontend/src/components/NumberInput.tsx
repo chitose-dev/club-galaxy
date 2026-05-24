@@ -66,8 +66,8 @@ const NumberInput = forwardRef<HTMLInputElement, NumberInputProps>(function Numb
   const isFocusedRef = useRef(false)
 
   // 外部から value が変わったら text を同期 (フォーカス中は干渉しない)。
-  // BUG-009: 旧データで max を超える値 (例: ボトルバック 1000%) が保存されていた
-  // ケースに備え、表示時点で min/max にクランプし、超過分は親 state にも書き戻す。
+  // 過去に min/max 範囲外の値が保存されていた場合に備えて、表示時点で
+  // clamp し、超過分は親 state にも書き戻す。
   useEffect(() => {
     if (isFocusedRef.current) return
     let clamped = value
@@ -92,8 +92,8 @@ const NumberInput = forwardRef<HTMLInputElement, NumberInputProps>(function Numb
       let clamped = n
       if (min !== undefined && clamped < min) clamped = min
       if (max !== undefined && clamped > max) clamped = max
-      // BUG-009: 表示も clamp 後の値で揃える (旧版は raw を表示し続けていたため
-      // 「1000」と打って「100」が保存されるが見た目は 1000 のまま残るバグがあった)。
+      // 表示も clamp 後の値で揃える (raw 表示のままだと「打った値」と「保存される値」
+      // が乖離し、ユーザーが超過に気付けなくなる)。
       setText(String(clamped))
       onChange(clamped)
     } else {

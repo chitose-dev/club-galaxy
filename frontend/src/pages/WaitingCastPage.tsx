@@ -555,7 +555,7 @@ export default function WaitingCastPage() {
       >
         <div className="space-y-2">
           <Field label="出勤時刻 (HH:MM)">
-            {/* BUG-014: 丸時計 → TimeInput */}
+            {/* 15分丸めの業務制約に合わせて時/分 select の TimeInput を使う。 */}
             <TimeInput
               value={editClockInValue}
               onChange={(v) => setEditClockInValue(v)}

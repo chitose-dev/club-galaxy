@@ -1,17 +1,13 @@
 /**
- * BUG-014 対応: HH:MM 入力をデジタル形式 (時/分 select 2 つ) で行うコンポーネント。
+ * HH:MM 入力をデジタル形式 (時/分 select 2 つ) で行う共通コンポーネント。
  *
- * 経緯: `<input type="time">` を使うと Android Chromium 等で「アナログクロック型
- * ピッカー」が出てしまい、店員が操作しづらい。勤怠の 15 分丸め制約とも相性が悪い
- * (任意分秒指定が可能で、結局後段でまるめる二度手間)。
- *
- * 採用方式:
- *   - 時: `00..23` の 24 択 select
- *   - 分: `00, 15, 30, 45` の 4 択 select (15 分単位の業務制約に合わせる)
- *   - 既存の `<input type="time">` と互換: `value` は `"HH:MM"` 形式、
- *     `onChange` は新しい `"HH:MM"` を即座にコールバック
- *   - 空欄 (value=undefined / null / '') も許容。空欄から数字を選ぶと
- *     もう一方が `00` 既定で埋まる (Time picker と同じ挙動)。
+ * - 時: `00..23` の 24 択 select
+ * - 分: `00, 15, 30, 45` の 4 択 select（15 分単位の業務制約に合わせるため、
+ *   1 分単位を許容したい場合のみ `quarterHourOnly={false}` を渡す）
+ * - `value` は `"HH:MM"` 文字列、`onChange` は新しい `"HH:MM"` を即時返す
+ *   標準 input と同じインターフェース
+ * - 空欄 (value=undefined / null / '') も許容。空欄から数字を選ぶと
+ *   もう一方が `00` 既定で埋まる
  */
 export interface TimeInputProps {
   value: string | null | undefined  // "HH:MM" / null / undefined / ''
@@ -48,16 +44,15 @@ export default function TimeInput({
   const { h, m } = parseHHMM(value)
   const minutes = quarterHourOnly ? QUARTER_MINUTES : ALL_MINUTES
 
-  // 値が 15 分単位以外 (例: "20:07") のときは select の選択肢に存在しない値になる。
-  // その場合は「直近の 15 分」に丸めて表示するが、emit はしない (親 onChange は
-  // 「ユーザーが明示的に変えたとき」のみ走らせる方針)。
+  // 15 分単位以外 (例: "20:07") は select に該当値がないため、直近 quarter に
+  // 丸めて表示だけする (emit はユーザーが明示的に変えたときのみ)。
+  // 60 にラップして「:00」に化け時とずれるのを避けるため、最大値は 45 に丸める。
   const safeM = (() => {
     if (!m) return ''
     const n = parseInt(m, 10)
     if (minutes.includes(n)) return pad(n)
-    // 表示用フォールバック: 直近 quarter に丸めて見せる
     if (quarterHourOnly) {
-      const rounded = Math.round(n / 15) * 15 % 60
+      const rounded = Math.min(45, Math.max(0, Math.round(n / 15) * 15))
       return pad(rounded)
     }
     return pad(n)

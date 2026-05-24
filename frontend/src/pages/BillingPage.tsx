@@ -252,16 +252,22 @@ export default function BillingPage() {
     setShowSplitIssue(true)
   }
 
-  // BUG-011: ProfitPage 等から `?splitId=<billingRecordId>&returnTo=<path>` で
-  // 開かれた場合、対象会計の SplitIssueModal を自動起動する。
-  // returnTo は閉じた時の戻り先 (省略時はそのまま BillingPage に留まる)。
+  // `?splitId=<billingRecordId>&returnTo=<path>` で開かれた場合、対象会計の
+  // SplitIssueModal を自動起動する。取消済 (voidedAt) の会計は領収書発行不可。
+  // 他ページの詳細画面から領収書発行に飛ばし、完了後に元画面へ戻る導線として使う。
   const splitIdParam = searchParams.get('splitId')
-  const returnToParam = searchParams.get('returnTo')
+  const rawReturnTo = searchParams.get('returnTo')
+  // 同一オリジン内パスのみ許可 (`//` 始まりは scheme-relative URL になり外部
+  // ホストへ飛べてしまうため弾く)。先頭 `/` 1 つで始まる相対パスだけ通す。
+  const returnToParam = rawReturnTo && /^\/(?!\/)/.test(rawReturnTo)
+    ? rawReturnTo
+    : null
   const splitAutoOpenedRef = useRef(false)
   useEffect(() => {
     if (!splitIdParam || splitAutoOpenedRef.current) return
     const target = billingRecords.find((r) => r.id === splitIdParam)
     if (!target || !target.receiptSnapshot) return
+    if (target.voidedAt) return  // 取消済会計の自動起動は抑止
     splitAutoOpenedRef.current = true
     openSplitIssue({
       billingRecordId: target.id,
@@ -347,7 +353,7 @@ export default function BillingPage() {
     setSplitContext({ ...splitContext, guestCount: safe })
   }
 
-  // BUG-011: returnTo が指定されている場合、modal を閉じたら復帰する。
+  // returnTo が指定されている場合、modal を閉じたら復帰する。
   const closeSplitIssue = () => {
     setShowSplitIssue(false)
     setSplitContext(null)

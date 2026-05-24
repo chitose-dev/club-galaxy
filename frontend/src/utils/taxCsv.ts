@@ -19,6 +19,7 @@ import {
   type AttendanceRecord,
   type MenuCategory,
   initialMenuCategories,
+  isExtensionRow,
 } from '../data/mock'
 import { calcHourlyPay } from './payroll'
 import { computeDailyWork } from './dailyWork'
@@ -196,13 +197,12 @@ export function buildMonthlySalesDetailCsv(
       ])
     }
     // 注文明細 (組全体扱い — 注文ごとの ticket 紐付けは記録されていない)。
-    // BUG-010: 延長行は伝票区分側で個別に出るため、注文セクションからは除外する。
+    // 延長行は伝票区分側で個別に出るため注文セクションから除外する。
     for (const o of snap.orders) {
-      const nm = o.menuItem.name
-      if (/^EX\(\d+\)半?$/.test(nm) || /^EX\(\?\)半?$/.test(nm) || /^延長\s*\+(30|60)分$/.test(nm)) continue
+      if (isExtensionRow(o.menuItem.name)) continue
       const qty = o.quantity ?? 1
       rows.push([
-        ...base, '注文', '組全体', nm,
+        ...base, '注文', '組全体', o.menuItem.name,
         o.menuItem.subcategory ?? '',
         qty, o.menuItem.price, qty * o.menuItem.price,
         o.castName ?? '',

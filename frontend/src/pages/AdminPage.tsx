@@ -1554,8 +1554,8 @@ function AttendanceManager({
     })
   }
 
-  // BUG-007 で「過去の出勤記録」UI 削除に伴い、handleClockOutEdit は呼び元がなくなった。
-  // 退勤打刻は通常の handleClockOut (本日のみ) でのみ行う。
+  // 退勤打刻は handleClockOut (本日のみ) を使う。過去日の退勤時刻修正は監査ログ
+  // 経由でのみ行う運用に集約しているため、ここでは Out 編集 handler を提供しない。
 
   const handleDailyPaySubmit = () => {
     if (!dailyPayCast) return
@@ -1778,7 +1778,7 @@ function AttendanceManager({
                 </div>
                 <div className="flex items-center gap-2">
                   <Clock size={12} className="text-gray-500" />
-                  {/* BUG-014: 丸時計 → TimeInput (時/分 select 2 つ) */}
+                  {/* 15分丸めの業務制約に合わせて時/分 select の TimeInput を使う。 */}
                   <TimeInput
                     value={r.clockIn ?? ''}
                     onChange={(v) => handleClockInEdit(r, v)}
@@ -1859,10 +1859,7 @@ function AttendanceManager({
         </button>
       )}
 
-      {/* BUG-007: 「過去の出勤記録（修正可）」セクションは削除済 (PDF spec 通り)。
-          過去レコードの修正は監査ログ + 個別レコード操作で対応する想定。 */}
-
-      {/* PDF E: 勤怠修正監査ログ — 誰がいつ何を変更したか */}
+      {/* 勤怠修正監査ログ — 誰がいつ何を変更したか */}
       {attendanceEditLogs.length > 0 && (
         <div className="mt-4 panel p-3">
           <h3 className="text-sm font-bold text-gray-400 mb-2">勤怠修正履歴（監査ログ）</h3>

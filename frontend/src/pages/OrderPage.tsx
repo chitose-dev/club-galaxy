@@ -84,12 +84,13 @@ export default function OrderPage() {
     tables, casts, guestMenu, castMenu, storeSettings,
     addOrderToTable, removeOrderFromTable, setOrderBonus,
     moveCast, updateTable,
-    // BUG-012: 注文画面の早見ボタン (本日売上 / 日払い) 表示用
+    // 早見ボタン (本日売上 / 日払い) 表示用
     billingRecords, dailyPayRequests,
   } = useStore()
   const extendTable = useExtendTable()
   const [showAddCast, setShowAddCast] = useState(false)
-  // BUG-012: 注文画面ヘッダ右に「本日売上 / 日払い」を即確認できる小バッジ + サマリモーダル
+  // 注文中でも本日の売上/日払いをヘッダ右の小バッジから即確認できるよう、
+  // タップでサマリモーダルを開く state を持つ。
   const [showQuickSummary, setShowQuickSummary] = useState(false)
   /** 追補03 R18: ボーナス設定対象の注文行 */
   const [bonusTarget, setBonusTarget] = useState<OrderItem | null>(null)
@@ -318,8 +319,7 @@ export default function OrderPage() {
     )
   }
 
-  // BUG-012: 本日の売上 / 日払い合計を即座に確認できる早見データ。
-  // 業務的に重要な「全体の数字」を注文中でも一瞥できるようにする要件。
+  // 本日 (JST 営業日) の売上 / 日払い合計の早見データ。
   const todayBusinessDate = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
   const todaySalesSummary = useMemo(() => {
     const todays = billingRecords.filter((r) => {
@@ -960,7 +960,7 @@ export default function OrderPage() {
         })()}
       </Modal>
 
-      {/* BUG-012: 本日売上 / 日払い 早見モーダル */}
+      {/* 本日売上 / 日払い 早見モーダル */}
       <Modal
         open={showQuickSummary}
         onClose={() => setShowQuickSummary(false)}

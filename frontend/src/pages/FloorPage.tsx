@@ -554,7 +554,7 @@ export default function FloorPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="panel p-3">
                   <div className="text-gray-500 text-xs mb-1">入店時刻</div>
-                  {/* C3: 入店時刻を後から変更可能 / BUG-014: TimeInput */}
+                  {/* C3: 入店時刻を後から変更可能。TimeInput で時/分の数字選択。 */}
                   <TimeInput
                     value={selected.startTime ?? ''}
                     onChange={(v) => updateTable(selected.id, { startTime: v })}
