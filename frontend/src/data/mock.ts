@@ -129,7 +129,14 @@ export const initialMenuCategories: MenuCategory[] = [
   { kind: 'guest', id: 'pitcher', label: 'ピッチャー', order: 7 },
   { kind: 'guest', id: 'beer', label: 'ビール', order: 8 },
   { kind: 'guest', id: 'warimono', label: '割り物', order: 9 },
+  // PDF/Word 第3弾 (重大3): OrderPage の集約カテゴリ (cast-drink / shot-pitcher)
+  // も menuCategories に対応 id を持たせ、個別に「非表示」できるようにする。
+  // OrderPage は cat.key で hidden を直接判定するため、id は cat.key と一致させる。
+  // shot-pitcher = ゲストドリンク (ショット+ピッチャー+ビール+割物 を 1 タブにまとめた集約)、
+  // cast-drink = キャストドリンク (cast 系全 subcategory を 1 タブにまとめた集約)。
+  { kind: 'guest', id: 'shot-pitcher', label: 'ゲストドリンク (集約)', order: 9.5 },
   // キャスト
+  { kind: 'cast', id: 'cast-drink', label: 'キャストドリンク (集約)', order: 9.6 },
   { kind: 'cast', id: 'fdrink', label: 'Lドリンク(F)', order: 10 },
   { kind: 'cast', id: 'hondrink', label: 'Lドリンク(本)', order: 11 },
   { kind: 'cast', id: 'fkaku', label: 'Lカクテル(F)', order: 12 },
@@ -421,10 +428,25 @@ export interface DailyPayRequest {
   id: number
   castId: number           // ボーイの場合は一意なstaffId(負数等)で代用
   castName: string
+  /** 実支給額（手動調整後 / 控除前の額）。
+   *  PDF/Word 第3弾: オペレーターがその場で上書き可能。
+   *  `calculatedAmount` と一致しない場合「調整あり」とみなす。 */
   amount: number
   date: string
   /** 省略時は 'cast' として扱う */
   staffType?: 'cast' | 'boy'
+  // ─── 第3弾 (PDF/Word 日払い調整) で追加: 旧レコードは全て optional ───
+  /** 自動計算額（時給×時間 - 10% 控除 等の理論値）。amount と異なれば
+   *  「手動調整あり」として履歴に表示。旧レコードでは未設定。 */
+  calculatedAmount?: number
+  /** 調整理由（amount を calculatedAmount から動かした場合のみ必須運用） */
+  adjustReason?: string
+  /** メモ（任意の補足、例: 「ボーナス上乗せ」「研修費差引」） */
+  note?: string
+  /** 支払日時 (ISO 8601)。null/undefined は「未払い」扱い。 */
+  paidAt?: string
+  /** 操作担当（user.displayName ?? username）。誰が支払ったかの監査用。 */
+  operator?: string
 }
 
 // ─── ボトルキープ ───
@@ -509,9 +531,15 @@ export interface AdvancePayment {
   castName: string
   amount: number
   source: 'register' | 'transfer'  // レジ現金 or 振込・オーナー立替
+  /** 表示上は「メモ」ラベルで扱う任意テキスト。受領書印字にも使用。 */
   reason: string
   date: string
   timestamp: string
+  /** PDF/Word 第3弾: 給与精算で天引き済みになった時刻 (ISO 8601)。
+   *  null/undefined = 未精算（翌月以降の月次給与で再度引かれるのを防ぐ）。
+   *  AdvanceManager から手動で精算済マーク可能。バックエンドは optional フィールド
+   *  として無視しても整合性を保つ（次回 read で再度フェッチすれば最新値が反映）。 */
+  settledAt?: string
 }
 
 // ─── 店舗設定 ───

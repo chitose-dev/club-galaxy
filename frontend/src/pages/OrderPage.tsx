@@ -83,7 +83,7 @@ export default function OrderPage() {
   const {
     tables, casts, guestMenu, castMenu, storeSettings,
     addOrderToTable, removeOrderFromTable, setOrderBonus,
-    moveCast, updateTable,
+    moveCast, updateTable, menuCategories,
   } = useStore()
   const extendTable = useExtendTable()
   const [showAddCast, setShowAddCast] = useState(false)
@@ -350,9 +350,21 @@ export default function OrderPage() {
       />
 
       <div className="flex-1 overflow-hidden grid grid-cols-1 md:grid-cols-[160px_minmax(0,1fr)_170px_minmax(0,1.3fr)]">
-        {/* ── Column 1: カテゴリー (ISSUE-011: カテゴリ別カラー識別) ── */}
+        {/* ── Column 1: カテゴリー (ISSUE-011: カテゴリ別カラー識別) ──
+            PDF/Word 第3弾 (重大3): cat.key と menuCategory.id を 1:1 マッピングで
+            統一し、`hidden: true` のものは出さない。集約カテゴリ (`cast-drink` /
+            `shot-pitcher`) も initialMenuCategories に対応 id を持つため、
+            個別に非表示にできる。'all' / 'charge' は基本機能のため常に表示。 */}
         <div className="border-r border-white/10 overflow-y-auto bg-primary-dark">
-          {categories.map((cat) => {
+          {(() => {
+            const hiddenIds = new Set(
+              menuCategories.filter((c) => c.hidden).map((c) => c.id),
+            )
+            return categories.filter((cat) => {
+              if (cat.key === 'all' || cat.key === 'charge') return true
+              return !hiddenIds.has(cat.key)
+            })
+          })().map((cat) => {
             const isActive = activeCategory === cat.key
             return (
               <button
