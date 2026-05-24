@@ -1188,9 +1188,17 @@ function SettingsManager({ storeSettings, setStoreSettings }: {
   storeSettings: StoreSettings
   setStoreSettings: React.Dispatch<React.SetStateAction<StoreSettings>>
 }) {
-  const [taxRate, setTaxRate] = useState(String(storeSettings.taxRate * 100))
-  const [cardFeeRate, setCardFeeRate] = useState(String(storeSettings.cardFeeRate * 100))
-  const [cardProcessingFeeRate, setCardProcessingFeeRate] = useState(String(storeSettings.cardProcessingFeeRate * 100))
+  // rate (0.035 等) × 100 で % 表示するときに浮動小数点誤差で `3.5000000000000004` 等
+  // 出るのを防ぐため、表示時は小数 1 桁に丸める。保存時に `/100` で rate に戻す。
+  const ratePercent = (rate: number) => {
+    if (!Number.isFinite(rate)) return ''
+    const pct = rate * 100
+    const rounded = Math.round(pct * 10) / 10
+    return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
+  }
+  const [taxRate, setTaxRate] = useState(ratePercent(storeSettings.taxRate))
+  const [cardFeeRate, setCardFeeRate] = useState(ratePercent(storeSettings.cardFeeRate))
+  const [cardProcessingFeeRate, setCardProcessingFeeRate] = useState(ratePercent(storeSettings.cardProcessingFeeRate))
   const [initialCash, setInitialCash] = useState(String(storeSettings.initialCash))
   const [closingDay, setClosingDay] = useState(String(storeSettings.closingDay))
   const [storeName, setStoreName] = useState(storeSettings.storeName)
