@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import { useStore } from '../store'
 import { getSetPriceForTime } from '../data/mock'
 import type { Table, ExtensionEntry } from '../data/mock'
+import { getExLabel } from '../utils/setCountLabel'
 
 /**
  * 卓の延長確定処理（FloorPage / OrderPage 共通フック）。
@@ -34,10 +35,13 @@ export function useExtendTable() {
         nominatedCastNames: [...castNames],       // 新規: 複数指名
         orderMenuItemId: orderId,
       }
+      // 注文/利用/会計明細に出る延長行の表示名は EX(n) / EX(n)半 形式に統一する
+      // (旧 `延長 +N分` 表記は廃止)。n は今回追加する EX のシリアル番号 (1-based)。
+      const exIndex = (table.extensionHistory ?? []).length + 1
       const extensionOrder = {
         menuItem: {
           id: orderId,
-          name: `延長 +${minutes}分`,
+          name: getExLabel(exIndex, minutes),
           price: charge,
           cost: 0,
           castBack: 0,

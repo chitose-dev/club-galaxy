@@ -295,7 +295,11 @@ export default function BillingPage() {
   const addSplitSlot = () => {
     if (!splitContext) return
     if (splitSlots.length >= splitContext.guestCount) return
-    setSplitSlots((prev) => [...prev, { amount: '0', recipientName: '', purpose: '飲食代として' }])
+    // 未発行残額 (= total - 既存スロット金額合計) を新枠の初期値にする。
+    // ユーザーが「枠を追加」→ 残額そのまま発行する自然なフローを想定。
+    const issued = splitSlots.reduce((s, x) => s + Math.max(0, Math.floor(Number(x.amount) || 0)), 0)
+    const rem = Math.max(0, splitContext.total - issued)
+    setSplitSlots((prev) => [...prev, { amount: String(rem), recipientName: '', purpose: '飲食代として' }])
   }
   const removeSplitSlot = (index: number) => {
     setSplitSlots((prev) => prev.filter((_, i) => i !== index))
@@ -307,6 +311,21 @@ export default function BillingPage() {
     : []
 
   // モーダル本体は function 宣言にして両 return から呼べるようにする。
+  // 人数を変えて初期割当を再生成 (旧レコードで guestCountSnapshot 欠落 → 1 枠 = 総額
+  // になっていた経路の救済も兼ねる)。total ÷ n、端数は最終枠に寄せる。
+  const resplitByGuestCount = (n: number) => {
+    if (!splitContext) return
+    const safe = Math.max(1, Math.min(n, 99))
+    const each = Math.floor(splitContext.total / safe)
+    const slots: SplitSlot[] = Array.from({ length: safe }).map((_, i) => ({
+      amount: String(i === safe - 1 ? splitContext.total - each * (safe - 1) : each),
+      recipientName: '',
+      purpose: '飲食代として',
+    }))
+    setSplitSlots(slots)
+    setSplitContext({ ...splitContext, guestCount: safe })
+  }
+
   function renderSplitIssueModal() { return (
     <Modal
       open={showSplitIssue && !!splitContext}
@@ -321,16 +340,45 @@ export default function BillingPage() {
         const totalIssued = splitSlots.reduce((s, x) => s + Math.max(0, Math.floor(Number(x.amount) || 0)), 0)
         const remainder = splitContext.total - totalIssued
         const maxSlots = splitContext.guestCount
+        // 発行合計 > 会計総額 はエラー扱い。各枠の発行ボタンを無効化する。
+        const overTotal = totalIssued > splitContext.total
         return (
           <div className="space-y-3">
             <div className="text-xs text-gray-400 space-y-0.5">
               <div>{splitContext.tableNumber}卓 / 伝票No. {splitContext.receiptNumber}</div>
+              <div className="flex flex-wrap gap-3 items-center">
+                <label className="flex items-center gap-1.5">
+                  <span className="text-gray-500">人数</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={99}
+                    value={splitContext.guestCount}
+                    onChange={(e) => resplitByGuestCount(Number(e.target.value) || 1)}
+                    className="w-16 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm tabular-nums text-right"
+                  />
+                  <span className="text-gray-500">名</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => resplitByGuestCount(splitContext.guestCount)}
+                  className="text-[11px] px-2 py-1 bg-white/5 border border-white/10 rounded text-gray-300 hover:bg-white/10"
+                  title="現在の人数で均等割り (端数は最終枠) に戻す"
+                >
+                  人数で再計算
+                </button>
+              </div>
               <div className="flex gap-3 tabular-nums">
                 <span>会計総額: <span className="text-gold font-bold">¥{splitContext.total.toLocaleString()}</span></span>
-                <span>発行合計: <span className={totalIssued > splitContext.total ? 'text-red-400 font-bold' : 'text-blue-300 font-bold'}>¥{totalIssued.toLocaleString()}</span></span>
+                <span>発行合計: <span className={overTotal ? 'text-red-400 font-bold' : 'text-blue-300 font-bold'}>¥{totalIssued.toLocaleString()}</span></span>
                 <span>未発行: <span className={remainder < 0 ? 'text-red-400 font-bold' : 'text-gray-300 font-bold'}>¥{remainder.toLocaleString()}</span></span>
               </div>
-              <div className="text-[10px] text-gray-500">※ 発行合計が会計総額と一致しないケースも許容（例: 一部のみ領収書発行）</div>
+              {overTotal && (
+                <div className="text-[11px] text-red-400 font-bold">
+                  ⚠️ 発行合計が会計総額を超えています。各枠の金額を調整してから発行してください。
+                </div>
+              )}
+              <div className="text-[10px] text-gray-500">※ 発行合計が会計総額未満は許容（例: 一部のみ領収書発行）。超過時のみエラー。</div>
             </div>
             <div className="space-y-2">
               {splitSlots.map((slot, i) => (
@@ -373,7 +421,9 @@ export default function BillingPage() {
                   </div>
                   <button
                     onClick={() => issueAndPrintSplit(i)}
-                    className="w-full btn-gold py-2 text-xs flex items-center justify-center gap-1.5"
+                    disabled={overTotal || Number(slot.amount) < 0}
+                    title={overTotal ? '発行合計が会計総額を超えるため発行できません' : undefined}
+                    className="w-full btn-gold py-2 text-xs flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <Printer size={13} /> この枠を発行 & 印刷
                   </button>
@@ -1108,7 +1158,7 @@ export default function BillingPage() {
                           className="text-xs px-3 py-1.5 bg-amber-500/15 border border-amber-500/30 text-amber-300 rounded"
                           title="残額の 1000 円未満を現金に吸収して丸める"
                         >
-                          ハスカット
+                          端数カット
                         </button>
                       </div>
                       {mixedCashAmount > 0 && (
