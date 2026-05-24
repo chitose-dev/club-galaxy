@@ -33,10 +33,8 @@ import Tabs, { type TabItem } from '../components/Tabs'
 import NumberInput from '../components/NumberInput'
 import { getTodayBusinessDay, formatBusinessDay } from '../utils/businessDay'
 // PDF E: 勤怠 UI 拡張用
-import Modal from '../components/Modal'
-import { Input, Field } from '../components/Input'
-import { GoldButton, GhostButton } from '../components/Buttons'
 import PayslipPopup from '../components/PayslipPopup'
+import DailyPayDialog from '../components/DailyPayDialog'
 import TimeInput from '../components/TimeInput'
 import { formatRealtimeWorkRange, roundClockInHHMM, roundClockOutHHMM, calcWorkHours } from '../utils/quarterHour'
 import { useAuth } from '../auth'
@@ -1516,8 +1514,11 @@ function AttendanceManager({
   const [staffType, setStaffType] = useState<'cast' | 'boy'>('cast')
   // PDF E: 給与明細ポップアップ / 日払い入力 / 15分リアルタイム再描画 / 監査ログ
   const [payslipCast, setPayslipCast] = useState<Cast | null>(null)
-  const [dailyPayCast, setDailyPayCast] = useState<Cast | null>(null)
-  const [dailyPayAmount, setDailyPayAmount] = useState('')
+  // 共通 DailyPayDialog 経由で日払いを記録するため、対象 cast + 自動計算額を持つ。
+  const [dailyPayTarget, setDailyPayTarget] = useState<
+    | { cast: Cast; calculatedAmount: number }
+    | null
+  >(null)
   const { addDailyPayRequest, addAttendanceEditLog, attendanceEditLogs, dailyReports } = useStore()
   const { user } = useAuth()
   // 1 分ごとに再描画して 15 分枠の境界更新を反映
@@ -1557,22 +1558,13 @@ function AttendanceManager({
   // 退勤打刻は handleClockOut (本日のみ) を使う。過去日の退勤時刻修正は監査ログ
   // 経由でのみ行う運用に集約しているため、ここでは Out 編集 handler を提供しない。
 
-  const handleDailyPaySubmit = () => {
-    if (!dailyPayCast) return
-    // PDF/Word 第2弾: 本日が締め済みなら日払いも操作不可。
+  // 共通 DailyPayDialog 経由で日払いを記録するヘルパー。
+  // date は YYYY-MM-DD 統一 (locale 表記との混在で履歴ソート破綻を防ぐ)。
+  const submitDailyPayFromDialog = (req: import('../data/mock').DailyPayRequest) => {
     const today = new Date().toISOString().slice(0, 10)
     if (isBusinessDateClosed(today, dailyReports)) return
-    const amount = Number(dailyPayAmount)
-    if (!Number.isFinite(amount) || amount <= 0) return
-    addDailyPayRequest({
-      id: Date.now(),
-      castId: dailyPayCast.id,
-      castName: dailyPayCast.name,
-      amount,
-      date: new Date().toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' }),
-    })
-    setDailyPayCast(null)
-    setDailyPayAmount('')
+    addDailyPayRequest(req)
+    setDailyPayTarget(null)
   }
 
   // 追補02 R4: 事前予定登録フォーム用
@@ -1816,7 +1808,12 @@ function AttendanceManager({
                       <FileText size={11} /> 明細
                     </button>
                     <button
-                      onClick={() => { setDailyPayCast(castObj); setDailyPayAmount('') }}
+                      onClick={() => {
+                        // 自動計算額 = 時給 × 当日勤務時間 - 10% (DailyPayManager と同じ)
+                        const basePay = calcHourlyPay(castObj.hourlyRate, r.workHours ?? 0)
+                        const net = basePay - Math.floor(basePay * 0.1)
+                        setDailyPayTarget({ cast: castObj, calculatedAmount: net })
+                      }}
                       disabled={isBusinessDateClosed(todayStr, dailyReports)}
                       title={isBusinessDateClosed(todayStr, dailyReports) ? LOCKED_TOOLTIP : undefined}
                       className="bg-white/5 hover:bg-white/10 text-gray-200 px-3 py-1 rounded text-xs flex items-center gap-1 disabled:opacity-30 disabled:cursor-not-allowed"
@@ -1889,34 +1886,17 @@ function AttendanceManager({
         onClose={() => setPayslipCast(null)}
       />
 
-      {/* PDF E: 日払い入力ポップアップ */}
-      <Modal
-        open={!!dailyPayCast}
-        onClose={() => { setDailyPayCast(null); setDailyPayAmount('') }}
-        title={dailyPayCast ? `${dailyPayCast.name} - 日払い` : ''}
-        size="sm"
-        footer={
-          <>
-            <GhostButton onClick={() => { setDailyPayCast(null); setDailyPayAmount('') }} className="flex-1">キャンセル</GhostButton>
-            <GoldButton onClick={handleDailyPaySubmit} className="flex-1" disabled={!dailyPayAmount || Number(dailyPayAmount) <= 0}>
-              記録する
-            </GoldButton>
-          </>
-        }
-      >
-        <div className="space-y-2">
-          <Field label="日払い金額 (円)">
-            <Input
-              type="number"
-              value={dailyPayAmount}
-              onChange={(e) => setDailyPayAmount(e.target.value)}
-              placeholder="例: 5000"
-              className="tabular-nums"
-            />
-          </Field>
-          <p className="text-[10px] text-gray-500">※ 給与計算時の日払い済合計に反映されます。一律10%控除して手渡しが運用想定。</p>
-        </div>
-      </Modal>
+      {/* DailyPayDialog: 自動計算 + 上書き + 調整理由 (必須) + メモ + 操作者 + paidAt + 当日 YYYY-MM-DD */}
+      <DailyPayDialog
+        open={!!dailyPayTarget}
+        cast={dailyPayTarget ? { id: dailyPayTarget.cast.id, name: dailyPayTarget.cast.name } : null}
+        calculatedAmount={dailyPayTarget?.calculatedAmount ?? 0}
+        targetDate={todayStr}
+        operator={user?.displayName ?? user?.username}
+        staffType="cast"
+        onSubmit={submitDailyPayFromDialog}
+        onClose={() => setDailyPayTarget(null)}
+      />
     </div>
   )
 }
@@ -2513,6 +2493,7 @@ function DailyPayManager({
   addDailyPayRequest: (req: import('../data/mock').DailyPayRequest) => void
 }) {
   const { dailyReports } = useStore()
+  const { user } = useAuth()
   // 追補02 R11-3: 営業日の定義 (朝 6:00 境界、開始日基準)
   const [targetDate, setTargetDate] = useState<string>(() => getTodayBusinessDay())
   // PDF/Word 第2弾: 締め済み営業日の日払いは確定済給与の上書きになるため操作不可。
@@ -2522,7 +2503,8 @@ function DailyPayManager({
   const records = attendanceRecords.filter((r) => r.date === targetDate && r.staffType === 'cast')
   const activeTodayCasts = casts.filter((c) => records.some((r) => r.staffId === c.id))
 
-  const [paying, setPaying] = useState<{ castId: number; castName: string; amount: number } | null>(null)
+  // DailyPayDialog 用の対象。calculatedAmount は自動計算額 (10% 控除後 net)。
+  const [paying, setPaying] = useState<{ castId: number; castName: string; calculatedAmount: number } | null>(null)
 
   const computePay = (cast: Cast, rec?: AttendanceRecord) => {
     const hours = rec?.workHours ?? 0
@@ -2597,7 +2579,7 @@ function DailyPayManager({
                     <span className="shrink-0 text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-1 rounded">支払済</span>
                   ) : (
                     <button
-                      onClick={() => setPaying({ castId: c.id, castName: c.name, amount: net })}
+                      onClick={() => setPaying({ castId: c.id, castName: c.name, calculatedAmount: net })}
                       disabled={targetDateClosed}
                       title={targetDateClosed ? LOCKED_TOOLTIP : undefined}
                       className="shrink-0 btn-gold text-xs px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -2612,29 +2594,20 @@ function DailyPayManager({
         )}
       </div>
 
-      <ConfirmDialog
+      {/* DailyPayDialog: 自動計算 + 上書き + 調整理由 (必須) + メモ + 操作者 + paidAt */}
+      <DailyPayDialog
         open={!!paying}
-        title="日払い確認"
-        message={paying ? `${paying.castName} に ¥${paying.amount.toLocaleString()} を日払いしますか?` : ''}
-        confirmLabel="支払う"
-        onConfirm={() => {
-          if (!paying) return
-          if (targetDateClosed) {
-            // バックエンドが受理しても締め確定済給与とずれるため、ここで二重防御。
-            setPaying(null)
-            return
-          }
-          addDailyPayRequest({
-            id: Date.now(),
-            castId: paying.castId,
-            castName: paying.castName,
-            amount: paying.amount,
-            date: targetDate,
-            staffType: 'cast',
-          })
+        cast={paying ? { id: paying.castId, name: paying.castName } : null}
+        calculatedAmount={paying?.calculatedAmount ?? 0}
+        targetDate={targetDate}
+        operator={user?.displayName ?? user?.username}
+        staffType="cast"
+        onSubmit={(req) => {
+          if (targetDateClosed) { setPaying(null); return }
+          addDailyPayRequest(req)
           setPaying(null)
         }}
-        onCancel={() => setPaying(null)}
+        onClose={() => setPaying(null)}
       />
     </div>
   )
