@@ -760,9 +760,10 @@ function CastTrendView() {
       (acc, b) => ({
         sales: acc.sales + b.sales,
         hours: acc.hours + b.hours,
+        back: acc.back + b.back,
         salary: acc.salary + b.salary,
       }),
-      { sales: 0, hours: 0, salary: 0 },
+      { sales: 0, hours: 0, back: 0, salary: 0 },
     )
   }, [buckets])
 
@@ -820,6 +821,16 @@ function CastTrendView() {
           <div className="text-base font-bold text-emerald-400 tabular-nums">¥{totals.salary.toLocaleString()}</div>
         </div>
       </div>
+
+      {/* 勤怠記録が無いのに売上 or 給与が出ている期間は、レビュー対象とすぐ分かるよう注記する。
+          仕様上はバック (指名 / ドリンク / ボトル) のみで給与が立つケースもあるため、
+          自動補正ではなく説明文だけ出して、ユーザーが勤怠未登録 or デモデータかを判断する。 */}
+      {totals.hours === 0 && (totals.salary > 0 || totals.sales > 0) && (
+        <div className="text-[11px] text-amber-300/80 bg-amber-500/10 border border-amber-500/30 rounded px-3 py-2">
+          勤務記録なし。バック合計 ¥{totals.back.toLocaleString()} + 時給0時間で給与を算出しています。
+          勤怠未登録のデモデータや、出勤せず売上だけ帰属しているケースで発生します。
+        </div>
+      )}
 
       {/* グラフ */}
       <div className="bg-white/5 rounded-lg p-4">

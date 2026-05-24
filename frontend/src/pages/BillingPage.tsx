@@ -494,6 +494,34 @@ export default function BillingPage() {
     </Modal>
   ) }
 
+  // `?splitId=...` で他ページから領収書発行のみを目的に開かれた場合、
+  // 通常の会計UIを背景に出すと「対象は4卓なのに背景は1卓の会計フォーム」のような
+  // 視覚的な不整合が出る。対象 record のヘッダ + 領収書発行モーダルだけを表示する。
+  if (splitIdParam) {
+    const splitTarget = billingRecords.find((r) => r.id === splitIdParam)
+    const splitHeaderTitle = splitTarget
+      ? `${splitTarget.tableNumber}卓 の領収書発行`
+      : '領収書発行'
+    return (
+      <div className="flex flex-col min-h-full">
+        <ContextualHeader
+          accent="billing"
+          title={splitHeaderTitle}
+          backTo={returnToParam ?? '/floor'}
+        />
+        <div className="flex-1 p-4 text-center text-gray-500 mt-10">
+          {splitTarget ? (
+            <p className="text-sm">領収書発行ダイアログを開いています…</p>
+          ) : (
+            <p className="text-sm">対象の会計が見つかりません</p>
+          )}
+        </div>
+        {receiptPrintBlock}
+        {renderSplitIssueModal()}
+      </div>
+    )
+  }
+
   if (!table || table.status === 'empty') {
     return (
       <div className="flex flex-col min-h-full">
