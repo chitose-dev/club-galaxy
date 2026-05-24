@@ -21,7 +21,7 @@ import { isPercentBackType, inferStartHour } from '../data/mock'
 import { computeDailyWork } from '../utils/dailyWork'
 import { calcHourlyPay } from '../utils/payroll'
 import type { Cast, BackType, GuestMenuItem, CastMenuItem, SetPrice, Table, StoreSettings, DailyWork, UserAccount, BillingRecord } from '../data/mock'
-import type { AttendanceRecord, Expense, ExpenseCategory, AdvancePayment, ArchivedData, DailyReport } from '../data/mock'
+import type { AttendanceRecord, Expense, ExpenseCategory, AdvancePayment, ArchivedData, DailyReport, DailyPayRequest } from '../data/mock'
 import React from 'react'
 import { Pencil, Trash2, Plus, Save, Download, ChevronUp, ChevronDown, GripVertical, Clock, Printer, FileText, Wallet, Lock } from 'lucide-react'
 import { isBusinessDateClosed, LOCKED_TOOLTIP, getClosingState, getClosingStateLabel } from '../utils/closing'
@@ -116,7 +116,7 @@ export default function AdminPage() {
       {activeTab === 'attendance' && <AttendanceManager attendanceRecords={attendanceRecords} addAttendance={addAttendance} updateAttendance={updateAttendance} casts={casts} attendanceSchedules={attendanceSchedules} addAttendanceSchedule={addAttendanceSchedule} removeAttendanceSchedule={removeAttendanceSchedule} markScheduleProcessed={markScheduleProcessed} />}
       {activeTab === 'expense' && <ExpenseManager expenses={expenses} addExpense={addExpense} removeExpense={removeExpense} />}
       {activeTab === 'uncollected' && <UncollectedManager billingRecords={billingRecords} updateBillingRecord={updateBillingRecord} />}
-      {activeTab === 'dailyreport' && <DailyReportManager dailyReports={dailyReports} setDailyReports={setDailyReports} billingRecords={billingRecords} />}
+      {activeTab === 'dailyreport' && <DailyReportManager dailyReports={dailyReports} setDailyReports={setDailyReports} billingRecords={billingRecords} dailyPayRequests={dailyPayRequests} expenses={expenses} advancePayments={advancePayments} storeSettings={storeSettings} />}
       {activeTab === 'advance' && <AdvanceManager advancePayments={advancePayments} addAdvancePayment={addAdvancePayment} casts={casts} storeSettings={storeSettings} />}
       {activeTab === 'dailypay' && <DailyPayManager casts={casts} attendanceRecords={attendanceRecords} dailyPayRequests={dailyPayRequests} addDailyPayRequest={addDailyPayRequest} />}
       {activeTab === 'prepay' && <PrepayManager casts={casts} advancePayments={advancePayments} addAdvancePayment={addAdvancePayment} />}
@@ -356,7 +356,7 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
                 {c.hidden ? '非表示' : '表示中'}
               </button>
               {c.custom && (
-                <button onClick={() => deleteCategory(c.id)} className="text-red-400 hover:bg-red-500/20 p-0.5 rounded">
+                <button onClick={() => deleteCategory(c.id)} aria-label={`${c.label ?? c.id} を削除`} title="削除" className="text-red-400 hover:bg-red-500/20 p-0.5 rounded">
                   <Trash2 size={12} />
                 </button>
               )}
@@ -590,11 +590,13 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
                         setEditCost(String(item.cost))
                         setEditBottleBackBase(item.bottleBackBasePerUnit !== undefined ? String(item.bottleBackBasePerUnit) : '')
                       }}
+                      aria-label={`${item.name} を編集`}
+                      title="編集"
                       className="text-gray-600 hover:text-white transition-colors"
                     >
                       <Pencil size={13} />
                     </button>
-                    <button onClick={() => setConfirmTarget({ kind: 'guest', id: item.id, name: item.name })} className="text-gray-600 hover:text-red-400 transition-colors">
+                    <button onClick={() => setConfirmTarget({ kind: 'guest', id: item.id, name: item.name })} aria-label={`${item.name} を削除`} title="削除" className="text-gray-600 hover:text-red-400 transition-colors">
                       <Trash2 size={13} />
                     </button>
                   </div>
@@ -628,7 +630,7 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
                         <input type="number" value={editCastBack} onChange={(e) => setEditCastBack(e.target.value)} className="w-20 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm text-right" />
                       </div>
                     </div>
-                    <button onClick={() => { setCastMenu((prev) => prev.map((m) => m.id === item.id ? { ...m, price: Number(editPrice), castBack: Number(editCastBack) } : m)); setEditingId(null) }} className="text-white hover:text-gray-300">
+                    <button onClick={() => { setCastMenu((prev) => prev.map((m) => m.id === item.id ? { ...m, price: Number(editPrice), castBack: Number(editCastBack) } : m)); setEditingId(null) }} aria-label="保存" title="保存" className="text-white hover:text-gray-300">
                       <Save size={14} />
                     </button>
                   </div>
@@ -638,10 +640,10 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
                       <span className="text-sm tabular-nums">¥{item.price.toLocaleString()}</span>
                       <span className="text-xs text-gray-500 ml-2">CB¥{item.castBack.toLocaleString()}</span>
                     </div>
-                    <button onClick={() => { setEditingId(item.id); setEditPrice(String(item.price)); setEditCastBack(String(item.castBack)) }} className="text-gray-600 hover:text-white transition-colors">
+                    <button onClick={() => { setEditingId(item.id); setEditPrice(String(item.price)); setEditCastBack(String(item.castBack)) }} aria-label={`${item.name} を編集`} title="編集" className="text-gray-600 hover:text-white transition-colors">
                       <Pencil size={13} />
                     </button>
-                    <button onClick={() => setConfirmTarget({ kind: 'cast', id: item.id, name: item.name })} className="text-gray-600 hover:text-red-400 transition-colors">
+                    <button onClick={() => setConfirmTarget({ kind: 'cast', id: item.id, name: item.name })} aria-label={`${item.name} を削除`} title="削除" className="text-gray-600 hover:text-red-400 transition-colors">
                       <Trash2 size={13} />
                     </button>
                   </div>
@@ -832,11 +834,11 @@ function CastManager({ casts, setCasts, addUser }: {
                 {!cast.active && <span className="text-xs text-red-400/70 ml-2">非アクティブ</span>}
               </div>
               <div className="flex gap-2">
-                <button onClick={() => startEdit(cast)} className="text-gray-600 hover:text-white transition-colors p-1">
+                <button onClick={() => startEdit(cast)} aria-label={`${cast.name} を編集`} title="編集" className="text-gray-600 hover:text-white transition-colors p-1">
                   <Pencil size={13} />
                 </button>
                 <button onClick={() => setCasts((prev) => prev.map((c) => c.id === cast.id ? { ...c, active: !c.active } : c))} className="text-xs bg-white/5 border border-white/10 px-2 py-1 rounded text-gray-500 hover:text-white transition-colors">{cast.active ? '無効化' : '有効化'}</button>
-                <button onClick={() => setConfirmTarget({ id: cast.id, name: cast.name })} className="text-gray-600 hover:text-red-400 transition-colors p-1">
+                <button onClick={() => setConfirmTarget({ id: cast.id, name: cast.name })} aria-label={`${cast.name} を削除`} title="削除" className="text-gray-600 hover:text-red-400 transition-colors p-1">
                   <Trash2 size={13} />
                 </button>
               </div>
@@ -920,14 +922,14 @@ function PriceManager({ setPrices, chargeItems, setSetPrices, setChargeItems }: 
       {editingId === item.id ? (
         <div className="flex items-center gap-2">
           <input type="number" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} className="w-24 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm text-right" />
-          <button onClick={() => handleSaveCharge(item.id)} className="text-white hover:text-gray-300">
+          <button onClick={() => handleSaveCharge(item.id)} aria-label="保存" title="保存" className="text-white hover:text-gray-300">
             <Save size={14} />
           </button>
         </div>
       ) : (
         <div className="flex items-center gap-3">
           <span className="text-sm tabular-nums">¥{item.price.toLocaleString()}</span>
-          <button onClick={() => { setEditingId(item.id); setEditPrice(String(item.price)) }} className="text-gray-600 hover:text-white transition-colors">
+          <button onClick={() => { setEditingId(item.id); setEditPrice(String(item.price)) }} aria-label={`${item.label} を編集`} title="編集" className="text-gray-600 hover:text-white transition-colors">
             <Pencil size={13} />
           </button>
         </div>
@@ -967,7 +969,7 @@ function PriceManager({ setPrices, chargeItems, setSetPrices, setChargeItems }: 
               onChange={(e) => setEditPrice(e.target.value)}
               className="w-24 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm text-right"
             />
-            <button onClick={() => handleSaveSet(item.id)} className="text-white hover:text-gray-300">
+            <button onClick={() => handleSaveSet(item.id)} aria-label="保存" title="保存" className="text-white hover:text-gray-300">
               <Save size={14} />
             </button>
           </div>
@@ -986,6 +988,8 @@ function PriceManager({ setPrices, chargeItems, setSetPrices, setChargeItems }: 
                   setEditLabel(item.label)
                   setEditStartHour(String(resolvedHour ?? 0))
                 }}
+                aria-label={`${item.label} を編集`}
+                title="編集"
                 className="text-gray-600 hover:text-white transition-colors"
               >
                 <Pencil size={13} />
@@ -3068,10 +3072,18 @@ function DailyReportManager({
   dailyReports,
   setDailyReports,
   billingRecords,
+  dailyPayRequests,
+  expenses,
+  advancePayments,
+  storeSettings,
 }: {
   dailyReports: DailyReport[]
   setDailyReports: React.Dispatch<React.SetStateAction<DailyReport[]>>
   billingRecords: BillingRecord[]
+  dailyPayRequests: DailyPayRequest[]
+  expenses: Expense[]
+  advancePayments: AdvancePayment[]
+  storeSettings: StoreSettings
 }) {
   const [businessDate, setBusinessDate] = useState<string>(() => getTodayBusinessDay())
   const [actualCash, setActualCash] = useState<number>(0)
@@ -3094,8 +3106,19 @@ function DailyReportManager({
   const cashSales = todayRecords.reduce((s, r) => s + (r.cashAmount ?? 0), 0)
   const cardSales = todayRecords.reduce((s, r) => s + (r.cardAmount ?? 0), 0)
   const totalSales = cashSales + cardSales
-  const initialCash = 100000
-  const theoreticalCash = initialCash + cashSales
+  // RegisterPage と理論有高ロジックを揃える: 日払い・現金経費・レジ現金からの前借りを差し引く。
+  // 旧実装では initialCash + cashSales のみで、レジ画面側との表示差異が出ていた。
+  const dailyPayTotal = dailyPayRequests
+    .filter((r) => r.date === businessDate)
+    .reduce((s, r) => s + r.amount, 0)
+  const cashExpenseTotal = expenses
+    .filter((e) => e.source === 'register' && e.date === businessDate)
+    .reduce((s, e) => s + e.amount, 0)
+  const cashAdvanceTotal = advancePayments
+    .filter((p) => p.source === 'register' && p.date === businessDate)
+    .reduce((s, p) => s + p.amount, 0)
+  const initialCash = storeSettings.initialCash
+  const theoreticalCash = initialCash + cashSales - dailyPayTotal - cashExpenseTotal - cashAdvanceTotal
   const difference = actualCash - theoreticalCash
 
   const handleSubmit = async () => {
@@ -3114,9 +3137,9 @@ function DailyReportManager({
       cashSales,
       cardSales,
       totalSales,
-      dailyPayTotal: 0,
-      cashExpenseTotal: 0,
-      cashAdvanceTotal: 0,
+      dailyPayTotal,
+      cashExpenseTotal,
+      cashAdvanceTotal,
       theoreticalCash,
       actualCash,
       difference,

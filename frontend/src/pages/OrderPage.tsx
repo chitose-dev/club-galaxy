@@ -2,15 +2,14 @@ import { useState, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../store'
 import type { MenuItem, CastMenuItem, OrderItem } from '../data/mock'
-import { displayOrderName, chargeItems, EXTENSION_OPTIONS, getSetPriceForTime } from '../data/mock'
-import { Minus, Plus, Trash2, CreditCard, Gift, UserMinus, Clock as ClockIcon } from 'lucide-react'
+import { displayOrderName, chargeItems } from '../data/mock'
+import { Minus, Plus, Trash2, CreditCard, Gift, UserMinus } from 'lucide-react'
 import ContextualHeader from '../components/ContextualHeader'
 import BottomActionBar from '../components/BottomActionBar'
 import CastChip from '../components/CastChip'
 import Modal from '../components/Modal'
 import { Input, Field as FormField } from '../components/Input'
-import { GoldButton, DangerButton, GhostButton, DarkButton } from '../components/Buttons'
-import { useExtendTable } from '../hooks/useExtendTable'
+import { GoldButton, DangerButton, GhostButton } from '../components/Buttons'
 import { formatTimeRange, getCurrentSetRange, getSetLabel } from '../utils/setCountLabel'
 
 // ビデオレビュー N6 (注1 15:50): ヘルプの再定義
@@ -83,11 +82,10 @@ export default function OrderPage() {
   const {
     tables, casts, guestMenu, castMenu, storeSettings,
     addOrderToTable, removeOrderFromTable, setOrderBonus,
-    moveCast, updateTable, setPrices,
+    moveCast, updateTable,
     // 早見ボタン (本日売上 / 日払い) 表示用
     billingRecords, dailyPayRequests,
   } = useStore()
-  const extendTable = useExtendTable()
   const [showAddCast, setShowAddCast] = useState(false)
   // 注文中でも本日の売上/日払いをヘッダ右の小バッジから即確認できるよう、
   // タップでサマリモーダルを開く state を持つ。
@@ -110,8 +108,6 @@ export default function OrderPage() {
   // ISSUE-002 補修: 本指名卓でキャスト未選択 + キャストドリンクをタップした時の確認モーダル
   //   alert ではなく Modal で「本指名キャスト全員に追加するか？」を確認
   const [pendingCastDrinkItem, setPendingCastDrinkItem] = useState<MenuItem | null>(null)
-  // 延長確認モーダル: 指名キャスト未確定なら開いたまま選択
-  const [pendingExtend, setPendingExtend] = useState<{ minutes: 30 | 60; castNames: string[] } | null>(null)
 
   const selectedTable = tables.find((t) => t.id === selectedTableId)
   const orders = selectedTable?.orders ?? []
@@ -255,25 +251,6 @@ export default function OrderPage() {
     }
   }
 
-  // ─── 延長 (FloorPage.requestExtend と同等のロジックに準拠) ───
-  const requestExtend = (minutes: 30 | 60) => {
-    if (!selectedTable) return
-    // 既定の指名キャスト: 本指名全員プリセット、本指名が無ければ担当先頭 1 名、それも無ければ空配列(フリー)。
-    // クロウさん追加要件で複数選択可（タップで追加/解除）に変更。
-    const defaults =
-      selectedTable.mainNominationCastNames.length > 0
-        ? [...selectedTable.mainNominationCastNames]
-        : selectedTable.assignedCasts.slice(0, 1)
-    setPendingExtend({ minutes, castNames: defaults })
-  }
-
-  const confirmExtend = () => {
-    if (!selectedTable || !pendingExtend) return
-    extendTable(selectedTable, pendingExtend.minutes, pendingExtend.castNames)
-    setPendingExtend(null)
-    // 注文画面に留まる（同卓のままセット番号が進む）→ ユーザーの追加注文を継続できる
-    setSelectedCastNames([])
-  }
 
   // ─── 本指名 / 同伴 のトグル (task ③) ───
   const toggleMainNomination = (castName: string) => {
@@ -666,9 +643,8 @@ export default function OrderPage() {
         </div>
       </div>
 
-      {/* spec.md §3.2.1: フッター左「注文小計」と右「注文印刷」を削除。
-          合計表示は右ペインの「合計（税込）」に集約済。中央の「利用明細へ」のみ残す。
-          task ②: 右側に「延長 +30分 / +60分」ボタンを追加し、注文画面に居たまま延長確定できる。 */}
+      {/* 延長は利用明細→延長交渉モーダル経由のフローに集約し、注文画面フッターからは導線を持たない。
+          (注文画面下部の EX クイック延長ボタンは導線過多のため廃止) */}
       <BottomActionBar
         center={
           <DangerButton
@@ -678,24 +654,6 @@ export default function OrderPage() {
           >
             <CreditCard size={18} /> 利用明細へ
           </DangerButton>
-        }
-        right={
-          <div className="flex items-center gap-1.5">
-            {EXTENSION_OPTIONS.map((min) => {
-              const nextIdx = (selectedTable.extensionHistory?.length ?? 0) + 1
-              const exLabel = min === 30 ? `EX(${nextIdx})半` : `EX(${nextIdx})`
-              return (
-                <DarkButton
-                  key={min}
-                  onClick={() => requestExtend(min as 30 | 60)}
-                  className="text-sm flex items-center gap-1"
-                  title={`${exLabel} (${min}分) 延長`}
-                >
-                  <ClockIcon size={14} /> {exLabel}
-                </DarkButton>
-              )
-            })}
-          </div>
         }
       />
 
@@ -824,90 +782,6 @@ export default function OrderPage() {
             </FormField>
           </div>
         )}
-      </Modal>
-
-      {/* task ②: 延長確認モーダル (FloorPage と同じ pending 確認フロー) */}
-      <Modal
-        open={!!pendingExtend && !!selectedTable}
-        onClose={() => setPendingExtend(null)}
-        size="sm"
-        title={selectedTable ? `${selectedTable.number}卓 延長の確認` : '延長の確認'}
-        footer={
-          <>
-            <GhostButton onClick={() => setPendingExtend(null)} className="flex-1">キャンセル</GhostButton>
-            <GoldButton onClick={confirmExtend} className="flex-1">延長する</GoldButton>
-          </>
-        }
-      >
-        {pendingExtend && selectedTable && (() => {
-          const setUnit = selectedTable.startTime ? getSetPriceForTime(selectedTable.startTime, setPrices) : 0
-          const setUnitAdjusted = Math.max(0, setUnit - (selectedTable.setDiscountPerSet ?? 0))
-          const fullSetCharge = setUnitAdjusted * selectedTable.guestCount
-          const extCharge = pendingExtend.minutes === 60 ? fullSetCharge : Math.round(fullSetCharge / 2)
-          const hasMain = selectedTable.mainNominationCastNames.length > 0
-          return (
-            <div className="space-y-3">
-              <div className="panel p-3 space-y-1.5">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">延長</span>
-                  <span className="font-bold">
-                    {(() => {
-                      const nextIdx = (selectedTable.extensionHistory?.length ?? 0) + 1
-                      return pendingExtend.minutes === 30 ? `EX(${nextIdx})半（30分）` : `EX(${nextIdx})（60分）`
-                    })()}
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">延長料金 ({selectedTable.guestCount}名 × ¥{setUnitAdjusted.toLocaleString()})</span>
-                  <span className="font-bold text-gold tabular-nums">¥{extCharge.toLocaleString()}</span>
-                </div>
-              </div>
-
-              {/* C12: 本指名 → フリー変更不可。本指名キャストがいる場合はフリー選択肢を出さない
-                  クロウさん追加要件: バック帰属先は複数選択可（タップで追加/解除） */}
-              <div>
-                <label className="text-xs text-gray-500 block mb-1.5">
-                  指名 (バック帰属先) {pendingExtend.castNames.length > 1 && <span className="text-gold ml-1">× {pendingExtend.castNames.length}名</span>}
-                </label>
-                <div className="flex gap-2 flex-wrap">
-                  {!hasMain && (
-                    <CastChip
-                      name="フリー"
-                      selected={pendingExtend.castNames.length === 0}
-                      onClick={() => setPendingExtend({ ...pendingExtend, castNames: [] })}
-                    />
-                  )}
-                  {selectedTable.assignedCasts.map((name) => {
-                    const on = pendingExtend.castNames.includes(name)
-                    return (
-                      <CastChip
-                        key={name}
-                        name={name}
-                        selected={on}
-                        onClick={() =>
-                          setPendingExtend({
-                            ...pendingExtend,
-                            castNames: on
-                              ? pendingExtend.castNames.filter((n) => n !== name)
-                              : [...pendingExtend.castNames, name],
-                          })
-                        }
-                      />
-                    )
-                  })}
-                </div>
-                {hasMain && (
-                  <p className="text-[10px] text-gray-600 mt-1.5">※ 本指名がついている卓はフリーに変更できません（複数指名は可）</p>
-                )}
-              </div>
-
-              <p className="text-xs text-amber-300/80 leading-relaxed">
-                ※ 延長確定時、本指名以外の担当キャストは待機に戻り、同伴・場内指名フラグは解除されます。
-                現在の注文明細はクリアされ、本指名料 + 延長料金が再計上されます。
-              </p>
-            </div>
-          )
-        })()}
       </Modal>
 
       {/* 追補02 R2: 「女の子を追加」 — 他卓対応中 or 待機中キャストを排他的に移動 */}

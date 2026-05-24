@@ -89,17 +89,19 @@ function ClosingView() {
     }
   }, [billingRecords])
 
+  // 日払い・現金経費・前借りは本日 (todayStr) 営業日に発生したものだけを集計。
+  // 全期間を引いていた旧実装では、過去分が紛れて理論有高が実態より小さく表示されていた。
   const dailyPayTotal = useMemo(
-    () => dailyPayRequests.reduce((s, r) => s + r.amount, 0),
-    [dailyPayRequests],
+    () => dailyPayRequests.filter((r) => r.date === todayStr).reduce((s, r) => s + r.amount, 0),
+    [dailyPayRequests, todayStr],
   )
   const cashExpenseTotal = useMemo(
-    () => expenses.filter((e) => e.source === 'register').reduce((s, e) => s + e.amount, 0),
-    [expenses],
+    () => expenses.filter((e) => e.source === 'register' && e.date === todayStr).reduce((s, e) => s + e.amount, 0),
+    [expenses, todayStr],
   )
   const cashAdvanceTotal = useMemo(
-    () => advancePayments.filter((p) => p.source === 'register').reduce((s, p) => s + p.amount, 0),
-    [advancePayments],
+    () => advancePayments.filter((p) => p.source === 'register' && p.date === todayStr).reduce((s, p) => s + p.amount, 0),
+    [advancePayments, todayStr],
   )
 
   const theoreticalCash =

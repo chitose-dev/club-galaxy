@@ -1203,18 +1203,21 @@ export default function BillingPage() {
                           <div className="flex justify-between font-bold"><span>現金受取</span><span className="tabular-nums">¥{mixedCashAmount.toLocaleString()}</span></div>
                           <div className="flex justify-between"><span className="text-gray-500">カード差額</span><span className="tabular-nums">¥{mixedCardAmount.toLocaleString()}</span></div>
                           <div className="flex justify-between text-blue-300"><span>カード手数料 (+{(cardFeeRate * 100).toFixed(0)}%)</span><span className="tabular-nums">¥{mixedCardFee.toLocaleString()}</span></div>
-                          {/* PDF D: カード差額+手数料を「カード支払額」として 1 行表示。
-                              先方が電卓で計算しなくても客に提示する金額が一目で分かる。 */}
-                          <div className="flex justify-between border-t border-white/10 pt-1 mt-1 font-bold text-gold">
-                            <span>カード支払額（差額+手数料）</span>
-                            {safeCardEndCut > 0 ? (
-                              <span className="tabular-nums">
-                                <span className="text-gray-500 line-through mr-1">¥{mixedCardPaymentRaw.toLocaleString()}</span>
-                                ¥{mixedCardPaymentFinal.toLocaleString()}
-                              </span>
-                            ) : (
-                              <span className="tabular-nums">¥{mixedCardPaymentRaw.toLocaleString()}</span>
-                            )}
+                          {/* 客に提示する「カード端末で打ち込む金額」を電卓無しで読めるよう、
+                              差額+手数料(-端数カット) を強調表示する。 */}
+                          <div className="mt-2 rounded-lg border border-gold/40 bg-gold/10 px-3 py-2">
+                            <div className="text-[10px] text-gold/80 tracking-wider mb-0.5">お客様にカードで請求する金額</div>
+                            <div className="flex items-baseline justify-between">
+                              <span className="text-xs text-gray-400">カード支払額（差額+手数料{safeCardEndCut > 0 ? '−端数カット' : ''}）</span>
+                              {safeCardEndCut > 0 ? (
+                                <span className="tabular-nums text-lg font-extrabold text-gold">
+                                  <span className="text-gray-500 line-through mr-1 text-sm font-normal">¥{mixedCardPaymentRaw.toLocaleString()}</span>
+                                  ¥{mixedCardPaymentFinal.toLocaleString()}
+                                </span>
+                              ) : (
+                                <span className="tabular-nums text-lg font-extrabold text-gold">¥{mixedCardPaymentRaw.toLocaleString()}</span>
+                              )}
+                            </div>
                           </div>
                           {/* PDF D: 端数カットボタン。カード支払額の 1000 円未満を
                               切り捨て、そのカット分は値引きとして会計記録に残る。

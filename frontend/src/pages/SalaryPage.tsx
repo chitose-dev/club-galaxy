@@ -672,10 +672,10 @@ export default function SalaryPage() {
           <button onClick={() => setShowDailyPayRecord(true)} className="w-full bg-white/5 border border-white/10 py-3 rounded-lg font-bold mb-4 text-sm transition-colors">日払い記録（口頭申請受付後に入力）</button>
         )}
 
-        {/* 日払い受領明細印刷 */}
-        {user?.role !== 'cast' && dailyPayRequests.filter((r) => r.castId === selectedCastId).length > 0 && (
+        {/* 日払い受領明細印刷 — 印刷物には ¥0 ノイズを出さない。 */}
+        {user?.role !== 'cast' && dailyPayRequests.filter((r) => r.castId === selectedCastId && r.amount > 0).length > 0 && (
           <button onClick={() => {
-            const castReqs = dailyPayRequests.filter((r) => r.castId === selectedCastId)
+            const castReqs = dailyPayRequests.filter((r) => r.castId === selectedCastId && r.amount > 0)
             const rows = castReqs.map((r) => `<tr><td>${r.date}</td><td>¥${r.amount.toLocaleString()}</td></tr>`).join('')
             const body = `
               <h2>日払い受領明細</h2>
@@ -693,12 +693,13 @@ export default function SalaryPage() {
           </button>
         )}
 
-        {/* Daily pay history */}
-        {dailyPayRequests.filter((r) => r.castId === selectedCastId).length > 0 && (
+        {/* Daily pay history — 旧データに残る ¥0 レコードは運用上ノイズなので表示除外。
+            新規登録は DailyPayDialog 側で amount > 0 を強制している。 */}
+        {dailyPayRequests.filter((r) => r.castId === selectedCastId && r.amount > 0).length > 0 && (
           <div className="panel p-4">
             <h3 className="text-sm font-bold mb-2 text-gray-400">日払い履歴</h3>
             <div className="divide-y divide-white/5">
-              {dailyPayRequests.filter((r) => r.castId === selectedCastId).map((r) => (
+              {dailyPayRequests.filter((r) => r.castId === selectedCastId && r.amount > 0).map((r) => (
                 <div key={r.id} className="flex justify-between text-sm py-1.5">
                   <span className="text-gray-500">{r.date}</span>
                   <span className="tabular-nums">¥{r.amount.toLocaleString()}</span>
