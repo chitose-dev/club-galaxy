@@ -24,6 +24,8 @@ import type { Cast, Table } from '../data/mock'
 import { formatRealtimeWorkRange, roundClockInHHMM, roundClockOutHHMM, calcWorkHours } from '../utils/quarterHour'
 import { isBusinessDateClosed } from '../utils/closing'
 import PayslipPopup from '../components/PayslipPopup'
+import DailyPayDialog from '../components/DailyPayDialog'
+import { calcHourlyPay } from '../utils/payroll'
 import { useAuth } from '../auth'
 
 /**
@@ -56,8 +58,11 @@ export default function WaitingCastPage() {
   const [draggingId, setDraggingId] = useState<number | null>(null)
   // PDF E: 給与明細ポップアップ / 日払い入力 / 出勤時刻修正 用
   const [payslipCast, setPayslipCast] = useState<Cast | null>(null)
-  const [dailyPayCast, setDailyPayCast] = useState<Cast | null>(null)
-  const [dailyPayAmount, setDailyPayAmount] = useState('')
+  // 共通 DailyPayDialog で記録する。calculatedAmount は時給×当日勤務時間-10%。
+  const [dailyPayTarget, setDailyPayTarget] = useState<
+    | { cast: Cast; calculatedAmount: number }
+    | null
+  >(null)
   const [editClockInCast, setEditClockInCast] = useState<Cast | null>(null)
   const [editClockInValue, setEditClockInValue] = useState('')
 
@@ -80,21 +85,11 @@ export default function WaitingCastPage() {
     return () => clearInterval(id)
   }, [])
 
-  const handleDailyPaySubmit = () => {
-    if (!dailyPayCast) return
-    // PDF/Word 第2弾: 本日が締め済みなら日払いも操作不可。
+  // DailyPayDialog から呼ぶ。date は YYYY-MM-DD (locale 表記混在で sort 破綻防止)。
+  const submitDailyPayFromDialog = (req: import('../data/mock').DailyPayRequest) => {
     if (isBusinessDateClosed(todayStr, dailyReports)) return
-    const amount = Number(dailyPayAmount)
-    if (!Number.isFinite(amount) || amount <= 0) return
-    addDailyPayRequest({
-      id: Date.now(),
-      castId: dailyPayCast.id,
-      castName: dailyPayCast.name,
-      amount,
-      date: new Date().toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' }),
-    })
-    setDailyPayCast(null)
-    setDailyPayAmount('')
+    addDailyPayRequest(req)
+    setDailyPayTarget(null)
   }
 
   const handleClockInEditSave = () => {
@@ -347,7 +342,12 @@ export default function WaitingCastPage() {
                     onDailyPay={
                       isBusinessDateClosed(todayStr, dailyReports)
                         ? undefined
-                        : () => { setDailyPayCast(c); setDailyPayAmount('') }
+                        : () => {
+                            const rec = todayAttendanceByCastId.get(c.id)
+                            const basePay = calcHourlyPay(c.hourlyRate, rec?.workHours ?? 0)
+                            const net = basePay - Math.floor(basePay * 0.1)
+                            setDailyPayTarget({ cast: c, calculatedAmount: net })
+                          }
                     }
                     onEdit={() => setEditing(c)}
                     onDelete={() => setPendingDelete(c)}
@@ -508,34 +508,17 @@ export default function WaitingCastPage() {
         onClose={() => setPayslipCast(null)}
       />
 
-      {/* PDF E: 日払い入力ポップアップ */}
-      <Modal
-        open={!!dailyPayCast}
-        onClose={() => { setDailyPayCast(null); setDailyPayAmount('') }}
-        title={dailyPayCast ? `${dailyPayCast.name} - 日払い` : ''}
-        size="sm"
-        footer={
-          <>
-            <GhostButton onClick={() => { setDailyPayCast(null); setDailyPayAmount('') }} className="flex-1">キャンセル</GhostButton>
-            <GoldButton onClick={handleDailyPaySubmit} className="flex-1" disabled={!dailyPayAmount || Number(dailyPayAmount) <= 0}>
-              記録する
-            </GoldButton>
-          </>
-        }
-      >
-        <div className="space-y-2">
-          <Field label="日払い金額 (円)">
-            <Input
-              type="number"
-              value={dailyPayAmount}
-              onChange={(e) => setDailyPayAmount(e.target.value)}
-              placeholder="例: 5000"
-              className="tabular-nums"
-            />
-          </Field>
-          <p className="text-[10px] text-gray-500">※ 給与計算時の日払い済合計に反映されます。一律10%控除して手渡しが運用想定。</p>
-        </div>
-      </Modal>
+      {/* DailyPayDialog: 待機画面からも自動計算 + 上書き + 調整理由 + メモ + 操作者 + paidAt を統一保存 */}
+      <DailyPayDialog
+        open={!!dailyPayTarget}
+        cast={dailyPayTarget ? { id: dailyPayTarget.cast.id, name: dailyPayTarget.cast.name } : null}
+        calculatedAmount={dailyPayTarget?.calculatedAmount ?? 0}
+        targetDate={todayStr}
+        operator={user?.displayName ?? user?.username}
+        staffType="cast"
+        onSubmit={submitDailyPayFromDialog}
+        onClose={() => setDailyPayTarget(null)}
+      />
 
       {/* PDF E: 出勤時刻 修正ポップアップ — 当日レコードのみ対象、数字選択 input */}
       <Modal
