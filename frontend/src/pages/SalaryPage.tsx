@@ -8,6 +8,7 @@ import { calcMonthlyGuaranteeShortfall } from '../utils/saleGuarantee'
 import { Plus, Trash2, FileText, FileDown } from 'lucide-react'
 import { buildMonthlyCastSalaryCsv, downloadCsv } from '../utils/taxCsv'
 import PayslipPopup from '../components/PayslipPopup'
+import DailyPayDialog from '../components/DailyPayDialog'
 import { openPrintWindow } from '../utils/print'
 import { getPaymentDate, formatPaymentDate } from '../utils/paymentDate'
 import { printCastLedger } from '../utils/castLedger'
@@ -38,7 +39,6 @@ export default function SalaryPage() {
   const [period, setPeriod] = useState<Period>('first')
 
   const [showDailyPayRecord, setShowDailyPayRecord] = useState(false)
-  const [dailyPayAmount, setDailyPayAmount] = useState('')
   // PDF E: SalaryPage からも給与明細ポップアップを開ける
   const [showPayslip, setShowPayslip] = useState(false)
 
@@ -200,17 +200,11 @@ export default function SalaryPage() {
 
   const storeMiscIncome = hostessTax - legalWithholding // 独自10%と法定源泉税の差額 = 店舗の雑収入
 
-  const handleDailyPayRecord = () => {
-    const amount = Number(dailyPayAmount)
-    if (!amount || amount <= 0 || !cast) return
-    addDailyPayRequest({
-      id: Date.now(),
-      castId: cast.id,
-      castName: cast.name,
-      amount,
-      date: new Date().toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' }),
-    })
-    setDailyPayAmount('')
+  // SalaryPage の「日払い記録」は口頭申請を受けた手入力ベース。
+  // 自動計算額は持たず、DailyPayDialog 経由で operator / paidAt / メモを保存する。
+  // adjustReason は calculatedAmount=0 のとき不要扱い (自動計算ベースなしのため)。
+  const submitDailyPayFromDialog = (req: import('../data/mock').DailyPayRequest) => {
+    addDailyPayRequest(req)
     setShowDailyPayRecord(false)
   }
 
@@ -715,29 +709,17 @@ export default function SalaryPage() {
         )}
       </div>
 
-      {/* Daily pay modal */}
-      <Modal
-        open={showDailyPayRecord}
+      {/* DailyPayDialog: 口頭申請の手入力でも operator / paidAt / メモ / 理由を保存する */}
+      <DailyPayDialog
+        open={showDailyPayRecord && !!cast}
+        cast={cast ? { id: cast.id, name: cast.name } : null}
+        calculatedAmount={0}
+        targetDate={new Date().toISOString().slice(0, 10)}
+        operator={user?.displayName ?? user?.username}
+        staffType="cast"
+        onSubmit={submitDailyPayFromDialog}
         onClose={() => setShowDailyPayRecord(false)}
-        size="sm"
-        title="日払い記録"
-        footer={
-          <>
-            <GhostButton onClick={() => setShowDailyPayRecord(false)} className="flex-1">キャンセル</GhostButton>
-            <GoldButton onClick={handleDailyPayRecord} disabled={!dailyPayAmount || Number(dailyPayAmount) <= 0} className="flex-1">記録</GoldButton>
-          </>
-        }
-      >
-        <p className="text-xs text-gray-500 mb-3">口頭申請を受けた日払い金額を記録します</p>
-        <Field label="支給額">
-          <Input
-            type="number"
-            value={dailyPayAmount}
-            onChange={(e) => setDailyPayAmount(e.target.value)}
-            placeholder="金額を入力"
-          />
-        </Field>
-      </Modal>
+      />
 
       {/* Deduction modal */}
       <Modal
