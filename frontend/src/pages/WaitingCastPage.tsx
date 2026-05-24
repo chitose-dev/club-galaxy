@@ -285,7 +285,7 @@ export default function WaitingCastPage() {
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="flex-1 overflow-y-auto p-3">
           <div className="text-[11px] text-gray-500 mb-2 px-1">
-            長押しでドラッグ → 列間移動で出勤 / 退勤。タップで編集・削除・所在確認。
+            キャストをタップで勤務時間 / 給与明細 / 日払い。出勤・退勤は左右のエリアにドラッグ。
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-5xl mx-auto">
             <DroppableColumn
