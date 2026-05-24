@@ -47,8 +47,11 @@ export default function DailyPayDialog({
   const amt = Number(amountInput)
   // calculatedAmount=0 は「自動計算ベースなし、純手入力」運用。差分なし扱いにする。
   const isAdjusted = calculatedAmount > 0 && Number.isFinite(amt) && amt !== calculatedAmount
+  // 0 円の日払いレコードを誤って作らないよう、必ず 1 円以上を要求する。
+  // calculatedAmount=0 で開く SalaryPage の手入力経路でも、初期値 0 のまま
+  // 「支払う」できないようにする。
   const canSubmit =
-    Number.isFinite(amt) && amt >= 0 && (!isAdjusted || reason.trim().length > 0)
+    Number.isFinite(amt) && amt > 0 && (!isAdjusted || reason.trim().length > 0)
 
   const handleSubmit = () => {
     if (!canSubmit) return
