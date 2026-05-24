@@ -26,7 +26,6 @@ import {
   getSetPriceForTime,
   initialMenuCategories,
   isChargeOrNominationOrder,
-  normalizeMenuItemName,
 } from '../data/mock'
 import { addMinutesToHHmm, formatTimeRange, getExLabel } from './setCountLabel'
 
@@ -143,6 +142,16 @@ export interface VisitBreakdown {
   paymentMethod: BillingRecord['paymentMethod']
   /** 取消済みフラグ (取消後の表示制御用) */
   voided: boolean
+}
+
+/** 延長確定で挿入された order 行か判定する。
+ *  新形式: `EX(n)` / `EX(n)半` / 旧形式: `延長 +30分` / `延長 +60分`。
+ *  伝票区分セクションで個別表示するので order 経由の表示からは除外する用。 */
+function isExtensionRow(name: string): boolean {
+  if (/^EX\(\d+\)半?$/.test(name)) return true
+  if (/^EX\(\?\)半?$/.test(name)) return true  // index 不明の旧データ
+  if (/^延長\s*\+(30|60)分$/.test(name)) return true
+  return false
 }
 
 function buildCategoryLabelMap(categories: readonly MenuCategory[]): Map<string, string> {
@@ -275,6 +284,10 @@ export function computeVisitBreakdown(
   const categoryAgg = new Map<string, VisitCategoryTotal>()
   if (snap?.orders) {
     for (const o of snap.orders) {
+      // BUG-010: 延長行 (EX(n) / EX(n)半 / 旧 `延長 +N分`) は伝票区分セクションで
+      // 個別表示されるため、orders 由来の表示からは除外する。これがないと
+      // 「指名・チャージ」または商品明細に EX(?) 表記で混入する。
+      if (isExtensionRow(o.menuItem.name)) continue
       const qty = o.quantity ?? 1
       const unit = o.menuItem.price ?? 0
       const sub = unit * qty
@@ -284,8 +297,7 @@ export function computeVisitBreakdown(
         ? '指名・チャージ'
         : (labelMap.get(subcategory) ?? subcategory)
       const line: VisitOrderLine = {
-        // 旧 `延長 +N分` を `EX(?)半` / `EX(?)` に正規化して表示する。
-        name: normalizeMenuItemName(o.menuItem.name),
+        name: o.menuItem.name,
         isCharge,
         subcategory,
         categoryLabel,

@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store'
 import { type BackType } from '../data/mock'
 import { computeDailyWork } from '../utils/dailyWork'
@@ -6,7 +7,7 @@ import ContextualHeader from '../components/ContextualHeader'
 import { calcHourlyPay } from '../utils/payroll'
 import VisitBreakdownView from '../components/VisitBreakdownView'
 import { computeVisitBreakdown } from '../utils/visitBreakdown'
-import { ChevronDown, ChevronUp, FileDown } from 'lucide-react'
+import { ChevronDown, ChevronUp, FileDown, Printer } from 'lucide-react'
 import {
   buildMonthlySalesCsv,
   buildMonthlySalesDetailCsv,
@@ -182,6 +183,7 @@ function DailyVisitDetailPanel({
   records: import('../data/mock').BillingRecord[]
   menuCategories: import('../data/mock').MenuCategory[]
 }) {
+  const navigate = useNavigate()
   const [expandedId, setExpandedId] = useState<string | null>(null)
   // 完了時刻の早い順に表示（営業時間中の流れを上から追える）。
   const sorted = useMemo(
@@ -286,10 +288,22 @@ function DailyVisitDetailPanel({
                   </div>
                 </button>
                 {isExpanded && r.receiptSnapshot && (
-                  <div className="border-t border-white/5 p-3">
+                  <div className="border-t border-white/5 p-3 space-y-3">
                     <VisitBreakdownView
                       b={computeVisitBreakdown(r, menuCategories)}
                     />
+                    {/* BUG-011: 利益管理から領収書発行導線。BillingPage の
+                        SplitIssueModal を `?splitId=...&returnTo=/profit` で
+                        開いて、閉じた時に /profit に戻ってくる。 */}
+                    <button
+                      onClick={() => {
+                        const ret = encodeURIComponent('/profit')
+                        navigate(`/billing?splitId=${encodeURIComponent(r.id)}&returnTo=${ret}`)
+                      }}
+                      className="w-full bg-white/5 hover:bg-white/10 border border-white/10 rounded py-2 text-xs flex items-center justify-center gap-1.5"
+                    >
+                      <Printer size={12} /> 領収書発行
+                    </button>
                   </div>
                 )}
                 {isExpanded && !r.receiptSnapshot && (

@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useStore } from '../store'
 import { useAuth } from '../auth'
@@ -252,6 +252,27 @@ export default function BillingPage() {
     setShowSplitIssue(true)
   }
 
+  // BUG-011: ProfitPage 等から `?splitId=<billingRecordId>&returnTo=<path>` で
+  // 開かれた場合、対象会計の SplitIssueModal を自動起動する。
+  // returnTo は閉じた時の戻り先 (省略時はそのまま BillingPage に留まる)。
+  const splitIdParam = searchParams.get('splitId')
+  const returnToParam = searchParams.get('returnTo')
+  const splitAutoOpenedRef = useRef(false)
+  useEffect(() => {
+    if (!splitIdParam || splitAutoOpenedRef.current) return
+    const target = billingRecords.find((r) => r.id === splitIdParam)
+    if (!target || !target.receiptSnapshot) return
+    splitAutoOpenedRef.current = true
+    openSplitIssue({
+      billingRecordId: target.id,
+      tableNumber: target.tableNumber,
+      total: target.total,
+      consumptionTax: target.receiptSnapshot.consumptionTax,
+      receiptNumber: target.receiptSnapshot.receiptNumber,
+      guestCount: Math.max(1, target.guestCountSnapshot ?? 1),
+    })
+  }, [splitIdParam, billingRecords])
+
   // 分割スロット 1 枚を「発行 & 印刷」する。
   // 既存の receiptPrintBlock を splitPrintOverride で動的差し替えし、
   // 印刷後に IssuedReceipt を保存する。
@@ -326,14 +347,24 @@ export default function BillingPage() {
     setSplitContext({ ...splitContext, guestCount: safe })
   }
 
+  // BUG-011: returnTo が指定されている場合、modal を閉じたら復帰する。
+  const closeSplitIssue = () => {
+    setShowSplitIssue(false)
+    setSplitContext(null)
+    setSplitSlots([])
+    if (returnToParam) {
+      navigate(returnToParam)
+    }
+  }
+
   function renderSplitIssueModal() { return (
     <Modal
       open={showSplitIssue && !!splitContext}
-      onClose={() => { setShowSplitIssue(false); setSplitContext(null); setSplitSlots([]) }}
+      onClose={closeSplitIssue}
       size="lg"
       title="領収書 分割発行"
       footer={
-        <GhostButton onClick={() => { setShowSplitIssue(false); setSplitContext(null); setSplitSlots([]) }} className="flex-1">閉じる</GhostButton>
+        <GhostButton onClick={closeSplitIssue} className="flex-1">閉じる</GhostButton>
       }
     >
       {splitContext && (() => {

@@ -19,7 +19,6 @@ import {
   type AttendanceRecord,
   type MenuCategory,
   initialMenuCategories,
-  normalizeMenuItemName,
 } from '../data/mock'
 import { calcHourlyPay } from './payroll'
 import { computeDailyWork } from './dailyWork'
@@ -196,11 +195,14 @@ export function buildMonthlySalesDetailCsv(
         b.totals.chargeSubtotal, '',
       ])
     }
-    // 注文明細 (組全体扱い — 注文ごとの ticket 紐付けは記録されていない)
+    // 注文明細 (組全体扱い — 注文ごとの ticket 紐付けは記録されていない)。
+    // BUG-010: 延長行は伝票区分側で個別に出るため、注文セクションからは除外する。
     for (const o of snap.orders) {
+      const nm = o.menuItem.name
+      if (/^EX\(\d+\)半?$/.test(nm) || /^EX\(\?\)半?$/.test(nm) || /^延長\s*\+(30|60)分$/.test(nm)) continue
       const qty = o.quantity ?? 1
       rows.push([
-        ...base, '注文', '組全体', normalizeMenuItemName(o.menuItem.name),
+        ...base, '注文', '組全体', nm,
         o.menuItem.subcategory ?? '',
         qty, o.menuItem.price, qty * o.menuItem.price,
         o.castName ?? '',
