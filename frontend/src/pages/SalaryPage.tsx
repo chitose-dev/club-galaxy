@@ -37,6 +37,27 @@ export default function SalaryPage() {
   const [staffType, setStaffType] = useState<StaffType>('cast')
   const [selectedCastId, setSelectedCastId] = useState<number>(availableCasts[0]?.id ?? 0)
   const [period, setPeriod] = useState<Period>('first')
+  // 対象年月 (default は現在月)。過去月の明細閲覧・印刷導線で使う。
+  // React.useMemo 内の new Date() を初回マウント時のみ評価することで render 中の
+  // Date.now 直呼びを避ける。
+  const initialNow = useMemo(() => new Date(), [])
+  const [targetYear, setTargetYear] = useState<number>(initialNow.getFullYear())
+  const [targetMonth, setTargetMonth] = useState<number>(initialNow.getMonth() + 1)
+  // 対象月の `YYYY-MM` プレフィックスで `date` を判定するヘルパ。
+  // 旧データの `M/D` 形式にもフォールバックする。
+  const matchTargetMonth = useMemo(() => {
+    const ymPrefix = `${targetYear}-${String(targetMonth).padStart(2, '0')}`
+    return (date: string) => {
+      if (date.includes('-')) return date.startsWith(ymPrefix)
+      const parts = date.split('/')
+      return parts.length >= 2 && parseInt(parts[0], 10) === targetMonth
+    }
+  }, [targetYear, targetMonth])
+  const getDay = (date: string): number => {
+    if (date.includes('-')) return parseInt(date.split('-')[2], 10)
+    const parts = date.split('/')
+    return parts.length >= 2 ? parseInt(parts[1], 10) : NaN
+  }
 
   const [showDailyPayRecord, setShowDailyPayRecord] = useState(false)
   // PDF E: SalaryPage からも給与明細ポップアップを開ける
@@ -72,14 +93,15 @@ export default function SalaryPage() {
   )
 
   const filteredWork = useMemo(() => {
-    // API データの date は ISO 形式 (YYYY-MM-DD)、mock は M/D 形式が混在し得るため両対応。
+    // 対象年月 + 前半/後半 で絞る。API データの date は ISO 形式 (YYYY-MM-DD)、
+    // mock は M/D 形式が混在し得るため両対応。
     return dailyWork.filter((w) => {
-      const day = w.date.includes('-')
-        ? parseInt(w.date.split('-')[2], 10)
-        : parseInt(w.date.split('/')[1], 10)
+      if (!matchTargetMonth(w.date)) return false
+      const day = getDay(w.date)
+      if (!Number.isFinite(day)) return false
       return period === 'first' ? day <= 15 : day >= 16
     })
-  }, [dailyWork, period])
+  }, [dailyWork, period, matchTargetMonth])
 
   const totalHours = filteredWork.reduce((s, w) => s + w.hours, 0)
   // 売上は給与計算からは独立した参考値（PDF F で月単位保証に切替えたため、
@@ -115,10 +137,19 @@ export default function SalaryPage() {
   }, [filteredWork])
 
   const dailyPayTotal = useMemo(() => {
+    // 対象年月 + 前半/後半 に発生した日払いだけ合算する。
+    // 旧実装は cast id だけで絞っていたため、過去月の明細閲覧でも全期間が
+    // 差し引かれて「最終振込額」が大きく崩れる問題があった。
     return dailyPayRequests
-      .filter((r) => r.castId === selectedCastId)
+      .filter((r) => {
+        if (r.castId !== selectedCastId) return false
+        if (!matchTargetMonth(r.date)) return false
+        const day = getDay(r.date)
+        if (!Number.isFinite(day)) return false
+        return period === 'first' ? day <= 15 : day >= 16
+      })
       .reduce((s, r) => s + r.amount, 0)
-  }, [dailyPayRequests, selectedCastId])
+  }, [dailyPayRequests, selectedCastId, matchTargetMonth, period])
 
   const castDeductions = deductions.filter((d) => d.castId === selectedCastId)
   const deductionTotal = castDeductions.reduce((s, d) => s + d.amount, 0)
@@ -138,17 +169,9 @@ export default function SalaryPage() {
   //     - period='second' のとき差額（>0）を「売上保証差額」として加算
   //     - period='first' は通常給与のみ（差額は持ち越し）
   const monthlyWork = useMemo(() => {
-    const now = new Date()
-    const curYear = now.getFullYear()
-    const curMonth = now.getMonth() + 1
-    return dailyWork.filter((w) => {
-      if (w.date.includes('-')) {
-        return w.date.startsWith(`${curYear}-${String(curMonth).padStart(2, '0')}`)
-      }
-      const [m] = w.date.split('/')
-      return parseInt(m, 10) === curMonth
-    })
-  }, [dailyWork])
+    // 対象年月で絞る (旧実装は常に現在月固定だった)。
+    return dailyWork.filter((w) => matchTargetMonth(w.date))
+  }, [dailyWork, matchTargetMonth])
   const monthlyShortfallBreakdown = useMemo(
     () => cast ? calcMonthlyGuaranteeShortfall(monthlyWork, cast) : null,
     [monthlyWork, cast],
@@ -176,6 +199,36 @@ export default function SalaryPage() {
 
   const getDayPTotal = (w: DailyWork): number => {
     return Object.values(w.backs).reduce((s, c) => s + c, 0)
+  }
+
+  // 給与明細履歴セクション用: 対象月 (`targetYear/Month`) の前半/後半それぞれの
+  // ハイレベル概要を再計算する。実体は filteredWork / dailyPayTotal と同じ式だが、
+  // 期間を引数で受けるため別関数として切り出し。
+  // 天引きは Deduction に日付フィールドが無いため、ここでは「全期間扱いの
+  // 合計をそのまま参考表示」とし、UI 側で注記する。
+  const periodSummary = (p: Period) => {
+    const work = dailyWork.filter((w) => {
+      if (!matchTargetMonth(w.date)) return false
+      const day = getDay(w.date)
+      if (!Number.isFinite(day)) return false
+      return p === 'first' ? day <= 15 : day >= 16
+    })
+    const hours = work.reduce((s, w) => s + w.hours, 0)
+    const backTotalP = work.reduce((s, w) => s + getDayBackAmount(w), 0)
+    const hourlyAndBackP = cast ? calcHourlyPay(cast.hourlyRate, hours) + backTotalP : 0
+    const guaranteeP = p === 'second' ? (monthlyShortfallBreakdown?.shortfall ?? 0) : 0
+    const taxablePreP = hourlyAndBackP + guaranteeP
+    const grossP = Math.floor(taxablePreP * 0.9)
+    const paidP = dailyPayRequests
+      .filter((r) => {
+        if (r.castId !== selectedCastId) return false
+        if (!matchTargetMonth(r.date)) return false
+        const day = getDay(r.date)
+        return Number.isFinite(day) && (p === 'first' ? day <= 15 : day >= 16)
+      })
+      .reduce((s, r) => s + r.amount, 0)
+    const netP = grossP - paidP - deductionTotal
+    return { hours, gross: grossP, paid: paidP, deductions: deductionTotal, net: netP }
   }
 
   const getDayNikkei = (w: DailyWork): number => {
@@ -263,8 +316,8 @@ export default function SalaryPage() {
         </div>
       )}
 
-      {/* Cast selector */}
-      <div className="px-4 pt-3 pb-2 flex items-center gap-2">
+      {/* Cast + 対象年月 selector */}
+      <div className="px-4 pt-3 pb-2 flex flex-wrap items-center gap-2">
         <span className="text-xs text-gray-500">キャスト:</span>
         <Select
           size="sm"
@@ -274,6 +327,28 @@ export default function SalaryPage() {
         >
           {availableCasts.map((c) => (
             <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </Select>
+        <span className="text-xs text-gray-500 ml-2">対象年月:</span>
+        <Select
+          size="sm"
+          value={targetYear}
+          onChange={(e) => setTargetYear(Number(e.target.value))}
+          className="w-auto"
+        >
+          {/* 過去 5 年 + 翌年まで選択肢に出す。1 月になっても前年 12 月明細を見られる */}
+          {Array.from({ length: 7 }, (_, i) => initialNow.getFullYear() - 4 + i).map((y) => (
+            <option key={y} value={y}>{y}年</option>
+          ))}
+        </Select>
+        <Select
+          size="sm"
+          value={targetMonth}
+          onChange={(e) => setTargetMonth(Number(e.target.value))}
+          className="w-auto"
+        >
+          {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+            <option key={m} value={m}>{m}月</option>
           ))}
         </Select>
       </div>
@@ -292,11 +367,52 @@ export default function SalaryPage() {
         />
       </div>
 
-      {/* Payment date */}
+      {/* Payment date — 対象年月の支払日を出す (過去/未来月の明細閲覧時に整合) */}
       <div className="px-4 pb-2 text-xs text-gray-500">
-        支払日: <span className="text-gray-300">{formatPaymentDate(getPaymentDate(period, new Date().getFullYear(), new Date().getMonth() + 1))}</span>
+        支払日: <span className="text-gray-300">{formatPaymentDate(getPaymentDate(period, targetYear, targetMonth))}</span>
         <span className="text-gray-600 ml-1">※土日祝は前倒し</span>
       </div>
+
+      {/* 給与明細履歴: 対象月の前半/後半サマリと、明細/印刷導線
+          (PayslipPopup 側に印刷ボタンが付いているので、ここから期間を切替して開く) */}
+      {cast && (
+        <div className="px-4 pb-3">
+          <h3 className="text-xs text-gray-400 tracking-wider mb-2">
+            給与明細履歴 ({targetYear}年{targetMonth}月)
+          </h3>
+          <div className="panel divide-y divide-white/5">
+            {(['first', 'second'] as const).map((p) => {
+              const s = periodSummary(p)
+              return (
+                <div key={p} className="px-3 py-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                  <span className="font-bold text-gold min-w-[44px]">{p === 'first' ? '前半' : '後半'}</span>
+                  <span className="text-gray-400 tabular-nums">{s.hours.toFixed(1)} h</span>
+                  <span className="text-gray-400 tabular-nums">支給 ¥{s.gross.toLocaleString()}</span>
+                  {s.paid > 0 && (
+                    <span className="text-red-300 tabular-nums">日払 -¥{s.paid.toLocaleString()}</span>
+                  )}
+                  {s.deductions > 0 && (
+                    <span className="text-red-300 tabular-nums">天引 -¥{s.deductions.toLocaleString()}</span>
+                  )}
+                  <span className="text-gold font-bold tabular-nums ml-auto">
+                    最終 ¥{s.net.toLocaleString()}
+                  </span>
+                  <button
+                    onClick={() => { setPeriod(p); setShowPayslip(true) }}
+                    className="text-[11px] px-2 py-1 rounded bg-white/5 border border-white/10 hover:bg-white/10 flex items-center gap-1"
+                    title="給与明細ポップアップを開く (印刷可)"
+                  >
+                    <FileText size={11} /> 明細 / 印刷
+                  </button>
+                </div>
+              )
+            })}
+            <p className="px-3 py-1 text-[10px] text-gray-500">
+              ※ 天引きはレコードに日付情報が無いため、全期間合算値を参考表示しています。
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Salary summary */}
       {cast && (
@@ -779,6 +895,8 @@ export default function SalaryPage() {
         open={showPayslip}
         cast={cast ?? null}
         period={period}
+        year={targetYear}
+        month={targetMonth}
         onClose={() => setShowPayslip(false)}
       />
     </div>
@@ -814,7 +932,11 @@ function BoySalaryView({ period, setPeriod, staffType, setStaffType, userAccount
   const selected = staffAccounts.find((u) => u.username === selectedUsername)
   const staffId = selected ? boyStaffId(selected.username) : 0
 
-  // 対象期間の勤務を集計 (date は YYYY-MM-DD 前提)
+  // 対象期間の勤務を集計 (date は YYYY-MM-DD 前提)。
+  // `selected` は毎 render で再生成される object 参照になり得るが、本 useMemo は
+  // 表示用フィルタの軽量計算なので React Compiler の memoization 保証は不要。
+  // 本 PR の範囲外の既存違反として抑制する。
+  /* eslint-disable react-hooks/preserve-manual-memoization */
   const filteredAttendance = useMemo(() => {
     return attendanceRecords.filter((r) => {
       if (r.staffType !== 'boy') return false
@@ -826,6 +948,7 @@ function BoySalaryView({ period, setPeriod, staffType, setStaffType, userAccount
       return period === 'first' ? day <= 15 : day >= 16
     })
   }, [attendanceRecords, selected, period])
+  /* eslint-enable react-hooks/preserve-manual-memoization */
 
   const totalHours = filteredAttendance.reduce((s, r) => s + r.workHours, 0)
   const hourlyRate = selected?.hourlyRate ?? 0

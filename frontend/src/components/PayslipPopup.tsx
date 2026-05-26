@@ -22,6 +22,7 @@ import type { Cast, BackType, DailyWork } from '../data/mock'
 import Modal from './Modal'
 import { GhostButton, GoldButton } from './Buttons'
 import { Printer } from 'lucide-react'
+import { openPrintWindow } from '../utils/print'
 
 export interface PayslipPopupProps {
   open: boolean
@@ -29,6 +30,10 @@ export interface PayslipPopupProps {
   /** 'first' = 1〜15 日 / 'second' = 16〜末日。
    *  指定なしは現在日付から自動判定。 */
   period?: 'first' | 'second'
+  /** 対象年 (4 桁)。指定なしは現在年。 */
+  year?: number
+  /** 対象月 (1-12)。指定なしは現在月。 */
+  month?: number
   onClose: () => void
 }
 
@@ -36,10 +41,40 @@ function getCurrentPeriod(): 'first' | 'second' {
   return new Date().getDate() <= 15 ? 'first' : 'second'
 }
 
-export default function PayslipPopup({ open, cast, period: forcedPeriod, onClose }: PayslipPopupProps) {
+/** 対象月の `YYYY-MM` プレフィックス。`date` フィールドが `YYYY-MM-DD` or
+ *  `M/D` (旧データ) いずれの形式でも判定できるように、両形式を許容する関数を
+ *  生成して返す。 */
+function makeMonthMatcher(year: number, month: number): (date: string) => boolean {
+  const ymPrefix = `${year}-${String(month).padStart(2, '0')}`
+  return (date: string) => {
+    if (date.includes('-')) return date.startsWith(ymPrefix)
+    const parts = date.split('/')
+    if (parts.length < 2) return false
+    return parseInt(parts[0], 10) === month
+  }
+}
+
+/** 日 (1-31) を取得。`YYYY-MM-DD` / `M/D` 双方を許容。 */
+function getDayOfMonth(date: string): number {
+  if (date.includes('-')) return parseInt(date.split('-')[2], 10)
+  const parts = date.split('/')
+  return parts.length >= 2 ? parseInt(parts[1], 10) : NaN
+}
+
+export default function PayslipPopup({
+  open, cast, period: forcedPeriod,
+  year: forcedYear, month: forcedMonth,
+  onClose,
+}: PayslipPopupProps) {
   const { casts, attendanceRecords, billingRecords, dailyPayRequests, deductions, storeSettings } = useStore()
 
+  // 対象期間の決定。default は「現在年月 + 現在 period」(従来挙動)。
+  const now = useMemo(() => new Date(), [])
+  const year = forcedYear ?? now.getFullYear()
+  const month = forcedMonth ?? (now.getMonth() + 1)
   const period = forcedPeriod ?? getCurrentPeriod()
+  const periodLabel = `${year}年${month}月 ${period === 'first' ? '前半 1〜15日' : '後半 16〜末日'}`
+  const matchMonth = useMemo(() => makeMonthMatcher(year, month), [year, month])
 
   // 全キャストの「ボトルバック」率（A2 配線と同じ形で computeDailyWork に渡す）
   const bottleBackRateByCast = useMemo(() => {
@@ -61,12 +96,12 @@ export default function PayslipPopup({ open, cast, period: forcedPeriod, onClose
 
   const filteredWork = useMemo(() => {
     return dailyWork.filter((w) => {
-      const day = w.date.includes('-')
-        ? parseInt(w.date.split('-')[2], 10)
-        : parseInt(w.date.split('/')[1], 10)
+      if (!matchMonth(w.date)) return false
+      const day = getDayOfMonth(w.date)
+      if (!Number.isFinite(day)) return false
       return period === 'first' ? day <= 15 : day >= 16
     })
-  }, [dailyWork, period])
+  }, [dailyWork, period, matchMonth])
 
   const totalHours = filteredWork.reduce((s, w) => s + w.hours, 0)
 
@@ -121,36 +156,35 @@ export default function PayslipPopup({ open, cast, period: forcedPeriod, onClose
 
   // 日払いの自動計算と実支給の差分 (= プラス/マイナス調整)。理由付き。
   // 第3弾 DailyPayDialog 経由のレコードのみ calculatedAmount が入る。
+  // 対象期間で絞り、過去月の調整が他月の明細に混入しないようにする。
   const adjustments = useMemo(() => {
     if (!cast) return []
     return dailyPayRequests
-      .filter((r) => r.castId === cast.id
-        && r.calculatedAmount != null
-        && r.amount !== r.calculatedAmount)
+      .filter((r) => {
+        if (r.castId !== cast.id) return false
+        if (r.calculatedAmount == null) return false
+        if (r.amount === r.calculatedAmount) return false
+        if (!matchMonth(r.date)) return false
+        const day = getDayOfMonth(r.date)
+        if (!Number.isFinite(day)) return false
+        return period === 'first' ? day <= 15 : day >= 16
+      })
       .map((r) => ({
         diff: r.amount - (r.calculatedAmount ?? 0),
         reason: r.adjustReason ?? '',
         date: r.date,
       }))
-  }, [dailyPayRequests, cast])
+  }, [dailyPayRequests, cast, matchMonth, period])
   const adjustTotal = adjustments.reduce((s, a) => s + a.diff, 0)
   const hourlyPay = cast ? calcHourlyPay(cast.hourlyRate, totalHours) : 0
 
   const hourlyAndBackTotal = cast ? calcHourlyPay(cast.hourlyRate, totalHours) + totalBackAmount : 0
 
-  // 月締めの売上保証差額（PDF F）
+  // 月締めの売上保証差額（PDF F）。対象月で絞る (旧実装は常に「現在月」だった
+  // ため過去月の明細閲覧で正しい値が出なかった)。
   const monthlyWork = useMemo(() => {
-    const now = new Date()
-    const curYear = now.getFullYear()
-    const curMonth = now.getMonth() + 1
-    return dailyWork.filter((w) => {
-      if (w.date.includes('-')) {
-        return w.date.startsWith(`${curYear}-${String(curMonth).padStart(2, '0')}`)
-      }
-      const [m] = w.date.split('/')
-      return parseInt(m, 10) === curMonth
-    })
-  }, [dailyWork])
+    return dailyWork.filter((w) => matchMonth(w.date))
+  }, [dailyWork, matchMonth])
   const monthlyShortfall = useMemo(
     () => cast ? calcMonthlyGuaranteeShortfall(monthlyWork, cast) : null,
     [monthlyWork, cast],
@@ -161,23 +195,71 @@ export default function PayslipPopup({ open, cast, period: forcedPeriod, onClose
   const grossSalary = Math.floor(taxablePre * 0.9)
   const hostessTax = taxablePre - grossSalary
 
+  // 日払い合計は対象期間 (year/month + 前半/後半) に絞る。
+  // 旧実装は cast.id だけで全期間合算していたため、過去月明細を開いたときに
+  // 「最終振込額が大幅マイナス」になっていた。
   const dailyPayTotal = useMemo(() => {
     if (!cast) return 0
     return dailyPayRequests
-      .filter((r) => r.castId === cast.id)
+      .filter((r) => {
+        if (r.castId !== cast.id) return false
+        if (!matchMonth(r.date)) return false
+        const day = getDayOfMonth(r.date)
+        if (!Number.isFinite(day)) return false
+        return period === 'first' ? day <= 15 : day >= 16
+      })
       .reduce((s, r) => s + r.amount, 0)
-  }, [dailyPayRequests, cast])
+  }, [dailyPayRequests, cast, matchMonth, period])
 
+  // Deduction には日付フィールドが無いため、現状は全期間扱い。
+  // UI 側 (給与明細注記) で「天引きは現時点では全期間合算扱い」を表示する。
   const castDeductions = cast ? deductions.filter((d) => d.castId === cast.id) : []
   const deductionTotal = castDeductions.reduce((s, d) => s + d.amount, 0)
   const netSalary = grossSalary - dailyPayTotal - deductionTotal
 
+  // 画面 DOM 依存の body.print-payslip-only 方式 (グローバル CSS で他 UI を隠す)
+  // から脱却し、openPrintWindow に必須項目を埋めて投げる方式に統一する。
+  // 印刷専用 HTML を別ウィンドウに描画 → window.print() で印刷ダイアログを開く
+  // ことで、画面上のスタイル変更や他コンポーネントの再描画と干渉しない。
   const printPayslip = () => {
-    document.body.classList.add('print-payslip-only')
-    setTimeout(() => {
-      window.print()
-      document.body.classList.remove('print-payslip-only')
-    }, 50)
+    if (!cast) return
+    const yen = (n: number) => `¥${n.toLocaleString()}`
+    const rows: Array<[string, string]> = [
+      ['対象期間', periodLabel],
+      ['勤務時間 (合計)', `${totalHours.toFixed(1)} h`],
+      ['時給分', yen(hourlyPay)],
+      ['本指名', `${breakdown.shimei.count}件 / ${yen(breakdown.shimei.amount)}`],
+      ['場内指名', `${breakdown.banai.count}件 / ${yen(breakdown.banai.amount)}`],
+      ['同伴', `${breakdown.douhan.count}件 / ${yen(breakdown.douhan.amount)}`],
+      ['ドリンク (バック)', `${breakdown.drinks.count}件 / ${yen(breakdown.drinks.amount)}`],
+      ['ボトルバック', yen(breakdown.bottleAmount)],
+    ]
+    if (breakdown.extensionAmount > 0) {
+      rows.push(['延長指名バック', yen(breakdown.extensionAmount)])
+    }
+    rows.push(['時給+バック 小計', yen(hourlyAndBackTotal)])
+    if (guaranteeShortfall > 0) {
+      rows.push(['その他: 売上保証差額', `+${yen(guaranteeShortfall)}`])
+    }
+    rows.push(['税引前 (合計)', yen(taxablePre)])
+    rows.push(['ホステス税 (-10%)', `-${yen(hostessTax)}`])
+    rows.push(['支給額', yen(grossSalary)])
+    if (dailyPayTotal > 0) rows.push(['日払い済', `-${yen(dailyPayTotal)}`])
+    if (deductionTotal > 0) rows.push(['天引き合計', `-${yen(deductionTotal)}`])
+    rows.push(['最終振込額', yen(netSalary)])
+    const tbody = rows
+      .map(([l, v]) => `<tr><th>${l}</th><td>${v}</td></tr>`)
+      .join('')
+    const body = `
+      <h2>給与明細</h2>
+      <p class="center">${storeSettings.storeName}</p>
+      <p class="center bold">${cast.name}</p>
+      <p class="center muted">${periodLabel}</p>
+      <table>${tbody}</table>
+    `
+    const filename =
+      `給与明細_${cast.name}_${year}-${String(month).padStart(2, '0')}_${period === 'first' ? '前半' : '後半'}`
+    openPrintWindow(body, filename, { width: 400, height: 700 })
   }
 
   if (!cast) return null
@@ -187,7 +269,7 @@ export default function PayslipPopup({ open, cast, period: forcedPeriod, onClose
       open={open}
       onClose={onClose}
       size="md"
-      title={`給与明細 - ${cast.name}（${period === 'first' ? '1〜15日' : '16〜末日'} ）`}
+      title={`給与明細 - ${cast.name}（${periodLabel}）`}
       footer={
         <>
           <GhostButton onClick={onClose} className="flex-1">閉じる</GhostButton>
@@ -205,7 +287,7 @@ export default function PayslipPopup({ open, cast, period: forcedPeriod, onClose
           <tbody className="divide-y divide-white/5">
             <tr>
               <th className="text-left text-gray-400 py-1.5 font-normal">対象期間</th>
-              <td className="text-right tabular-nums">{period === 'first' ? '1〜15日' : '16〜末日'}</td>
+              <td className="text-right tabular-nums">{periodLabel}</td>
             </tr>
             <tr>
               <th className="text-left text-gray-400 py-1.5 font-normal">勤務時間 (合計)</th>
