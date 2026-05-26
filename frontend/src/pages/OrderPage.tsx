@@ -195,14 +195,18 @@ export default function OrderPage() {
     setPendingCastDrinkItem(null)
   }
 
-  // 同一セット (= 現在の orders) 内で「キャスト × 指名形態 (本指名/場内指名/同伴)」が
-  // 既に登録済かを判定。既存なら 2 度目の登録をスキップする。
-  // 指名以外の charge (ヘルプ等) はチェック対象外。
-  const NOMINATION_LABELS = new Set(['本指名', '場内指名', '同伴'])
-  const isCastAlreadyChargedWith = (castName: string, label: string): boolean =>
-    orders.some((o) => o.castName === castName && o.menuItem.name === label)
-  const allSelectedAlreadyCharged = (label: string): boolean =>
-    selectedCastNames.length > 0 && selectedCastNames.every((n) => isCastAlreadyChargedWith(n, label))
+  // BillingPage は `mainNominationCastNames / isBanaiShimei / isDouhan` を真の truth として
+  // 指名料を計算する設計。orders 側にも本指名 charge を積むと二重計上になるため、
+  // 指名形態 (本指名/場内指名/同伴) は orders に「積まず」卓フラグだけを更新する。
+  // 同一セット内で同じ形態を 2 度追加できないよう、ボタン側で disabled 制御する。
+  const NOMINATION_IDS = new Set(['shimei', 'banai', 'douhan'])
+  const isNominationAlreadyAppliedToTable = (chargeId: string): boolean => {
+    if (!selectedTable) return false
+    if (chargeId === 'shimei') return selectedTable.mainNominationCastNames.length > 0
+    if (chargeId === 'banai') return !!selectedTable.isBanaiShimei
+    if (chargeId === 'douhan') return !!selectedTable.isDouhan
+    return false
+  }
 
   const handleAddCharge = (charge: { id: string; label: string; price: number; cost: number }) => {
     if (!selectedTableId || !selectedTable) return
@@ -210,15 +214,28 @@ export default function OrderPage() {
       alert('指名料はキャストを選択してから追加してください')
       return
     }
-    const isNomination = NOMINATION_LABELS.has(charge.label)
-    let appended = 0
-    selectedCastNames.forEach((name) => {
-      // 同一セット内で同じ (キャスト × 指名形態) を二重に積まないガード。
-      // 名前横の指名ボタンと連動した結果、すでに同じ行があるケースもあるため
-      // 「sleep でスキップして残りだけ追加」する形にする (要件: 2 回押す前提にしない)。
-      if (isNomination && isCastAlreadyChargedWith(name, charge.label)) {
+    if (NOMINATION_IDS.has(charge.id)) {
+      // セット単位の重複ガード (キャスト単位ではない)。要件: 1セット内で
+      // 本指名 / 場内 / 同伴 が複数件入らないようにする。
+      if (isNominationAlreadyAppliedToTable(charge.id)) {
+        alert(`このセットには既に「${charge.label}」が設定されています`)
         return
       }
+      if (charge.id === 'shimei') {
+        const next = Array.from(new Set([
+          ...selectedTable.mainNominationCastNames,
+          ...selectedCastNames,
+        ]))
+        updateTable(selectedTableId, { mainNominationCastNames: next })
+      } else if (charge.id === 'banai') {
+        updateTable(selectedTableId, { isBanaiShimei: true })
+      } else if (charge.id === 'douhan') {
+        updateTable(selectedTableId, { isDouhan: true })
+      }
+      return
+    }
+    // 非指名 charge (将来の追加分) は従来通り orders に積む。
+    selectedCastNames.forEach((name) => {
       const order: OrderItem = {
         menuItem: {
           id: 3000 + Math.floor(Math.random() * 1_000_000),
@@ -233,27 +250,7 @@ export default function OrderPage() {
         castName: name,
       }
       addOrderToTable(selectedTableId, order)
-      appended++
     })
-    if (!isNomination) return
-    // 指名形態の追加は卓フラグ / mainNomination とも連動させる
-    // (メニュー側ボタンと名前横ボタンの状態を 1 つの真実から導けるようにする)。
-    if (charge.id === 'shimei') {
-      const cur = selectedTable.mainNominationCastNames
-      const next = Array.from(new Set([...cur, ...selectedCastNames]))
-      if (next.length !== cur.length) {
-        updateTable(selectedTableId, { mainNominationCastNames: next })
-      }
-    } else if (charge.id === 'banai' && !selectedTable.isBanaiShimei) {
-      updateTable(selectedTableId, { isBanaiShimei: true })
-    } else if (charge.id === 'douhan' && !selectedTable.isDouhan) {
-      updateTable(selectedTableId, { isDouhan: true })
-    }
-    if (appended === 0) {
-      // 全員既存だった = ボタン押下が完全に空振り。UI 側で disabled 制御するが、
-      // 万が一すり抜けても運用が混乱しないよう一言注意を出す。
-      alert(`選択中のキャスト全員に既に「${charge.label}」が追加されています`)
-    }
   }
 
   const handleAddHelp = () => {
@@ -290,44 +287,15 @@ export default function OrderPage() {
 
 
   // ─── 本指名 / 同伴 のトグル (task ③) ───
-  // メニュー側「本指名」ボタンと連動させるため、トグル ON 時には orders にも
-  // 本指名 charge を 1 行積み、OFF 時には対応行を削除する。
-  // 価格・原価は chargeItems の id='shimei' から引く (mock 初期値 ¥1500)。
+  // 指名料は BillingPage が `mainNominationCastNames` を真の truth として計算するため、
+  // orders 側に同期書き込みは不要 (二重計上の原因になる)。卓フラグだけ更新する。
   const toggleMainNomination = (castName: string) => {
     if (!selectedTable) return
-    const tableId = selectedTable.id
     const current = selectedTable.mainNominationCastNames
-    const isOn = current.includes(castName)
-    const next = isOn ? current.filter((n) => n !== castName) : [...current, castName]
-    updateTable(tableId, { mainNominationCastNames: next })
-    // orders 側との同期
-    if (isOn) {
-      // OFF へ: 本指名 charge を削除
-      const target = orders.find((o) => o.castName === castName && o.menuItem.name === '本指名')
-      if (target) {
-        removeOrderFromTable(tableId, target.menuItem.id, castName)
-      }
-    } else {
-      // ON へ: 既存 charge が無いときだけ新規追加 (handleAddCharge 経由と重複しない)
-      if (!isCastAlreadyChargedWith(castName, '本指名')) {
-        const shimei = chargeItems.find((c) => c.id === 'shimei')
-        if (shimei) {
-          addOrderToTable(tableId, {
-            menuItem: {
-              id: 3000 + Math.floor(Math.random() * 1_000_000),
-              name: shimei.label,
-              price: shimei.price,
-              cost: shimei.cost,
-              castBack: 0,
-              category: 'guest',
-              subcategory: 'warimono',
-            },
-            quantity: 1,
-            castName,
-          })
-        }
-      }
-    }
+    const next = current.includes(castName)
+      ? current.filter((n) => n !== castName)
+      : [...current, castName]
+    updateTable(selectedTable.id, { mainNominationCastNames: next })
   }
 
   const toggleDouhan = () => {
@@ -461,16 +429,16 @@ export default function OrderPage() {
           {activeCategory === 'charge' ? (
             <div className="grid grid-cols-2 gap-2 content-start">
               {chargeItems.filter((c) => c.id !== 'single-charge').map((c) => {
-                // 「同一セット内で 2 回押させない」UI 要件のため、選択中キャスト全員が
-                // 既に同じ指名形態 (本指名/場内指名/同伴) を持っていたら disabled に。
-                // ヘルプ等の非指名は対象外。
-                const exhausted = NOMINATION_LABELS.has(c.label) && allSelectedAlreadyCharged(c.label)
+                // セット単位の重複ガード。本指名/場内/同伴 はセット内に 1 件
+                // (mainNominationCastNames が空でない / isBanaiShimei / isDouhan) 入ったら
+                // 同じ形態の追加ボタンを disabled にして、2 度押しを防ぐ。
+                const exhausted = NOMINATION_IDS.has(c.id) && isNominationAlreadyAppliedToTable(c.id)
                 return (
                   <button
                     key={c.id}
                     onClick={() => handleAddCharge(c)}
                     disabled={exhausted}
-                    title={exhausted ? `選択中のキャストには既に「${c.label}」が登録済` : undefined}
+                    title={exhausted ? `このセットには既に「${c.label}」が登録済` : undefined}
                     className={`text-left p-3 block ${
                       exhausted ? 'bg-white/5 text-gray-600 border border-white/10 rounded cursor-not-allowed' : 'btn-gold'
                     }`}

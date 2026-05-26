@@ -71,11 +71,17 @@ export default function SetBreakdownStrip({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <h3 className="text-xs text-gray-400 tracking-wider">セット内訳</h3>
+        <h3 className="text-xs text-gray-400 tracking-wider">セット料金内訳</h3>
         <span className="text-xs text-gray-500 tabular-nums">
-          合計セット料金 ¥{total.toLocaleString()}
+          セット料金合計 ¥{total.toLocaleString()}
         </span>
       </div>
+      {/* PR-A スコープではセット料金 (= setPrice × 人数 もしくは EX 料金) のみを
+          セット別に示す。指名料・注文・税は visit 全体合計に加算される (会計画面の
+          総合計と一致させるのは PR-B の visitBreakdown 拡張で扱う)。 */}
+      <p className="text-[10px] text-gray-500">
+        ※ セット料金のみ。指名料・注文・税は会計合計に別途加算されます。
+      </p>
       {/* EX3 以降の存在を想定し横スクロール。1Set目 + EX1 + EX2 までは画面幅で
           並べ、それ以上は overflow-x-auto でスクロール (画面幅は崩さない)。 */}
       <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
