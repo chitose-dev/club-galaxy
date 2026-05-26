@@ -88,14 +88,20 @@ export default function DailyPayDialog({
 
   const handleSubmit = () => {
     if (!canSubmit) return
+    // 保存値の calculatedAmount は「この 1 レコードでの理論値」を入れる。
+    // 差額支払 (paidToday > 0) のときは「今回の未支給差額 = expectedAmount」が
+    // 理論値であり、これと amount を比較するのが PayslipPopup 側の自然な解釈になる。
+    // ここで本日支給目安 (calculatedAmount) 全額を入れてしまうと、`amount=7000`
+    // `calculatedAmount=10000` で 1 件目支払い分 ¥3,000 がそのまま「理由なし
+    // 調整」として誤表示されるため、expectedAmount に揃える。
+    const savedCalculatedAmount =
+      expectedAmount > 0 ? expectedAmount : (calculatedAmount > 0 ? calculatedAmount : undefined)
     onSubmit({
       id: Date.now(),
       castId: cast.id,
       castName: cast.name,
       amount: amt,
-      // 自動計算ベースが無い場合 (calculatedAmount=0) は undefined のままにして、
-      // 給与明細側で「手入力日払い」として扱えるようにする。
-      calculatedAmount: calculatedAmount > 0 ? calculatedAmount : undefined,
+      calculatedAmount: savedCalculatedAmount,
       adjustReason: isAdjusted ? reason.trim() : undefined,
       note: note.trim() || undefined,
       paidAt: new Date().toISOString(),
