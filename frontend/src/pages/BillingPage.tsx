@@ -9,6 +9,7 @@ import { Printer, CheckCircle, ArrowLeft, CreditCard, ChevronDown, ChevronUp, Lo
 import ContextualHeader from '../components/ContextualHeader'
 import VisitBreakdownView from '../components/VisitBreakdownView'
 import { computeVisitBreakdown } from '../utils/visitBreakdown'
+import SetBreakdownStrip from '../components/SetBreakdownStrip'
 import { isBusinessDateClosed, LOCKED_TOOLTIP } from '../utils/closing'
 import { isUncollectedActive } from '../utils/uncollected'
 import BottomActionBar from '../components/BottomActionBar'
@@ -1121,6 +1122,11 @@ export default function BillingPage() {
               <div className="space-y-4">
                 <div className="panel p-4">
                   <h3 className="text-xs text-gray-400 tracking-wider mb-3">明細</h3>
+                  {/* QA 第3弾: 「1セット目はいくら / EX1 はいくら / EX2 はいくら」が分かるよう
+                      に、明細の上にセット別カード一覧を出す。EX3 以降は横スクロール。 */}
+                  <div className="mb-3">
+                    <SetBreakdownStrip table={table} setPrices={setPrices} />
+                  </div>
                   <div className="space-y-1.5 text-sm">
                     <div className="flex justify-between">
                       <span>セット料金 <span className="text-gray-500 text-xs">({table.startTime ? getSetPriceLabel(table.startTime, setPrices) : '-'}) x{table.guestCount}名 x{table.setCount}</span>

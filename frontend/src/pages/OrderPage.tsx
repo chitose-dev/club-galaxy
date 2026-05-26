@@ -11,6 +11,7 @@ import Modal from '../components/Modal'
 import { Input, Field as FormField } from '../components/Input'
 import { GoldButton, DangerButton, GhostButton } from '../components/Buttons'
 import { formatTimeRange, getCurrentSetRange, getSetLabel } from '../utils/setCountLabel'
+import { getTodayBusinessDay } from '../utils/businessDay'
 
 // ビデオレビュー N6 (注1 15:50): ヘルプの再定義
 //   - 待機キャストが場内指名なしで入った状態
@@ -195,10 +196,51 @@ export default function OrderPage() {
     setPendingCastDrinkItem(null)
   }
 
+  // BillingPage は `mainNominationCastNames / isBanaiShimei / isDouhan` を真の truth として
+  // 指名料を計算する設計。orders 側にも本指名 charge を積むと二重計上になるため、
+  // 指名形態 (本指名/場内指名/同伴) は orders に「積まず」卓フラグだけを更新する。
+  // 同一セット内で同じ形態を 2 度追加できないよう、ボタン側で disabled 制御する。
+  const NOMINATION_IDS = new Set(['shimei', 'banai', 'douhan'])
+  const isNominationAlreadyAppliedToTable = (chargeId: string): boolean => {
+    if (!selectedTable) return false
+    if (chargeId === 'shimei') return selectedTable.mainNominationCastNames.length > 0
+    if (chargeId === 'banai') return !!selectedTable.isBanaiShimei
+    if (chargeId === 'douhan') return !!selectedTable.isDouhan
+    return false
+  }
+
   const handleAddCharge = (charge: { id: string; label: string; price: number; cost: number }) => {
     if (!selectedTableId || !selectedTable) return
+
+    if (NOMINATION_IDS.has(charge.id)) {
+      // セット単位の重複ガード。1 セット内で本指名/場内/同伴 が複数件入らない。
+      if (isNominationAlreadyAppliedToTable(charge.id)) {
+        alert(`このセットには既に「${charge.label}」が設定されています`)
+        return
+      }
+      if (charge.id === 'shimei') {
+        // 本指名はキャスト指定が必要。1 セット 1 本指名仕様のため、複数選択中でも
+        // 先頭 1 名のみを採用 (UI 側は disabled 制御で複数選択時の戸惑いを抑制する)。
+        if (selectedCastNames.length === 0) {
+          alert('本指名は対象キャストを選択してから追加してください')
+          return
+        }
+        updateTable(selectedTableId, { mainNominationCastNames: [selectedCastNames[0]] })
+        return
+      }
+      // 場内 / 同伴 は卓単位フラグで会計は assignedCasts.length × 単価 で算出される。
+      // キャスト選択は使わない (= 卓全員に適用)。UI でも「卓全員」を明示する。
+      if (charge.id === 'banai') {
+        updateTable(selectedTableId, { isBanaiShimei: true })
+      } else if (charge.id === 'douhan') {
+        updateTable(selectedTableId, { isDouhan: true })
+      }
+      return
+    }
+
+    // 非指名 charge (ヘルプ等) は従来通り orders に積む。キャスト選択必須。
     if (selectedCastNames.length === 0) {
-      alert('指名料はキャストを選択してから追加してください')
+      alert('キャストを選択してから追加してください')
       return
     }
     selectedCastNames.forEach((name) => {
@@ -253,12 +295,16 @@ export default function OrderPage() {
 
 
   // ─── 本指名 / 同伴 のトグル (task ③) ───
+  // 指名料は BillingPage が `mainNominationCastNames` を真の truth として計算するため、
+  // orders 側に同期書き込みは不要 (二重計上の原因になる)。卓フラグだけ更新する。
+  // 1 セット 1 本指名仕様: ON 時は当該キャスト 1 人に上書き (排他)、
+  // OFF 時は空にする。メニュー側ボタンの「mainNomination が空なら disabled」
+  // 制御と挙動を一致させ、複数追加経路を作らない。
   const toggleMainNomination = (castName: string) => {
     if (!selectedTable) return
     const current = selectedTable.mainNominationCastNames
-    const next = current.includes(castName)
-      ? current.filter((n) => n !== castName)
-      : [...current, castName]
+    const isOn = current.includes(castName)
+    const next = isOn ? [] : [castName]
     updateTable(selectedTable.id, { mainNominationCastNames: next })
   }
 
@@ -284,20 +330,11 @@ export default function OrderPage() {
   const tax = Math.round(subtotalBeforeTax * storeSettings.taxRate)
   const grandTotal = subtotalBeforeTax + tax
 
-  // spec.md §3.2.1: 「注文印刷」ボタン削除に伴い handlePrintOrder も削除。
-  if (!selectedTable) {
-    return (
-      <div className="p-8 text-center text-gray-400">
-        <p>卓が選択されていません</p>
-        <div className="mt-4">
-          <GhostButton onClick={() => navigate('/floor')}>ホールへ戻る</GhostButton>
-        </div>
-      </div>
-    )
-  }
-
   // 本日 (JST 営業日) の売上 / 日払い合計の早見データ。
-  const todayBusinessDate = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  // `useMemo` は条件付き呼び出し禁止 (react-hooks/rules-of-hooks) のため、
+  // 早期 return より前で実行する。`getTodayBusinessDay` は副作用なしの pure 関数
+  // ラッパ経由で呼ぶ (render 中の `Date.now()` 直呼び react-hooks/purity 違反回避)。
+  const todayBusinessDate = useMemo(() => getTodayBusinessDay(), [])
   const todaySalesSummary = useMemo(() => {
     const todays = billingRecords.filter((r) => {
       if (r.voidedAt) return false
@@ -313,6 +350,18 @@ export default function OrderPage() {
     const todays = dailyPayRequests.filter((r) => r.date === todayBusinessDate)
     return { count: todays.length, total: todays.reduce((s, r) => s + r.amount, 0) }
   }, [dailyPayRequests, todayBusinessDate])
+
+  // spec.md §3.2.1: 「注文印刷」ボタン削除に伴い handlePrintOrder も削除。
+  if (!selectedTable) {
+    return (
+      <div className="p-8 text-center text-gray-400">
+        <p>卓が選択されていません</p>
+        <div className="mt-4">
+          <GhostButton onClick={() => navigate('/floor')}>ホールへ戻る</GhostButton>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -392,12 +441,35 @@ export default function OrderPage() {
         <div className="overflow-y-auto p-3 border-r border-white/10">
           {activeCategory === 'charge' ? (
             <div className="grid grid-cols-2 gap-2 content-start">
-              {chargeItems.filter((c) => c.id !== 'single-charge').map((c) => (
-                <button key={c.id} onClick={() => handleAddCharge(c)} className="btn-gold text-left p-3 block">
-                  <div className="text-sm font-bold">{c.label}</div>
-                  <div className="text-xs tabular-nums mt-1">¥{c.price.toLocaleString()}</div>
-                </button>
-              ))}
+              {chargeItems.filter((c) => c.id !== 'single-charge').map((c) => {
+                // セット単位の重複ガード。本指名/場内/同伴 はセット内に 1 件
+                // (mainNominationCastNames が空でない / isBanaiShimei / isDouhan) 入ったら
+                // 同じ形態の追加ボタンを disabled にして、2 度押しを防ぐ。
+                const exhausted = NOMINATION_IDS.has(c.id) && isNominationAlreadyAppliedToTable(c.id)
+                // 場内/同伴は卓単位 (assignedCasts.length × 単価) で会計されるため、
+                // 「選択中キャストにだけ適用される」と誤解させないよう注記する。
+                const scopeNote =
+                  c.id === 'banai' || c.id === 'douhan' ? '卓全員に適用'
+                  : c.id === 'shimei' ? '選択キャスト 1 名'
+                  : undefined
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => handleAddCharge(c)}
+                    disabled={exhausted}
+                    title={exhausted ? `このセットには既に「${c.label}」が登録済` : undefined}
+                    className={`text-left p-3 block ${
+                      exhausted ? 'bg-white/5 text-gray-600 border border-white/10 rounded cursor-not-allowed' : 'btn-gold'
+                    }`}
+                  >
+                    <div className="text-sm font-bold">{c.label}{exhausted && ' (登録済)'}</div>
+                    <div className="text-xs tabular-nums mt-1">¥{c.price.toLocaleString()}</div>
+                    {scopeNote && (
+                      <div className="text-[10px] text-white/70 mt-0.5">{scopeNote}</div>
+                    )}
+                  </button>
+                )
+              })}
               <button onClick={handleAddHelp} className="btn-dark text-left p-3 block border border-gold/40">
                 <div className="text-sm font-bold">ヘルプ</div>
                 <div className="text-xs text-gray-400 mt-1">バック記録のみ</div>
@@ -848,15 +920,15 @@ export default function OrderPage() {
               <span className="text-gold font-bold tabular-nums">¥{todaySalesSummary.total.toLocaleString()}</span>
             </div>
             <div className="flex justify-between text-xs">
-              <span className="text-gray-500">　うち現金</span>
+              <span className="text-gray-500 pl-4">うち現金</span>
               <span className="tabular-nums">¥{todaySalesSummary.cash.toLocaleString()}</span>
             </div>
             <div className="flex justify-between text-xs">
-              <span className="text-gray-500">　うちカード</span>
+              <span className="text-gray-500 pl-4">うちカード</span>
               <span className="tabular-nums">¥{todaySalesSummary.card.toLocaleString()}</span>
             </div>
             <div className="flex justify-between text-xs">
-              <span className="text-gray-500">　会計件数</span>
+              <span className="text-gray-500 pl-4">会計件数</span>
               <span className="tabular-nums">{todaySalesSummary.count} 件</span>
             </div>
           </div>
@@ -866,7 +938,7 @@ export default function OrderPage() {
               <span className="text-red-300 font-bold tabular-nums">¥{todayDailyPay.total.toLocaleString()}</span>
             </div>
             <div className="flex justify-between text-xs">
-              <span className="text-gray-500">　件数</span>
+              <span className="text-gray-500 pl-4">件数</span>
               <span className="tabular-nums">{todayDailyPay.count} 件</span>
             </div>
           </div>

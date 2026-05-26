@@ -827,8 +827,8 @@ function CastTrendView() {
           自動補正ではなく説明文だけ出して、ユーザーが勤怠未登録 or デモデータかを判断する。 */}
       {totals.hours === 0 && (totals.salary > 0 || totals.sales > 0) && (
         <div className="text-[11px] text-amber-300/80 bg-amber-500/10 border border-amber-500/30 rounded px-3 py-2">
-          勤務記録なし。バック合計 ¥{totals.back.toLocaleString()} + 時給0時間で給与を算出しています。
-          勤怠未登録のデモデータや、出勤せず売上だけ帰属しているケースで発生します。
+          勤怠記録がないため、時給分は ¥0 として計算しています。
+          バック (¥{totals.back.toLocaleString()}) のみが給与に反映されています。
         </div>
       )}
 
