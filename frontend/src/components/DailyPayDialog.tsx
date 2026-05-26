@@ -11,6 +11,21 @@ import type { DailyPayRequest } from '../data/mock'
  * `targetDate` は **必ず YYYY-MM-DD 形式** で渡すこと（locale 表記混入で
  * 履歴ソートの localeCompare が破綻するため）。
  */
+export interface DailyPayBreakdown {
+  /** 当日勤務時間 (h)。0 の場合は勤怠未登録扱い。 */
+  workHours: number
+  /** 当日時給分 (時給 × 勤務時間)。 */
+  hourlyPay: number
+  /** 当日バック合計 (指名 / ドリンク / ボトル / 延長指名 等)。 */
+  backTotal: number
+  /** 控除後の本日支給目安 (≒ calculatedAmount と一致するはず)。
+   *  当日キャストが受け取れる正味金額。 */
+  net: number
+  /** 同営業日に既に支払済の日払い合計。未支給差額の算出に使う。
+   *  undefined / 0 のときは「未払い」扱い (= 全額が未支給)。 */
+  paidToday?: number
+}
+
 export interface DailyPayDialogProps {
   open: boolean
   cast: { id: number; name: string } | null
@@ -22,24 +37,32 @@ export interface DailyPayDialogProps {
   operator?: string | null
   /** staffType 既定 'cast'。boy 用に呼ぶ場合のみ 'boy' を渡す。 */
   staffType?: 'cast' | 'boy'
+  /** 当日の稼働実績内訳 (任意)。渡すと「本日の稼働実績」セクションと
+   *  「本日全額」ボタンが有効になる。SalaryPage のような純手入力経路では
+   *  未指定でよい (= 旧来挙動)。 */
+  breakdown?: DailyPayBreakdown
   onSubmit: (req: DailyPayRequest) => void
   onClose: () => void
 }
 
 export default function DailyPayDialog({
   open, cast, calculatedAmount, targetDate, operator, staffType = 'cast',
-  onSubmit, onClose,
+  breakdown, onSubmit, onClose,
 }: DailyPayDialogProps) {
   const [amountInput, setAmountInput] = useState<string>(String(calculatedAmount))
   const [reason, setReason] = useState<string>('')
   const [note, setNote] = useState<string>('')
 
-  // open するたびに自動計算額で初期化（前回の入力が残らないように）
+  // open するたびに自動計算額で初期化（前回の入力が残らないように）。
+  // ダイアログのオープン遷移時に state を再初期化する用途のため、
+  // 「Effects は外部システム同期」ガイドからは外れるが意図的に許可する。
   useEffect(() => {
     if (open) {
+      /* eslint-disable react-hooks/set-state-in-effect */
       setAmountInput(String(calculatedAmount))
       setReason('')
       setNote('')
+      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [open, calculatedAmount])
 
@@ -52,6 +75,12 @@ export default function DailyPayDialog({
   // 「支払う」できないようにする。
   const canSubmit =
     Number.isFinite(amt) && amt > 0 && (!isAdjusted || reason.trim().length > 0)
+
+  // 「本日全額」ボタン用: 当日既支払い分を差し引いた未支給差額。
+  // calculatedAmount=0 (= 自動計算ベースなし) では押せない。
+  const paidToday = breakdown?.paidToday ?? 0
+  const unpaidRemainder = Math.max(0, calculatedAmount - paidToday)
+  const canFillFullAmount = calculatedAmount > 0 && unpaidRemainder > 0
 
   const handleSubmit = () => {
     if (!canSubmit) return
@@ -82,8 +111,56 @@ export default function DailyPayDialog({
             <> / 自動計算額: ¥{calculatedAmount.toLocaleString()}</>
           )}
         </div>
+
+        {breakdown && (
+          <div className="bg-white/[0.03] border border-white/5 rounded p-3 space-y-1.5 text-xs">
+            <div className="text-gray-400 tracking-wider mb-1">本日の稼働実績</div>
+            <Row label="勤務時間" value={`${breakdown.workHours.toFixed(2)} h`} />
+            <Row label="時給分" value={`¥${breakdown.hourlyPay.toLocaleString()}`} />
+            <Row label="バック合計" value={`¥${breakdown.backTotal.toLocaleString()}`} />
+            <Row
+              label="本日支給目安 (控除後)"
+              value={`¥${breakdown.net.toLocaleString()}`}
+              valueClass="text-emerald-300 font-bold tabular-nums"
+            />
+            {paidToday > 0 && (
+              <>
+                <Row
+                  label="本日 既支払済"
+                  value={`-¥${paidToday.toLocaleString()}`}
+                  valueClass="text-red-300 tabular-nums"
+                />
+                <Row
+                  label="未支給差額"
+                  value={`¥${unpaidRemainder.toLocaleString()}`}
+                  valueClass="text-gold font-bold tabular-nums"
+                />
+              </>
+            )}
+          </div>
+        )}
+
         <div>
-          <label className="text-xs text-gray-500 block mb-1">実支給額（円）</label>
+          <div className="flex items-end justify-between mb-1">
+            <label className="text-xs text-gray-500">実支給額（円）</label>
+            {breakdown && (
+              <button
+                type="button"
+                onClick={() => setAmountInput(String(unpaidRemainder))}
+                disabled={!canFillFullAmount}
+                title={
+                  canFillFullAmount
+                    ? `未支給差額 ¥${unpaidRemainder.toLocaleString()} を入力`
+                    : paidToday >= calculatedAmount
+                      ? '本日分は既に全額支払い済'
+                      : '自動計算額が未確定 (¥0)'
+                }
+                className="text-[11px] px-2 py-0.5 rounded border border-gold/40 text-gold hover:bg-gold/10 disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                {paidToday > 0 ? '未支給差額を入力' : '本日全額を入力'}
+              </button>
+            )}
+          </div>
           <input
             type="number"
             value={amountInput}
@@ -130,6 +207,17 @@ export default function DailyPayDialog({
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+function Row({
+  label, value, valueClass = 'tabular-nums',
+}: { label: string; value: string; valueClass?: string }) {
+  return (
+    <div className="flex justify-between">
+      <span className="text-gray-500">{label}</span>
+      <span className={valueClass}>{value}</span>
     </div>
   )
 }

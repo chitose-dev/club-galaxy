@@ -20,6 +20,7 @@ import { dailyReportsApi } from '../api/dailyReports'
 import { isPercentBackType, inferStartHour } from '../data/mock'
 import { computeDailyWork } from '../utils/dailyWork'
 import { calcHourlyPay } from '../utils/payroll'
+import { computeDailyPayBreakdown, type DailyPayBreakdownResult } from '../utils/dailyPayBreakdown'
 import type { Cast, BackType, GuestMenuItem, CastMenuItem, SetPrice, Table, StoreSettings, DailyWork, UserAccount, BillingRecord } from '../data/mock'
 import type { AttendanceRecord, Expense, ExpenseCategory, AdvancePayment, ArchivedData, DailyReport, DailyPayRequest } from '../data/mock'
 import React from 'react'
@@ -113,12 +114,12 @@ export default function AdminPage() {
       {activeTab === 'cast' && <CastManager casts={casts} setCasts={setCasts} addUser={addUser} />}
       {activeTab === 'price' && <PriceManager setPrices={setPrices} chargeItems={chargeItems} setSetPrices={setSetPrices} setChargeItems={setChargeItems} />}
       {activeTab === 'tables' && <TableManager tables={tables} setTables={setTables} reorderTables={reorderTables} />}
-      {activeTab === 'attendance' && <AttendanceManager attendanceRecords={attendanceRecords} addAttendance={addAttendance} updateAttendance={updateAttendance} casts={casts} attendanceSchedules={attendanceSchedules} addAttendanceSchedule={addAttendanceSchedule} removeAttendanceSchedule={removeAttendanceSchedule} markScheduleProcessed={markScheduleProcessed} />}
+      {activeTab === 'attendance' && <AttendanceManager attendanceRecords={attendanceRecords} addAttendance={addAttendance} updateAttendance={updateAttendance} casts={casts} attendanceSchedules={attendanceSchedules} addAttendanceSchedule={addAttendanceSchedule} removeAttendanceSchedule={removeAttendanceSchedule} markScheduleProcessed={markScheduleProcessed} billingRecords={billingRecords} dailyPayRequests={dailyPayRequests} />}
       {activeTab === 'expense' && <ExpenseManager expenses={expenses} addExpense={addExpense} removeExpense={removeExpense} />}
       {activeTab === 'uncollected' && <UncollectedManager billingRecords={billingRecords} updateBillingRecord={updateBillingRecord} />}
       {activeTab === 'dailyreport' && <DailyReportManager dailyReports={dailyReports} setDailyReports={setDailyReports} billingRecords={billingRecords} dailyPayRequests={dailyPayRequests} expenses={expenses} advancePayments={advancePayments} storeSettings={storeSettings} />}
       {activeTab === 'advance' && <AdvanceManager advancePayments={advancePayments} addAdvancePayment={addAdvancePayment} casts={casts} storeSettings={storeSettings} />}
-      {activeTab === 'dailypay' && <DailyPayManager casts={casts} attendanceRecords={attendanceRecords} dailyPayRequests={dailyPayRequests} addDailyPayRequest={addDailyPayRequest} />}
+      {activeTab === 'dailypay' && <DailyPayManager casts={casts} attendanceRecords={attendanceRecords} dailyPayRequests={dailyPayRequests} addDailyPayRequest={addDailyPayRequest} billingRecords={billingRecords} />}
       {activeTab === 'prepay' && <PrepayManager casts={casts} advancePayments={advancePayments} addAdvancePayment={addAdvancePayment} />}
       {activeTab === 'settings' && <SettingsManager storeSettings={storeSettings} setStoreSettings={setStoreSettings} />}
       {activeTab === 'export' && <DataExport billingRecords={billingRecords} casts={casts} dailyPayRequests={dailyPayRequests} discountLogs={discountLogs} deductions={deductions} advancePayments={advancePayments} attendanceRecords={attendanceRecords} userAccounts={userAccounts} />}
@@ -1589,6 +1590,7 @@ function DataExport({ billingRecords, casts, dailyPayRequests, discountLogs, ded
 function AttendanceManager({
   attendanceRecords, addAttendance, updateAttendance, casts,
   attendanceSchedules, addAttendanceSchedule, removeAttendanceSchedule, markScheduleProcessed,
+  billingRecords, dailyPayRequests,
 }: {
   attendanceRecords: AttendanceRecord[]
   addAttendance: (record: AttendanceRecord) => void
@@ -1598,15 +1600,18 @@ function AttendanceManager({
   addAttendanceSchedule: (s: import('../data/mock').AttendanceSchedule) => void
   removeAttendanceSchedule: (id: number) => void
   markScheduleProcessed: (id: number) => void
+  billingRecords: BillingRecord[]
+  dailyPayRequests: import('../data/mock').DailyPayRequest[]
 }) {
   const [showAdd, setShowAdd] = useState(false)
   const [staffId, setStaffId] = useState<number>(casts[0]?.id ?? 0)
   const [staffType, setStaffType] = useState<'cast' | 'boy'>('cast')
   // PDF E: 給与明細ポップアップ / 日払い入力 / 15分リアルタイム再描画 / 監査ログ
   const [payslipCast, setPayslipCast] = useState<Cast | null>(null)
-  // 共通 DailyPayDialog 経由で日払いを記録するため、対象 cast + 自動計算額を持つ。
+  // 共通 DailyPayDialog 経由で日払いを記録するため、対象 cast + 自動計算額 +
+  // 当日内訳 (本日の稼働実績 / 既支払額) を持つ。
   const [dailyPayTarget, setDailyPayTarget] = useState<
-    | { cast: Cast; calculatedAmount: number }
+    | { cast: Cast; calculatedAmount: number; breakdown: DailyPayBreakdownResult }
     | null
   >(null)
   const { addDailyPayRequest, addAttendanceEditLog, attendanceEditLogs, dailyReports } = useStore()
@@ -1633,6 +1638,9 @@ function AttendanceManager({
     }
     updateAttendance(record.id, patch)
     addAttendanceEditLog({
+      // クリックハンドラ内呼び出しのため pure 違反扱いではないが、ESLint plugin が
+      // render 側と区別できないので 1 行抑制。id は単調増加で衝突しなければよい用途。
+      // eslint-disable-next-line react-hooks/purity
       id: Date.now(),
       recordId: record.id,
       castId: record.staffId,
@@ -1899,10 +1907,12 @@ function AttendanceManager({
                     </button>
                     <button
                       onClick={() => {
-                        // 自動計算額 = 時給 × 当日勤務時間 - 10% (DailyPayManager と同じ)
-                        const basePay = calcHourlyPay(castObj.hourlyRate, r.workHours ?? 0)
-                        const net = basePay - Math.floor(basePay * 0.1)
-                        setDailyPayTarget({ cast: castObj, calculatedAmount: net })
+                        // 当日稼働実績 (時給分 + バック + 控除後 net + 既支払額) を共通 util で算出。
+                        // DailyPayDialog 上で「本日全額」ボタンを動作させるため breakdown も渡す。
+                        const breakdown = computeDailyPayBreakdown(
+                          castObj, r.date, attendanceRecords, billingRecords, dailyPayRequests,
+                        )
+                        setDailyPayTarget({ cast: castObj, calculatedAmount: breakdown.net, breakdown })
                       }}
                       disabled={isBusinessDateClosed(todayStr, dailyReports)}
                       title={isBusinessDateClosed(todayStr, dailyReports) ? LOCKED_TOOLTIP : undefined}
@@ -1984,6 +1994,7 @@ function AttendanceManager({
         targetDate={todayStr}
         operator={user?.displayName ?? user?.username}
         staffType="cast"
+        breakdown={dailyPayTarget?.breakdown}
         onSubmit={submitDailyPayFromDialog}
         onClose={() => setDailyPayTarget(null)}
       />
@@ -2579,12 +2590,13 @@ function UserManager({ userAccounts, addUser, updateUser, deleteUser, casts }: {
 // 追補02 R11-1: 日払い管理 (基本運用)
 // ────────────────────────────────────────────────────────────
 function DailyPayManager({
-  casts, attendanceRecords, dailyPayRequests, addDailyPayRequest,
+  casts, attendanceRecords, dailyPayRequests, addDailyPayRequest, billingRecords,
 }: {
   casts: Cast[]
   attendanceRecords: AttendanceRecord[]
   dailyPayRequests: import('../data/mock').DailyPayRequest[]
   addDailyPayRequest: (req: import('../data/mock').DailyPayRequest) => void
+  billingRecords: BillingRecord[]
 }) {
   const { dailyReports } = useStore()
   const { user } = useAuth()
@@ -2598,7 +2610,10 @@ function DailyPayManager({
   const activeTodayCasts = casts.filter((c) => records.some((r) => r.staffId === c.id))
 
   // DailyPayDialog 用の対象。calculatedAmount は自動計算額 (10% 控除後 net)。
-  const [paying, setPaying] = useState<{ castId: number; castName: string; calculatedAmount: number } | null>(null)
+  const [paying, setPaying] = useState<
+    | { castId: number; castName: string; calculatedAmount: number; breakdown: DailyPayBreakdownResult }
+    | null
+  >(null)
 
   const computePay = (cast: Cast, rec?: AttendanceRecord) => {
     const hours = rec?.workHours ?? 0
@@ -2673,7 +2688,17 @@ function DailyPayManager({
                     <span className="shrink-0 text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-1 rounded">支払済</span>
                   ) : (
                     <button
-                      onClick={() => setPaying({ castId: c.id, castName: c.name, calculatedAmount: net })}
+                      onClick={() => {
+                        // DailyPayDialog 上で「本日の稼働実績 / 既支払額 / 本日全額」が
+                        // 出せるよう breakdown を作って渡す。
+                        const breakdown = computeDailyPayBreakdown(
+                          c, targetDate, attendanceRecords, billingRecords, dailyPayRequests,
+                        )
+                        setPaying({
+                          castId: c.id, castName: c.name,
+                          calculatedAmount: breakdown.net, breakdown,
+                        })
+                      }}
                       disabled={targetDateClosed}
                       title={targetDateClosed ? LOCKED_TOOLTIP : undefined}
                       className="shrink-0 btn-gold text-xs px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -2696,6 +2721,7 @@ function DailyPayManager({
         targetDate={targetDate}
         operator={user?.displayName ?? user?.username}
         staffType="cast"
+        breakdown={paying?.breakdown}
         onSubmit={(req) => {
           if (targetDateClosed) { setPaying(null); return }
           addDailyPayRequest(req)
