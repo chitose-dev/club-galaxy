@@ -11,6 +11,7 @@ import Modal from '../components/Modal'
 import { Input, Field as FormField } from '../components/Input'
 import { GoldButton, DangerButton, GhostButton } from '../components/Buttons'
 import { formatTimeRange, getCurrentSetRange, getSetLabel } from '../utils/setCountLabel'
+import { getTodayBusinessDay } from '../utils/businessDay'
 
 // ビデオレビュー N6 (注1 15:50): ヘルプの再定義
 //   - 待機キャストが場内指名なしで入った状態
@@ -329,20 +330,11 @@ export default function OrderPage() {
   const tax = Math.round(subtotalBeforeTax * storeSettings.taxRate)
   const grandTotal = subtotalBeforeTax + tax
 
-  // spec.md §3.2.1: 「注文印刷」ボタン削除に伴い handlePrintOrder も削除。
-  if (!selectedTable) {
-    return (
-      <div className="p-8 text-center text-gray-400">
-        <p>卓が選択されていません</p>
-        <div className="mt-4">
-          <GhostButton onClick={() => navigate('/floor')}>ホールへ戻る</GhostButton>
-        </div>
-      </div>
-    )
-  }
-
   // 本日 (JST 営業日) の売上 / 日払い合計の早見データ。
-  const todayBusinessDate = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  // `useMemo` は条件付き呼び出し禁止 (react-hooks/rules-of-hooks) のため、
+  // 早期 return より前で実行する。`getTodayBusinessDay` は副作用なしの pure 関数
+  // ラッパ経由で呼ぶ (render 中の `Date.now()` 直呼び react-hooks/purity 違反回避)。
+  const todayBusinessDate = useMemo(() => getTodayBusinessDay(), [])
   const todaySalesSummary = useMemo(() => {
     const todays = billingRecords.filter((r) => {
       if (r.voidedAt) return false
@@ -358,6 +350,18 @@ export default function OrderPage() {
     const todays = dailyPayRequests.filter((r) => r.date === todayBusinessDate)
     return { count: todays.length, total: todays.reduce((s, r) => s + r.amount, 0) }
   }, [dailyPayRequests, todayBusinessDate])
+
+  // spec.md §3.2.1: 「注文印刷」ボタン削除に伴い handlePrintOrder も削除。
+  if (!selectedTable) {
+    return (
+      <div className="p-8 text-center text-gray-400">
+        <p>卓が選択されていません</p>
+        <div className="mt-4">
+          <GhostButton onClick={() => navigate('/floor')}>ホールへ戻る</GhostButton>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -916,15 +920,15 @@ export default function OrderPage() {
               <span className="text-gold font-bold tabular-nums">¥{todaySalesSummary.total.toLocaleString()}</span>
             </div>
             <div className="flex justify-between text-xs">
-              <span className="text-gray-500">　うち現金</span>
+              <span className="text-gray-500 pl-4">うち現金</span>
               <span className="tabular-nums">¥{todaySalesSummary.cash.toLocaleString()}</span>
             </div>
             <div className="flex justify-between text-xs">
-              <span className="text-gray-500">　うちカード</span>
+              <span className="text-gray-500 pl-4">うちカード</span>
               <span className="tabular-nums">¥{todaySalesSummary.card.toLocaleString()}</span>
             </div>
             <div className="flex justify-between text-xs">
-              <span className="text-gray-500">　会計件数</span>
+              <span className="text-gray-500 pl-4">会計件数</span>
               <span className="tabular-nums">{todaySalesSummary.count} 件</span>
             </div>
           </div>
@@ -934,7 +938,7 @@ export default function OrderPage() {
               <span className="text-red-300 font-bold tabular-nums">¥{todayDailyPay.total.toLocaleString()}</span>
             </div>
             <div className="flex justify-between text-xs">
-              <span className="text-gray-500">　件数</span>
+              <span className="text-gray-500 pl-4">件数</span>
               <span className="tabular-nums">{todayDailyPay.count} 件</span>
             </div>
           </div>
