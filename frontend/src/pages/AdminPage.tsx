@@ -20,7 +20,7 @@ import { dailyReportsApi } from '../api/dailyReports'
 import { isPercentBackType, inferStartHour } from '../data/mock'
 import { computeDailyWork } from '../utils/dailyWork'
 import { calcHourlyPay } from '../utils/payroll'
-import { computeDailyPayBreakdown, type DailyPayBreakdownResult } from '../utils/dailyPayBreakdown'
+import { computeDailyPayBreakdown, buildBottleBackRateByCast, type DailyPayBreakdownResult } from '../utils/dailyPayBreakdown'
 import type { Cast, BackType, GuestMenuItem, CastMenuItem, SetPrice, Table, StoreSettings, DailyWork, UserAccount, BillingRecord } from '../data/mock'
 import type { AttendanceRecord, Expense, ExpenseCategory, AdvancePayment, ArchivedData, DailyReport, DailyPayRequest } from '../data/mock'
 import React from 'react'
@@ -1909,8 +1909,11 @@ function AttendanceManager({
                       onClick={() => {
                         // 当日稼働実績 (時給分 + バック + 控除後 net + 既支払額) を共通 util で算出。
                         // DailyPayDialog 上で「本日全額」ボタンを動作させるため breakdown も渡す。
+                        // ボトルバックを給与明細と一致させるため全キャストの率を渡す。
+                        const bottleRates = buildBottleBackRateByCast(casts)
                         const breakdown = computeDailyPayBreakdown(
                           castObj, r.date, attendanceRecords, billingRecords, dailyPayRequests,
+                          bottleRates,
                         )
                         setDailyPayTarget({ cast: castObj, calculatedAmount: breakdown.net, breakdown })
                       }}
@@ -2623,8 +2626,12 @@ function DailyPayManager({
     return { basePay, net: basePay - deductible, hours }
   }
 
-  const alreadyPaid = (castId: number) =>
-    dailyPayRequests.some((r) => r.castId === castId && r.date === targetDate)
+  // 同営業日の既支払合計。boolean ではなく金額で持っておくと
+  // 「部分払い後の差額支払」「全額支払済 disabled」の判定がそのまま書ける。
+  const paidTodayFor = (castId: number): number =>
+    dailyPayRequests
+      .filter((r) => r.castId === castId && r.date === targetDate)
+      .reduce((s, r) => s + r.amount, 0)
 
   return (
     <div className="space-y-4">
@@ -2667,7 +2674,9 @@ function DailyPayManager({
             {activeTodayCasts.map((c) => {
               const rec = records.find((r) => r.staffId === c.id)
               const { basePay, net, hours } = computePay(c, rec)
-              const paid = alreadyPaid(c.id)
+              const paidToday = paidTodayFor(c.id)
+              const unpaid = Math.max(0, net - paidToday)
+              const fullyPaid = paidToday > 0 && unpaid <= 0
               return (
                 <div key={c.id} className="py-3 flex items-center gap-3">
                   {/* PDF E: 頭文字表示を削除し、フル名を主表記に。
@@ -2678,21 +2687,29 @@ function DailyPayManager({
                     <div className="text-xs text-gray-500 tabular-nums">
                       {rec?.clockIn ?? '--:--'} 〜 {rec?.clockOut ?? '進行中'} / {hours.toFixed(1)}h
                     </div>
+                    {paidToday > 0 && (
+                      <div className="text-[10px] text-gray-500 tabular-nums">
+                        既支払 ¥{paidToday.toLocaleString()} / 未支給差額 ¥{unpaid.toLocaleString()}
+                      </div>
+                    )}
                   </div>
                   <div className="text-right">
                     <div className="text-xs text-gray-500">現時点給料</div>
                     <div className="text-sm font-bold text-gold tabular-nums">¥{net.toLocaleString()}</div>
                     <div className="text-[10px] text-gray-600">(10% 控除前 ¥{basePay.toLocaleString()})</div>
                   </div>
-                  {paid ? (
-                    <span className="shrink-0 text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-1 rounded">支払済</span>
+                  {fullyPaid ? (
+                    <span className="shrink-0 text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-1 rounded">全額支払済</span>
                   ) : (
                     <button
                       onClick={() => {
-                        // DailyPayDialog 上で「本日の稼働実績 / 既支払額 / 本日全額」が
+                        // DailyPayDialog 上で「本日の稼働実績 / 既支払額 / 未支給差額」が
                         // 出せるよう breakdown を作って渡す。
+                        // ボトルバックを給与明細と一致させるため全キャストの率を渡す。
+                        const bottleRates = buildBottleBackRateByCast(casts)
                         const breakdown = computeDailyPayBreakdown(
                           c, targetDate, attendanceRecords, billingRecords, dailyPayRequests,
+                          bottleRates,
                         )
                         setPaying({
                           castId: c.id, castName: c.name,
@@ -2703,7 +2720,7 @@ function DailyPayManager({
                       title={targetDateClosed ? LOCKED_TOOLTIP : undefined}
                       className="shrink-0 btn-gold text-xs px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      支払う
+                      {paidToday > 0 ? '差額支払' : '支払う'}
                     </button>
                   )}
                 </div>

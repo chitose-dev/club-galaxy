@@ -28,6 +28,23 @@ import { computeDailyWork } from './dailyWork'
  *     0 として計上される。当面の DailyPayDialog 表示ではボトルバックを概算扱い
  *     にして許容する (= 厳密値は給与明細で確認)。
  */
+/**
+ * 全キャストのボトルバック率辞書 (`{ [castName]: rate }`) を 1 度作るヘルパ。
+ * `computeDailyWork` の `bottleBackRateByCast` 引数に渡す。
+ * 「複数本指名キャストが同じレシートに居る時、相手の率を参照して
+ *  小計を `calcChampagneSplit` で按分する」ため、1 人分ではなく全員分を渡す
+ * 必要がある (== 当該キャストだけの率では不足)。
+ */
+export function buildBottleBackRateByCast(
+  casts: readonly { name: string; backRates?: Partial<Record<string, number>> }[],
+): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const c of casts) {
+    out[c.name] = c.backRates?.['ボトルバック'] ?? 0
+  }
+  return out
+}
+
 export interface DailyPayBreakdownResult {
   workHours: number
   hourlyPay: number

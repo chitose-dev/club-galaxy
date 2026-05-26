@@ -26,7 +26,7 @@ import { isBusinessDateClosed } from '../utils/closing'
 import PayslipPopup from '../components/PayslipPopup'
 import DailyPayDialog from '../components/DailyPayDialog'
 import TimeInput from '../components/TimeInput'
-import { computeDailyPayBreakdown, type DailyPayBreakdownResult } from '../utils/dailyPayBreakdown'
+import { computeDailyPayBreakdown, buildBottleBackRateByCast, type DailyPayBreakdownResult } from '../utils/dailyPayBreakdown'
 import { useAuth } from '../auth'
 
 /**
@@ -345,8 +345,11 @@ export default function WaitingCastPage() {
                       isBusinessDateClosed(todayStr, dailyReports)
                         ? undefined
                         : () => {
+                            // ボトルバックを給与明細と一致させるため、全キャストの率を渡す。
+                            const bottleRates = buildBottleBackRateByCast(casts)
                             const breakdown = computeDailyPayBreakdown(
                               c, todayStr, attendanceRecords, billingRecords, dailyPayRequests,
+                              bottleRates,
                             )
                             setDailyPayTarget({
                               cast: c,

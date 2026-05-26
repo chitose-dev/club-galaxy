@@ -68,19 +68,23 @@ export default function DailyPayDialog({
 
   if (!open || !cast) return null
   const amt = Number(amountInput)
-  // calculatedAmount=0 は「自動計算ベースなし、純手入力」運用。差分なし扱いにする。
-  const isAdjusted = calculatedAmount > 0 && Number.isFinite(amt) && amt !== calculatedAmount
-  // 0 円の日払いレコードを誤って作らないよう、必ず 1 円以上を要求する。
-  // calculatedAmount=0 で開く SalaryPage の手入力経路でも、初期値 0 のまま
-  // 「支払う」できないようにする。
-  const canSubmit =
-    Number.isFinite(amt) && amt > 0 && (!isAdjusted || reason.trim().length > 0)
-
   // 「本日全額」ボタン用: 当日既支払い分を差し引いた未支給差額。
   // calculatedAmount=0 (= 自動計算ベースなし) では押せない。
   const paidToday = breakdown?.paidToday ?? 0
   const unpaidRemainder = Math.max(0, calculatedAmount - paidToday)
   const canFillFullAmount = calculatedAmount > 0 && unpaidRemainder > 0
+  // 調整理由必須の判定基準額。breakdown ありで既支払があるケースでは
+  // 「未支給差額をワンタップ入力」が想定操作のため、それを基準値にする
+  // (= 未支給差額をそのまま入れる限り「調整なし」扱い)。
+  // breakdown 無し or 既支払なしの従来経路では calculatedAmount を基準にする。
+  const expectedAmount = paidToday > 0 ? unpaidRemainder : calculatedAmount
+  // calculatedAmount=0 は「自動計算ベースなし、純手入力」運用。差分なし扱いにする。
+  const isAdjusted = expectedAmount > 0 && Number.isFinite(amt) && amt !== expectedAmount
+  // 0 円の日払いレコードを誤って作らないよう、必ず 1 円以上を要求する。
+  // calculatedAmount=0 で開く SalaryPage の手入力経路でも、初期値 0 のまま
+  // 「支払う」できないようにする。
+  const canSubmit =
+    Number.isFinite(amt) && amt > 0 && (!isAdjusted || reason.trim().length > 0)
 
   const handleSubmit = () => {
     if (!canSubmit) return
