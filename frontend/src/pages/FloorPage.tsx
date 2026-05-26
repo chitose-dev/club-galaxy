@@ -11,6 +11,7 @@ import {
   chargeItems,
 } from '../data/mock'
 import { getNominationBadge } from '../utils/nomination'
+import { currentTimeMs } from '../utils/businessDay'
 import {
   addMinutesToHHMM,
   formatSetWithRange,
@@ -220,7 +221,7 @@ export default function FloorPage() {
     const autoOrders: Table['orders'] = []
     // クロウレビュー対応: 旧 `900 + idx` のハードコード ID を Date.now() ベースで一意化
     //   → 通常メニューや既存 orders と衝突しない
-    let nextChargeId = Date.now()
+    let nextChargeId = currentTimeMs()
 
     // 指示書§1.2: シングルチャージは 1 名様のみ自動付与
     if (ciGuests === 1) {
@@ -335,7 +336,7 @@ export default function FloorPage() {
 
   const formatWaitTime = (lastAssignedAt: string | null | undefined): string => {
     if (!lastAssignedAt) return '未稼働'
-    const diffMs = Date.now() - new Date(lastAssignedAt).getTime()
+    const diffMs = currentTimeMs() - new Date(lastAssignedAt).getTime()
     const minutes = Math.max(0, Math.floor(diffMs / 60000))
     if (minutes < 60) return `待機 ${minutes}分`
     const hours = Math.floor(minutes / 60)

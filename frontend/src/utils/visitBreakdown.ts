@@ -377,7 +377,7 @@ export function computeVisitBreakdown(
   const consumptionTax = snap?.consumptionTax ?? 0
   const guestCountVal = record.guestCountSnapshot ?? null
   const setFeeByIndex = allocateSetFee(setFee, startTime, guestCountVal, ext, bands)
-  let allocAccum = { tax: 0, ct: 0 }
+  const allocAccum = { tax: 0, ct: 0 }
   tickets.forEach((t, i) => {
     t.setFeeAllocated = setFeeByIndex[i] ?? 0
     t.chargeAllocated = i === 0 ? chargeSubtotal : 0

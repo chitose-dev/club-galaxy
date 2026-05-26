@@ -68,12 +68,17 @@ const NumberInput = forwardRef<HTMLInputElement, NumberInputProps>(function Numb
   // 外部から value が変わったら text を同期 (フォーカス中は干渉しない)。
   // 過去に min/max 範囲外の値が保存されていた場合に備えて、表示時点で
   // clamp し、超過分は親 state にも書き戻す。
+  // React 公式は「派生 state」を Effect で扱うのを推奨しないが、本コンポーネント
+  // は <input> の表示専用 string state を value (number) と緩く同期するのが
+  // 役割で、外部 value 変更を render に反映する用途として意図的に Effect を使う。
   useEffect(() => {
     if (isFocusedRef.current) return
     let clamped = value
     if (min !== undefined && clamped < min) clamped = min
     if (max !== undefined && clamped > max) clamped = max
+    /* eslint-disable react-hooks/set-state-in-effect */
     setText(String(clamped))
+    /* eslint-enable react-hooks/set-state-in-effect */
     if (clamped !== value) {
       onChange(clamped)
     }

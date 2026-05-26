@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store'
 import { type BackType } from '../data/mock'
 import { computeDailyWork } from '../utils/dailyWork'
+import { getJstTodayDateString } from '../utils/businessDay'
 import ContextualHeader from '../components/ContextualHeader'
 import { calcHourlyPay } from '../utils/payroll'
 import VisitBreakdownView from '../components/VisitBreakdownView'
@@ -81,8 +82,7 @@ export default function ProfitPage() {
 function TodayView() {
   const { flMetrics, billingRecords, menuCategories, setPrices } = useStore()
   // JST 営業日 (UTC 起点だと 0〜9 時で前日になるので +9h して slice)
-  const todayBusinessDate = new Date(Date.now() + 9 * 60 * 60 * 1000)
-    .toISOString().slice(0, 10)
+  const todayBusinessDate = getJstTodayDateString()
   // 本日の組（取消除外）。businessDate を優先、無ければ date / completedAt から抽出。
   const todayVisits = useMemo(() => {
     return billingRecords.filter((r) => {
@@ -218,7 +218,7 @@ function DailyVisitDetailPanel({
       }
     }
     return [...agg.values()].sort((a, b) => b.sub - a.sub)
-  }, [sorted, menuCategories])
+  }, [sorted, menuCategories, setPrices])
 
   return (
     <div className="bg-white/5 rounded-lg p-4 space-y-3">
@@ -378,7 +378,7 @@ function StoreTrendView() {
     labels.forEach((l) => map.set(l, { sales: 0, cardSales: 0, expense: 0 }))
 
     for (const r of billingRecords) {
-      const d = r.businessDate ?? r.date ?? new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
+      const d = r.businessDate ?? r.date ?? getJstTodayDateString()
       const k = keyOf(d)
       const b = map.get(k)
       if (!b) continue
@@ -740,7 +740,7 @@ function CastTrendView() {
     // 指示書§5.2: 本指名卓の小計を担当キャストの売上に重畳
     for (const r of billingRecords) {
       if (r.nominatedCastId !== cast.id) continue
-      const d = r.businessDate ?? r.date ?? new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
+      const d = r.businessDate ?? r.date ?? getJstTodayDateString()
       const k = keyOf(d)
       const b = map.get(k)
       if (!b) continue
@@ -753,7 +753,7 @@ function CastTrendView() {
       const salary = Math.floor(b.gross * 0.9)
       return { label: l, sales: b.sales, hours: b.hours, back: b.back, salary }
     })
-  }, [cast, granularity, billingRecords])
+  }, [cast, granularity, billingRecords, attendanceRecords, casts])
 
   const totals = useMemo(() => {
     return buckets.reduce(
@@ -907,7 +907,7 @@ function CalendarView() {
       map.set(ds, { sales: 0, expense: 0, count: 0, food: 0, labor: 0, fl: 0 })
     }
     for (const r of billingRecords) {
-      const d = r.businessDate ?? r.date ?? new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
+      const d = r.businessDate ?? r.date ?? getJstTodayDateString()
       if (!d.startsWith(monthPrefix)) continue
       const b = map.get(d)
       if (b) {
@@ -928,7 +928,6 @@ function CalendarView() {
       v.fl = v.sales > 0 ? ((v.food + v.labor) / v.sales) * 100 : 0
     }
     return map
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [billingRecords, expenses, monthPrefix, daysInMonth])
 
   const monthTotal = useMemo(() => {

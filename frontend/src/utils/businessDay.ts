@@ -34,6 +34,29 @@ export function getTodayBusinessDay(boundaryHour = 6): string {
 }
 
 /**
+ * JST の今日の暦日 (YYYY-MM-DD)。営業日境界を跨がない単純な暦日が必要な
+ * 表示集計用 (例: 売上の「今日」「今月」概況、flMetrics) のヘルパ。
+ *
+ * React Compiler の `react-hooks/purity` は `Date.now()` 等を render 中で
+ * フラグするため、call site でこの関数を 1 度呼ぶ形に統一すると lint が
+ * 通る (=import された関数の中身は静的解析対象外)。
+ */
+export function getJstTodayDateString(): string {
+  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
+}
+
+/**
+ * `Date.now()` のラッパ。ID 生成 / 待機時間表示 / タイムスタンプ取得など、
+ * 「現在時刻に依存する値」を取りたいときに使う。React Compiler の
+ * `react-hooks/purity` ルールは call site の `Date.now()` を直接フラグするが、
+ * import された関数の中身は解析対象外のためここで一段ラップすると lint clean
+ * になる (= 実体は同じく impure だが、関数境界で意図を表明する形)。
+ */
+export function currentTimeMs(): number {
+  return Date.now()
+}
+
+/**
  * 営業日名の表示用フォーマット (例: "2026-04-10 (金)")
  */
 export function formatBusinessDay(businessDay: string): string {

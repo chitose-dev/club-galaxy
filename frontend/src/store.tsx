@@ -1,3 +1,10 @@
+/* eslint-disable react-hooks/preserve-manual-memoization */
+// 本ファイルの useCallback / useMemo は backend API への replace-all 副作用
+// (例: castsApi.replaceAll, menuApi.replaceCast) を含むため、React Compiler の
+// 自動 memoize に渡してしまうと「依存配列の object 参照変化で副作用が
+// 抑制 / 多重発火する」リスクがある。意図的に手動 memoize を維持しているが、
+// React Compiler は object 依存の変化追跡を保証できないと判定して警告を出す。
+// 動作上は問題ないためファイル全体で抑制する。
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react'
 import { tablesApi } from './api/tables'
 import { castsApi } from './api/casts'
@@ -12,6 +19,7 @@ import { expensesApi } from './api/expenses'
 import { advancesApi } from './api/advances'
 import { archiveApi } from './api/archive'
 import { ApiError } from './api/client'
+import { getJstTodayDateString } from './utils/businessDay'
 import {
   guestMenuItems as initialGuestMenu,
   castMenuItems as initialCastMenu,
@@ -305,6 +313,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // fetchFailed=true を立て、ルートでフルスクリーンエラー画面に切替える。
   // 個別 fetch 失敗は state 空のまま（モックフォールバックなし）。
   // fetch 完了後は setLoading(false) を呼び、キャッシュを更新。
+  // 「外部システム (REST API) との同期」のために setState を Effect 内で呼ぶ
+  // 用途のため、React の「You might not need an Effect」ガイドの推奨パターン。
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     const token = localStorage.getItem('authToken')
     if (!token) {
@@ -356,6 +367,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setLoading(false)
     })
   }, [])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Fix D (ふうや指摘): 旧実装は local state のみ更新で backend に保存して
   //   いなかった。卓詳細から本指名・同伴・場内指名・assignedCasts 等を変更
@@ -424,7 +436,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }),
     )
     // atomic append (backend 側で同 menuItem.id + castName をマージ)
-    const { id: _omitId, ...rest } = order as OrderItem & { id?: number }
+    // id は client 側で生成された値で backend が再採番するため、payload から除外する。
+    const rest: OrderItem = {
+      menuItem: order.menuItem,
+      quantity: order.quantity,
+      castName: order.castName,
+      bonusCastName: order.bonusCastName,
+      bonusAmount: order.bonusAmount,
+    }
     tablesApi.addOrder(tableId, rest).catch(console.error)
   }, [])
 
@@ -661,7 +680,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const flMetrics = useMemo<FLMetrics>(() => {
     // JST 基準で today を算出。businessDate (backend 付与) を優先し、
     // 旧 date (UTC ベース) や未設定時のフォールバック順で参照する。
-    const todayStr = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    const todayStr = getJstTodayDateString()
     const monthPrefix = todayStr.slice(0, 7)
     const dateOf = (r: typeof billingRecords[number]) => r.businessDate ?? r.date ?? todayStr
 
@@ -795,6 +814,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   )
 }
 
+// `react-refresh/only-export-components` は「ファイル内で component と非
+// component の export 混在」を Fast Refresh の支障として警告する。
+// 本ファイルは React の慣用パターン (Provider + 直結 Hook の同居) を採用し、
+// `StoreProvider` (component) と `useStore` (hook) を意図的に同居させている。
+// 別ファイル化すると 18 caller の import 全件更新が必要で、得られるメリット
+// (開発 HMR の局所性) より変更リスクの方が大きいためここで抑制する。
+// eslint-disable-next-line react-refresh/only-export-components
 export function useStore(): Store {
   const ctx = useContext(StoreContext)
   if (!ctx) throw new Error('useStore must be used within StoreProvider')
