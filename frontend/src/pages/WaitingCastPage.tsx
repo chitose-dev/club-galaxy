@@ -26,7 +26,7 @@ import { isBusinessDateClosed } from '../utils/closing'
 import PayslipPopup from '../components/PayslipPopup'
 import DailyPayDialog from '../components/DailyPayDialog'
 import TimeInput from '../components/TimeInput'
-import { calcHourlyPay } from '../utils/payroll'
+import { computeDailyPayBreakdown, buildBottleBackRateByCast, type DailyPayBreakdownResult } from '../utils/dailyPayBreakdown'
 import { useAuth } from '../auth'
 
 /**
@@ -48,7 +48,7 @@ const isInLooseTime = (c: Cast): boolean => {
 }
 
 export default function WaitingCastPage() {
-  const { casts, setCasts, tables, moveCast, attendanceRecords, addAttendance, addDailyPayRequest, updateAttendance, addAttendanceEditLog, dailyReports } = useStore()
+  const { casts, setCasts, tables, moveCast, attendanceRecords, addAttendance, addDailyPayRequest, updateAttendance, addAttendanceEditLog, dailyReports, billingRecords, dailyPayRequests } = useStore()
   const { user } = useAuth()
   const navigate = useNavigate()
 
@@ -59,9 +59,10 @@ export default function WaitingCastPage() {
   const [draggingId, setDraggingId] = useState<number | null>(null)
   // PDF E: 給与明細ポップアップ / 日払い入力 / 出勤時刻修正 用
   const [payslipCast, setPayslipCast] = useState<Cast | null>(null)
-  // 共通 DailyPayDialog で記録する。calculatedAmount は時給×当日勤務時間-10%。
+  // 共通 DailyPayDialog で記録する。calculatedAmount は時給×当日勤務時間-10% +
+  // バック合計を含めた純額。breakdown には稼働実績 / 既支払額も持たせる。
   const [dailyPayTarget, setDailyPayTarget] = useState<
-    | { cast: Cast; calculatedAmount: number }
+    | { cast: Cast; calculatedAmount: number; breakdown: DailyPayBreakdownResult }
     | null
   >(null)
   const [editClockInCast, setEditClockInCast] = useState<Cast | null>(null)
@@ -344,10 +345,17 @@ export default function WaitingCastPage() {
                       isBusinessDateClosed(todayStr, dailyReports)
                         ? undefined
                         : () => {
-                            const rec = todayAttendanceByCastId.get(c.id)
-                            const basePay = calcHourlyPay(c.hourlyRate, rec?.workHours ?? 0)
-                            const net = basePay - Math.floor(basePay * 0.1)
-                            setDailyPayTarget({ cast: c, calculatedAmount: net })
+                            // ボトルバックを給与明細と一致させるため、全キャストの率を渡す。
+                            const bottleRates = buildBottleBackRateByCast(casts)
+                            const breakdown = computeDailyPayBreakdown(
+                              c, todayStr, attendanceRecords, billingRecords, dailyPayRequests,
+                              bottleRates,
+                            )
+                            setDailyPayTarget({
+                              cast: c,
+                              calculatedAmount: breakdown.net,
+                              breakdown,
+                            })
                           }
                     }
                     onEdit={() => setEditing(c)}
@@ -375,7 +383,7 @@ export default function WaitingCastPage() {
         <DragOverlay>
           {draggingCast ? (
             <div className="panel p-3 flex items-center gap-3 shadow-2xl border-2 border-gold/60 bg-primary-dark/95 rounded-lg max-w-[280px]">
-              <Avatar name={draggingCast.name} />
+              <Avatar />
               <div className="flex-1">
                 <div className="text-base font-bold text-white">{draggingCast.name}</div>
                 <div className="text-[10px] text-gold">移動中…</div>
@@ -517,6 +525,7 @@ export default function WaitingCastPage() {
         targetDate={todayStr}
         operator={user?.displayName ?? user?.username}
         staffType="cast"
+        breakdown={dailyPayTarget?.breakdown}
         onSubmit={submitDailyPayFromDialog}
         onClose={() => setDailyPayTarget(null)}
       />
@@ -554,9 +563,10 @@ export default function WaitingCastPage() {
 
 // ─── サブコンポーネント ───────────────────────────────────
 
-function Avatar({ name: _name }: { name: string }) {
+function Avatar() {
   // PDF E: 頭文字表示（"あ"/"れ"/"ゆ"等）を削除。アイコン部のレイアウトは
   // 残すが文字は出さず、隣の cast.name フル表示を主表記とする。
+  // name prop は旧 API 互換のため呼び出し側が渡しているが、ここでは未使用。
   return (
     <div
       className="shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-gold/40 to-gold-dark/40 border border-gold/30"
@@ -626,6 +636,10 @@ function DraggableCastCard(props: CardProps) {
     if (cast.onBreak) return '休憩中'
     if (inLoose) return 'ルーズタイム'
     if (!cast.lastAssignedAt) return '待機中'
+    // 1 分ごとに親 (WaitingCastPage) の setNowTick が発火して再 render される設計
+    // のため、render 時点の Date.now() に依存しても min 表示は分粒度で更新される。
+    // pure 違反は意図的に許容 (時計に依存する待機時間表示の宿命)。
+    // eslint-disable-next-line react-hooks/purity
     const ms = Date.now() - new Date(cast.lastAssignedAt).getTime()
     const min = Math.max(0, Math.floor(ms / 60000))
     return `待機 ${min}分`
@@ -654,7 +668,7 @@ function DraggableCastCard(props: CardProps) {
         <GripVertical size={16} />
       </button>
 
-      <Avatar name={cast.name} />
+      <Avatar />
 
       <button
         type="button"
