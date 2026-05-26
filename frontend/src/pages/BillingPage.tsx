@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useStore } from '../store'
 import { useAuth } from '../auth'
@@ -12,7 +12,7 @@ import { computeVisitBreakdown } from '../utils/visitBreakdown'
 import SetBreakdownStrip from '../components/SetBreakdownStrip'
 import { isBusinessDateClosed, LOCKED_TOOLTIP } from '../utils/closing'
 import { isUncollectedActive } from '../utils/uncollected'
-import { getJstTodayDateString } from '../utils/businessDay'
+import { getJstTodayDateString, currentTimeMs } from '../utils/businessDay'
 import BottomActionBar from '../components/BottomActionBar'
 import { DangerButton, DarkButton, GhostButton } from '../components/Buttons'
 import PrintMethodModal from '../components/PrintMethodModal'
@@ -203,51 +203,13 @@ export default function BillingPage() {
   })() : null
 
   // `?splitId=` 自動起動用の Hook 群は早期 return より「前」に置く必要がある
-  // (rules-of-hooks: 条件付き呼出禁止)。逆に `splitIdParam` 等の派生 const は
-  // 分岐後でも使われるので少し下に残す形にしている。
+  // (rules-of-hooks: 条件付き呼出禁止)。
+  // `openSplitIssue` も early return より後ろに置くと、effect callback が未初期化
+  // const を掴んで TDZ クラッシュする恐れがあるため、ここで useCallback 化して
+  // 同じ render フェーズで定義する。
   const splitAutoOpenedRef = useRef(false)
   const splitIdParamForEffect = searchParams.get('splitId')
-  useEffect(() => {
-    if (!splitIdParamForEffect || splitAutoOpenedRef.current) return
-    const target = billingRecords.find((r) => r.id === splitIdParamForEffect)
-    if (!target || !target.receiptSnapshot) return
-    if (target.voidedAt) return  // 取消済会計の自動起動は抑止
-    splitAutoOpenedRef.current = true
-    openSplitIssue({
-      billingRecordId: target.id,
-      tableNumber: target.tableNumber,
-      total: target.total,
-      consumptionTax: target.receiptSnapshot.consumptionTax,
-      receiptNumber: target.receiptSnapshot.receiptNumber,
-      guestCount: Math.max(1, target.guestCountSnapshot ?? 1),
-    })
-    // `openSplitIssue` は本コンポーネント内のローカル関数で識別が安定しない
-    // (再生成される) ため、依存配列からは除外し billingRecords 変化のみで
-    // 再評価させる。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [splitIdParamForEffect, billingRecords])
-
-  // 未収回収モード: ?uncollectedId=<id> が付いている場合、対象未収レコードの。
-  // 旧 `isUncollected` フラグ + 新 `uncollectedStatus='pending'/'written_off'` の
-  // どちらも回収対象に含めるため isUncollectedActive で統一判定する。
-  // 通常会計（recovered 化）専用 UI を表示する（通常の卓選択 UI を bypass）
-  const uncollectedId = searchParams.get('uncollectedId')
-  const uncollectedRecord = uncollectedId
-    ? billingRecords.find((r) => r.id === uncollectedId && isUncollectedActive(r)) ?? null
-    : null
-  if (uncollectedRecord) {
-    return <UncollectedRecoveryView record={uncollectedRecord} />
-  }
-
-  // PDF C: 分割発行モーダルは「卓 → empty」遷移後の early return パスでも
-  // 描画する必要があるため、関連 const helper + JSX 生成 function を
-  // すべて early return より「前」に集約する。
-  // const は巻き上げされないので、早期 return より後ろに置くと TDZ で
-  // ランタイムエラーになる。
-
-  // 分割発行モーダルを開く。会計直後 / 履歴いずれからも呼べる。
-  // splitSlots は guestCount 件のスロットで初期化、初期金額は人数割（端数は最終枠）。
-  const openSplitIssue = (ctx: {
+  const openSplitIssue = useCallback((ctx: {
     billingRecordId: string
     tableNumber: string
     total: number
@@ -277,7 +239,48 @@ export default function BillingPage() {
       },
     })
     setShowSplitIssue(true)
+  }, [storeSettings.storeName, storeSettings.storeAddress, storeSettings.storePhone])
+  // 外部 (URL クエリ `?splitId=`) との同期目的の Effect。
+  // useCallback 化した openSplitIssue は内部で setState を呼ぶが、ここは
+  // ページ遷移後の自動起動という外部入力起点のため意図的に Effect 経由にする。
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (!splitIdParamForEffect || splitAutoOpenedRef.current) return
+    const target = billingRecords.find((r) => r.id === splitIdParamForEffect)
+    if (!target || !target.receiptSnapshot) return
+    if (target.voidedAt) return  // 取消済会計の自動起動は抑止
+    splitAutoOpenedRef.current = true
+    openSplitIssue({
+      billingRecordId: target.id,
+      tableNumber: target.tableNumber,
+      total: target.total,
+      consumptionTax: target.receiptSnapshot.consumptionTax,
+      receiptNumber: target.receiptSnapshot.receiptNumber,
+      guestCount: Math.max(1, target.guestCountSnapshot ?? 1),
+    })
+  }, [splitIdParamForEffect, billingRecords, openSplitIssue])
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  // 未収回収モード: ?uncollectedId=<id> が付いている場合、対象未収レコードの。
+  // 旧 `isUncollected` フラグ + 新 `uncollectedStatus='pending'/'written_off'` の
+  // どちらも回収対象に含めるため isUncollectedActive で統一判定する。
+  // 通常会計（recovered 化）専用 UI を表示する（通常の卓選択 UI を bypass）
+  const uncollectedId = searchParams.get('uncollectedId')
+  const uncollectedRecord = uncollectedId
+    ? billingRecords.find((r) => r.id === uncollectedId && isUncollectedActive(r)) ?? null
+    : null
+  if (uncollectedRecord) {
+    return <UncollectedRecoveryView record={uncollectedRecord} />
   }
+
+  // PDF C: 分割発行モーダルは「卓 → empty」遷移後の early return パスでも
+  // 描画する必要があるため、関連 const helper + JSX 生成 function を
+  // すべて early return より「前」に集約する。
+  // const は巻き上げされないので、早期 return より後ろに置くと TDZ で
+  // ランタイムエラーになる。
+
+  // `openSplitIssue` は早期 return より前で useCallback として定義済み
+  // (TDZ クラッシュ回避 + effect 依存配列に含めるため)。重複定義は廃止。
 
   // `?splitId=<billingRecordId>&returnTo=<path>` で開かれた場合、対象会計の
   // SplitIssueModal を自動起動する。Hook 実体は早期 return より前に集約済 (上部参照)。
@@ -312,7 +315,7 @@ export default function BillingPage() {
       document.body.classList.remove('print-summary-mode')
       setSplitPrintOverride(null)
       addIssuedReceipt({
-        id: `${splitContext.billingRecordId}-${Date.now()}-${index}`,
+        id: `${splitContext.billingRecordId}-${currentTimeMs()}-${index}`,
         billingRecordId: splitContext.billingRecordId,
         tableNumber: splitContext.tableNumber,
         sequenceIndex: index + 1,
@@ -674,7 +677,7 @@ export default function BillingPage() {
   const handleComplete = () => {
     if (discount > 0) {
       addDiscountLog({
-        id: Date.now(),
+        id: currentTimeMs(),
         tableNumber: table.number,
         originalTotal: subtotal + setFee + tax + consumptionTax,
         discountAmount: discount,
@@ -687,7 +690,7 @@ export default function BillingPage() {
     // 操作した人と金額が後追いできるようにする。
     if (paymentMethod === 'mixed' && safeCardEndCut > 0) {
       addDiscountLog({
-        id: Date.now() + 1,
+        id: currentTimeMs() + 1,
         tableNumber: table.number,
         originalTotal: subtotal + setFee + tax + consumptionTax + mixedCardFee,
         discountAmount: safeCardEndCut,
@@ -731,7 +734,7 @@ export default function BillingPage() {
     //   合算対象卓レコード = 各卓の subtotal/setFee/orders/nominatedCastId
     //     を持つ "shadow" レコード (paymentMethod は 'mixed'、total は卓単位の税込小計)。
     // PDF C: 分割発行で参照するため、BillingRecord.id を変数化する。
-    const billingId = String(Date.now())
+    const billingId = String(currentTimeMs())
     addBillingRecord({
       id: billingId,
       tableNumber: table.number,
@@ -813,7 +816,7 @@ export default function BillingPage() {
         })
       }
       addBillingRecord({
-        id: String(Date.now() + mid),
+        id: String(currentTimeMs() + mid),
         tableNumber: mt.number,
         total: mTotal,
         paymentMethod: 'mixed', // 代表卓に合算されたため "mixed" でマーク
@@ -1906,7 +1909,7 @@ function UncollectedRecoveryView({ record }: { record: BillingRecord }) {
     if (!canConfirm) return
     if (discount > 0) {
       addDiscountLog({
-        id: Date.now(),
+        id: currentTimeMs(),
         tableNumber: record.tableNumber,
         originalTotal: baseTotal,
         discountAmount: discount,
@@ -1916,7 +1919,7 @@ function UncollectedRecoveryView({ record }: { record: BillingRecord }) {
       })
     }
     addBillingRecord({
-      id: String(Date.now()),
+      id: String(currentTimeMs()),
       tableNumber: record.tableNumber,
       total: finalTotal,
       paymentMethod: method,
