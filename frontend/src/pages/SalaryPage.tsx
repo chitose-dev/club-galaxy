@@ -9,7 +9,7 @@ import { Plus, Trash2, FileText, FileDown } from 'lucide-react'
 import { buildMonthlyCastSalaryCsv, downloadCsv } from '../utils/taxCsv'
 import PayslipPopup from '../components/PayslipPopup'
 import DailyPayDialog from '../components/DailyPayDialog'
-import { openPrintWindow } from '../utils/print'
+import { openPrintWindow, escapeHtml } from '../utils/print'
 import { getPaymentDate, formatPaymentDate } from '../utils/paymentDate'
 import { printCastLedger } from '../utils/castLedger'
 import ContextualHeader from '../components/ContextualHeader'
@@ -665,28 +665,16 @@ export default function SalaryPage() {
           </div>
         )}
 
-        {/* 給与明細印刷ボタン */}
+        {/* 給与明細印刷ボタン — 旧 openPrintWindow 直叩き版は店舗名/対象年月/
+            バック内訳/ボトルバック/延長指名バック/売上保証差額の詳細が抜けて
+            いたため廃止し、PayslipPopup の印刷 (店舗名+対象期間+全内訳+escape
+            HTML) に一本化する。 */}
         {user?.role !== 'cast' && cast && (
-          <button onClick={() => {
-            const body = `
-              <h2>給与明細書</h2>
-              <p>キャスト名: ${cast.name}</p>
-              <p>対象期間: ${period === 'first' ? '1日〜15日' : '16日〜末日'}</p>
-              <table>
-                <tr><th>時給+バック</th><td>¥${hourlyAndBackTotal.toLocaleString()}</td></tr>
-                ${guaranteeShortfall > 0 ? `<tr><th>その他: 売上保証差額</th><td>+¥${guaranteeShortfall.toLocaleString()}</td></tr>` : ''}
-                <tr><th>税引前 (合計)</th><td>¥${taxablePre.toLocaleString()}</td></tr>
-                <tr><th>ホステス税(-10%)</th><td>-¥${hostessTax.toLocaleString()}</td></tr>
-                <tr><th>支給額</th><td>¥${grossSalary.toLocaleString()}</td></tr>
-                <tr><th>日払い済</th><td>-¥${dailyPayTotal.toLocaleString()}</td></tr>
-                <tr><th>天引き合計</th><td>-¥${deductionTotal.toLocaleString()}</td></tr>
-                <tr><th class="bold">最終振込額</th><td class="bold">¥${netSalary.toLocaleString()}</td></tr>
-              </table>
-              <div class="sign">受領サイン</div>
-            `
-            openPrintWindow(body, '給与明細', { width: 400, height: 600 })
-          }} className="w-full bg-white/5 border border-white/10 py-3 rounded-lg font-bold mb-2 text-sm text-gray-400 flex items-center justify-center gap-2">
-            給与明細印刷
+          <button
+            onClick={() => setShowPayslip(true)}
+            className="w-full bg-white/5 border border-white/10 py-3 rounded-lg font-bold mb-2 text-sm text-gray-400 flex items-center justify-center gap-2"
+          >
+            給与明細を確認 / 印刷
           </button>
         )}
 
@@ -788,26 +776,41 @@ export default function SalaryPage() {
           <button onClick={() => setShowDailyPayRecord(true)} className="w-full bg-white/5 border border-white/10 py-3 rounded-lg font-bold mb-4 text-sm transition-colors">日払い記録（口頭申請受付後に入力）</button>
         )}
 
-        {/* 日払い受領明細印刷 — 印刷物には ¥0 ノイズを出さない。 */}
-        {user?.role !== 'cast' && dailyPayRequests.filter((r) => r.castId === selectedCastId && r.amount > 0).length > 0 && (
-          <button onClick={() => {
-            const castReqs = dailyPayRequests.filter((r) => r.castId === selectedCastId && r.amount > 0)
-            const rows = castReqs.map((r) => `<tr><td>${r.date}</td><td>¥${r.amount.toLocaleString()}</td></tr>`).join('')
-            const body = `
-              <h2>日払い受領明細</h2>
-              <p>キャスト名: ${cast?.name ?? ''}</p>
-              <table>
-                <tr><th>日付</th><th>金額</th></tr>
-                ${rows}
-                <tr><th>合計</th><td class="bold">¥${dailyPayTotal.toLocaleString()}</td></tr>
-              </table>
-              <div class="sign">受領サイン</div>
-            `
-            openPrintWindow(body, '日払い受領明細', { width: 400, height: 500 })
-          }} className="w-full btn-ghost py-2 text-xs text-gray-500 mb-4">
-            日払い受領明細印刷（サイン欄付き）
-          </button>
-        )}
+        {/* 日払い受領明細印刷 — 印刷物には ¥0 ノイズを出さない。
+            合計 (dailyPayTotal) は対象期間で絞っているので、明細行も同じ対象期間
+            で揃えないと「合計と行が一致しない」不整合になる。 */}
+        {(() => {
+          const periodReqs = dailyPayRequests.filter((r) => {
+            if (r.castId !== selectedCastId) return false
+            if (r.amount <= 0) return false
+            if (!matchTargetMonth(r.date)) return false
+            const day = getDay(r.date)
+            if (!Number.isFinite(day)) return false
+            return period === 'first' ? day <= 15 : day >= 16
+          })
+          if (user?.role === 'cast' || periodReqs.length === 0) return null
+          return (
+            <button onClick={() => {
+              const rows = periodReqs
+                .map((r) => `<tr><td>${escapeHtml(r.date)}</td><td>¥${r.amount.toLocaleString()}</td></tr>`)
+                .join('')
+              const body = `
+                <h2>日払い受領明細</h2>
+                <p>キャスト名: ${escapeHtml(cast?.name ?? '')}</p>
+                <p>対象期間: ${escapeHtml(`${targetYear}年${targetMonth}月 ${period === 'first' ? '前半 1〜15日' : '後半 16〜末日'}`)}</p>
+                <table>
+                  <tr><th>日付</th><th>金額</th></tr>
+                  ${rows}
+                  <tr><th>合計</th><td class="bold">¥${dailyPayTotal.toLocaleString()}</td></tr>
+                </table>
+                <div class="sign">受領サイン</div>
+              `
+              openPrintWindow(body, '日払い受領明細', { width: 400, height: 500 })
+            }} className="w-full btn-ghost py-2 text-xs text-gray-500 mb-4">
+              日払い受領明細印刷（サイン欄付き）
+            </button>
+          )
+        })()}
 
         {/* Daily pay history — 旧データに残る ¥0 レコードは運用上ノイズなので表示除外。
             新規登録は DailyPayDialog 側で amount > 0 を強制している。 */}

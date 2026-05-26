@@ -22,7 +22,7 @@ import type { Cast, BackType, DailyWork } from '../data/mock'
 import Modal from './Modal'
 import { GhostButton, GoldButton } from './Buttons'
 import { Printer } from 'lucide-react'
-import { openPrintWindow } from '../utils/print'
+import { openPrintWindow, escapeHtml } from '../utils/print'
 
 export interface PayslipPopupProps {
   open: boolean
@@ -247,14 +247,16 @@ export default function PayslipPopup({
     if (dailyPayTotal > 0) rows.push(['日払い済', `-${yen(dailyPayTotal)}`])
     if (deductionTotal > 0) rows.push(['天引き合計', `-${yen(deductionTotal)}`])
     rows.push(['最終振込額', yen(netSalary)])
+    // 印刷用 HTML はラベル (rows[][0]) と値 (rows[][1]) を全て escapeHtml で
+    // 包む。store name / cast name は管理画面入力なので XSS 経路になりうる。
     const tbody = rows
-      .map(([l, v]) => `<tr><th>${l}</th><td>${v}</td></tr>`)
+      .map(([l, v]) => `<tr><th>${escapeHtml(l)}</th><td>${escapeHtml(v)}</td></tr>`)
       .join('')
     const body = `
       <h2>給与明細</h2>
-      <p class="center">${storeSettings.storeName}</p>
-      <p class="center bold">${cast.name}</p>
-      <p class="center muted">${periodLabel}</p>
+      <p class="center">${escapeHtml(storeSettings.storeName)}</p>
+      <p class="center bold">${escapeHtml(cast.name)}</p>
+      <p class="center muted">${escapeHtml(periodLabel)}</p>
       <table>${tbody}</table>
     `
     const filename =
