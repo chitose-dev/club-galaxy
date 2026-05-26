@@ -64,6 +64,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 }
 
+// store.tsx と同じく Provider + Hook 同居の慣用パターン。Fast Refresh より
+// caller (11 ファイル) の import 安定を優先するためここで抑制する。
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth(): AuthState {
   const ctx = useContext(AuthContext)
   if (!ctx) throw new Error('useAuth must be used within AuthProvider')

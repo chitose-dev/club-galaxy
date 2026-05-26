@@ -367,9 +367,11 @@ function HistoryView() {
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
 
-  const today = new Date()
   // 履歴フィルタも営業日基準。深夜帯に開いても「本日」が暦日切替で前ズレしない。
-  const todayBusinessDate = getTodayBusinessDay()
+  // `new Date()` は毎 render で別 object になり依存配列が安定しないので useMemo
+  // 化する。todayBusinessDate も同じ初回値で安定させる。
+  const today = useMemo(() => new Date(), [])
+  const todayBusinessDate = useMemo(() => getTodayBusinessDay(), [])
 
   const filtered = useMemo(() => {
     const reportKey = (r: DailyReport) => r.businessDate ?? r.date

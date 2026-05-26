@@ -12,6 +12,7 @@ import { computeVisitBreakdown } from '../utils/visitBreakdown'
 import SetBreakdownStrip from '../components/SetBreakdownStrip'
 import { isBusinessDateClosed, LOCKED_TOOLTIP } from '../utils/closing'
 import { isUncollectedActive } from '../utils/uncollected'
+import { getJstTodayDateString } from '../utils/businessDay'
 import BottomActionBar from '../components/BottomActionBar'
 import { DangerButton, DarkButton, GhostButton } from '../components/Buttons'
 import PrintMethodModal from '../components/PrintMethodModal'
@@ -201,6 +202,31 @@ export default function BillingPage() {
     )
   })() : null
 
+  // `?splitId=` 自動起動用の Hook 群は早期 return より「前」に置く必要がある
+  // (rules-of-hooks: 条件付き呼出禁止)。逆に `splitIdParam` 等の派生 const は
+  // 分岐後でも使われるので少し下に残す形にしている。
+  const splitAutoOpenedRef = useRef(false)
+  const splitIdParamForEffect = searchParams.get('splitId')
+  useEffect(() => {
+    if (!splitIdParamForEffect || splitAutoOpenedRef.current) return
+    const target = billingRecords.find((r) => r.id === splitIdParamForEffect)
+    if (!target || !target.receiptSnapshot) return
+    if (target.voidedAt) return  // 取消済会計の自動起動は抑止
+    splitAutoOpenedRef.current = true
+    openSplitIssue({
+      billingRecordId: target.id,
+      tableNumber: target.tableNumber,
+      total: target.total,
+      consumptionTax: target.receiptSnapshot.consumptionTax,
+      receiptNumber: target.receiptSnapshot.receiptNumber,
+      guestCount: Math.max(1, target.guestCountSnapshot ?? 1),
+    })
+    // `openSplitIssue` は本コンポーネント内のローカル関数で識別が安定しない
+    // (再生成される) ため、依存配列からは除外し billingRecords 変化のみで
+    // 再評価させる。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [splitIdParamForEffect, billingRecords])
+
   // 未収回収モード: ?uncollectedId=<id> が付いている場合、対象未収レコードの。
   // 旧 `isUncollected` フラグ + 新 `uncollectedStatus='pending'/'written_off'` の
   // どちらも回収対象に含めるため isUncollectedActive で統一判定する。
@@ -254,8 +280,7 @@ export default function BillingPage() {
   }
 
   // `?splitId=<billingRecordId>&returnTo=<path>` で開かれた場合、対象会計の
-  // SplitIssueModal を自動起動する。取消済 (voidedAt) の会計は領収書発行不可。
-  // 他ページの詳細画面から領収書発行に飛ばし、完了後に元画面へ戻る導線として使う。
+  // SplitIssueModal を自動起動する。Hook 実体は早期 return より前に集約済 (上部参照)。
   const splitIdParam = searchParams.get('splitId')
   const rawReturnTo = searchParams.get('returnTo')
   // 同一オリジン内パスのみ許可 (`//` 始まりは scheme-relative URL になり外部
@@ -263,22 +288,6 @@ export default function BillingPage() {
   const returnToParam = rawReturnTo && /^\/(?!\/)/.test(rawReturnTo)
     ? rawReturnTo
     : null
-  const splitAutoOpenedRef = useRef(false)
-  useEffect(() => {
-    if (!splitIdParam || splitAutoOpenedRef.current) return
-    const target = billingRecords.find((r) => r.id === splitIdParam)
-    if (!target || !target.receiptSnapshot) return
-    if (target.voidedAt) return  // 取消済会計の自動起動は抑止
-    splitAutoOpenedRef.current = true
-    openSplitIssue({
-      billingRecordId: target.id,
-      tableNumber: target.tableNumber,
-      total: target.total,
-      consumptionTax: target.receiptSnapshot.consumptionTax,
-      receiptNumber: target.receiptSnapshot.receiptNumber,
-      guestCount: Math.max(1, target.guestCountSnapshot ?? 1),
-    })
-  }, [splitIdParam, billingRecords])
 
   // 分割スロット 1 枚を「発行 & 印刷」する。
   // 既存の receiptPrintBlock を splitPrintOverride で動的差し替えし、
@@ -714,7 +723,7 @@ export default function BillingPage() {
     const receiptNumberForRecord = getNextReceiptNumber()
 
     // JST 基準で YYYY-MM-DD を算出（toISOString は UTC を返すため +9h オフセット）
-    const nowIso = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    const nowIso = getJstTodayDateString()
 
     // 追補02 R13-5 完全対応: 合算会計の場合、各構成卓ごとに独立した
     //   BillingRecord を生成し、売上・バック帰属を卓単位で保持する。
@@ -1483,7 +1492,7 @@ export default function BillingPage() {
             <div className="text-sm space-y-0.5">
               <p className="text-gray-500 tabular-nums">現金: ¥{mixedCashAmount.toLocaleString()}</p>
               <p className="text-gold tabular-nums font-bold">カード支払額: ¥{mixedCardPaymentFinal.toLocaleString()}</p>
-              <p className="text-xs text-gray-500 tabular-nums">　└ 内訳: 差額 ¥{mixedCardAmount.toLocaleString()} + 手数料 ¥{mixedCardFee.toLocaleString()}{safeCardEndCut > 0 ? ` − 端数カット ¥${safeCardEndCut.toLocaleString()}` : ''}</p>
+              <p className="text-xs text-gray-500 tabular-nums pl-4">└ 内訳: 差額 ¥{mixedCardAmount.toLocaleString()} + 手数料 ¥{mixedCardFee.toLocaleString()}{safeCardEndCut > 0 ? ` − 端数カット ¥${safeCardEndCut.toLocaleString()}` : ''}</p>
             </div>
           )}
           {paymentMethod === 'card' && cardFee > 0 && (
@@ -1915,7 +1924,7 @@ function UncollectedRecoveryView({ record }: { record: BillingRecord }) {
       cardAmount: method === 'card' ? finalTotal : method === 'mixed' ? mixedCard : 0,
       cardFee: cardFee > 0 || mixedCardFee > 0 ? (method === 'mixed' ? mixedCardFee : cardFee) : undefined,
       completedAt: new Date().toISOString(),
-      date: new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10),
+      date: getJstTodayDateString(),
       isUncollected: false,
       ...(record.castNamesSnapshot ? { castNamesSnapshot: [...record.castNamesSnapshot] } : {}),
     })

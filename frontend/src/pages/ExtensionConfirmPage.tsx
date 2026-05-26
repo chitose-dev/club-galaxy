@@ -56,6 +56,47 @@ export default function ExtensionConfirmPage() {
   const { tables, casts, storeSettings, updateTable, moveCast, setPrices } = useStore()
   const table = useMemo(() => tables.find((t) => String(t.id) === params.id), [tables, params.id])
 
+  // 延長後の本指名キャスト = 継承（kept） + 新規追加（added）。
+  // rules-of-hooks 違反を避けるため、early return より前で useMemo 化する
+  // (config が無い render では空配列を返す)。
+  const newShimei = useMemo(() => {
+    if (!config) return [] as string[]
+    return [
+      ...config.keptShimeiCastNames,
+      ...config.addedShimeiCastNames.filter((n) => !config.keptShimeiCastNames.includes(n)),
+    ]
+  }, [config])
+
+  // 売上帰属プレビュー（spec.md §5.5: 本指名で均等按分。フリーは帰属なし）。
+  // useMemo は rules-of-hooks 上 early return より前に置く必要があるため、
+  // subtotalEx の計算もこの中で完結させる (重複は許容)。
+  const attributionPreview = useMemo<{ name: string; amount: number }[]>(() => {
+    if (!table || !config || newShimei.length === 0) return []
+    const baseSetUnit = table.startTime ? getSetPriceForTime(table.startTime, setPrices) : 0
+    const baseSetFee = baseSetUnit * table.guestCount * Math.max(1, table.setCount || 1)
+    const pastExFee = (table.extensionHistory ?? []).reduce((sum, e) => {
+      const unit = e.minutes === 30
+        ? (storeSettings.extensionPrice30Min ?? 0)
+        : (storeSettings.extensionPrice60Min ?? 0)
+      return sum + unit * table.guestCount
+    }, 0)
+    const exSetFeeInner = config.extensionPrice * table.guestCount
+    const shimeiChargeInner = newShimei.length * 1500
+    const banaiChargeInner = config.keptBanaiCastNames.length * 500
+    const orderSubtotalInner = (table.orders ?? []).reduce(
+      (sum, o) => sum + (o.menuItem?.price ?? 0) * o.quantity, 0,
+    )
+    const subtotalExInner =
+      baseSetFee + pastExFee + exSetFeeInner + shimeiChargeInner + banaiChargeInner + orderSubtotalInner
+    const each = Math.floor(subtotalExInner / newShimei.length)
+    return newShimei.map((n, i) => ({
+      name: n,
+      amount: i === newShimei.length - 1
+        ? subtotalExInner - each * (newShimei.length - 1)
+        : each,
+    }))
+  }, [table, config, newShimei, setPrices, storeSettings])
+
   if (!table || !config) {
     return (
       <div className="p-8 text-center text-gray-400">
@@ -66,12 +107,6 @@ export default function ExtensionConfirmPage() {
       </div>
     )
   }
-
-  // 延長後の本指名キャスト = 継承（kept） + 新規追加（added）
-  const newShimei = [
-    ...config.keptShimeiCastNames,
-    ...config.addedShimeiCastNames.filter((n) => !config.keptShimeiCastNames.includes(n)),
-  ]
 
   // EX 番号（延長確定後の表示用） — PDF/Word 仕様: 30 分は "EX(n)半"、60 分は "EX(n)"。
   const exIndex = (table.extensionHistory ?? []).length + 1
@@ -132,16 +167,6 @@ export default function ExtensionConfirmPage() {
     const d = new Date()
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
   })()
-
-  // 売上帰属プレビュー（spec.md §5.5: 本指名で均等按分。フリーは帰属なし）
-  const attributionPreview: { name: string; amount: number }[] = useMemo(() => {
-    if (newShimei.length === 0) return []
-    const each = Math.floor(subtotalEx / newShimei.length)
-    return newShimei.map((n, i) => ({
-      name: n,
-      amount: i === newShimei.length - 1 ? subtotalEx - each * (newShimei.length - 1) : each,
-    }))
-  }, [newShimei, subtotalEx])
 
   const handleConfirm = () => {
     // 1. 場内指名から外したキャストを待機に戻す（assignedCasts から除外）

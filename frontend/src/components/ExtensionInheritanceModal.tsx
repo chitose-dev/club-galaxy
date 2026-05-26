@@ -37,8 +37,12 @@ interface Props {
 export default function ExtensionInheritanceModal({ open, table, onClose, onConfirm }: Props) {
   const { casts, storeSettings } = useStore()
 
-  // 現在の本指名 / 場内指名キャスト
-  const currentShimei = table?.mainNominationCastNames ?? []
+  // 現在の本指名 / 場内指名キャスト。currentShimei は table 切替時のみ再生成
+  // する形 (毎 render で新規配列にすると後段 useMemo の依存が不安定になる)。
+  const currentShimei = useMemo(
+    () => table?.mainNominationCastNames ?? [],
+    [table],
+  )
   // 場内指名は assignedCasts のうち mainNominationCastNames に含まれない人とする運用。
   // isBanaiShimei フラグ卓では assignedCasts 全員、それ以外は本指名以外を場内候補扱い。
   const currentBanai = useMemo(() => {
