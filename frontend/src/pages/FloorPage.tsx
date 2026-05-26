@@ -668,7 +668,9 @@ export default function FloorPage() {
             <div>
               <label className="text-sm text-gray-200 block mb-2 font-medium">セット開始時刻</label>
               <div className="flex gap-2">
-                <TimeInput value={ciTime} onChange={(v) => setCiTime(v)} className="flex-1" />
+                {/* 入店時刻は分単位の指定要件がある (例: 20:07 入店) ため
+                    QUARTER 制約を外す。退勤等の勤怠系は別途 15 分丸めの業務制約あり。 */}
+                <TimeInput value={ciTime} onChange={(v) => setCiTime(v)} className="flex-1" quarterHourOnly={false} />
                 <button onClick={() => setCiTime(defaultStartTime())} className="btn-ghost px-5 whitespace-nowrap text-base min-h-[52px]">今すぐ</button>
               </div>
               <div className="text-sm text-gold mt-2 tabular-nums">

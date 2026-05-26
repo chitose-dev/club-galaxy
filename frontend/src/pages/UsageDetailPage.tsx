@@ -16,6 +16,7 @@ import {
   getSetLabel,
 } from '../utils/setCountLabel'
 import ExtensionInheritanceModal from '../components/ExtensionInheritanceModal'
+import SetBreakdownStrip from '../components/SetBreakdownStrip'
 import { FileText, CreditCard, Trash2, ArrowLeft, Clock as ClockIcon } from 'lucide-react'
 
 /**
@@ -159,6 +160,11 @@ export default function UsageDetailPage() {
               <span className="tabular-nums font-bold">¥{setSubtotal.toLocaleString()}</span>
             </div>
           </div>
+        </div>
+
+        {/* QA 第3弾: 1Set目 / EX1 / EX2 ... の金額をそれぞれ見せる。EX3+ は横スクロール。 */}
+        <div className="max-w-4xl mx-auto mt-4 panel p-4">
+          <SetBreakdownStrip table={table} setPrices={setPrices} />
         </div>
 
         <div className="max-w-4xl mx-auto mt-4 panel p-4">
