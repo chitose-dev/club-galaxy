@@ -32,7 +32,8 @@ export function useExtendTable() {
         minutes,
         timestamp: new Date().toISOString(),
         nominatedCastName: primaryCast,           // 後方互換
-        nominatedCastNames: [...castNames],       // 新規: 複数指名
+        nominatedCastNames: [...castNames],       // 本指名スナップショット
+        banaiCastNames: [],                       // この経路は場内指名を継承しない
         orderMenuItemId: orderId,
       }
       // 注文/利用/会計明細に出る延長行の表示名は EX(n) / EX(n)半 形式に統一する

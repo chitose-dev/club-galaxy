@@ -154,8 +154,12 @@ export interface ExtensionEntry {
   timestamp: string
   /** 延長時の指名キャスト（バック帰属、M23 で本指名バック継続） */
   nominatedCastName?: string
+  /** この EX セットの本指名スナップショット（複数選択対応） */
+  nominatedCastNames?: string[]
+  /** この EX セットの場内指名スナップショット */
+  banaiCastNames?: string[]
   /** 連動して追加した orderItem ID 群（取消時に同時削除） */
-  orderItemIds: string[]
+  orderItemIds?: string[]
 }
 
 export interface Table extends AuditFields {

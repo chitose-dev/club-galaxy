@@ -45,8 +45,12 @@ export interface ExtensionEntry {
    * 後方互換のため残置。新規書込みは nominatedCastNames[0] と同じ値が入る。
    */
   nominatedCastName?: string
-  /** 延長時に指名した全キャスト（複数選択対応、空配列ならフリー） */
+  /** 延長時に指名した全キャスト（複数選択対応、空配列ならフリー）。
+   *  この EX セットの本指名スナップショット。延長確定時点の本指名状態を焼き付ける。 */
   nominatedCastNames?: string[]
+  /** この EX セットの場内指名スナップショット（延長確定時点の場内指名キャスト）。
+   *  未設定は「場内指名なし」扱い。セット別内訳で EX ごとの指名料を出すために使う。 */
+  banaiCastNames?: string[]
   /** このエントリで追加された注文ID(取消時に一緒に削除するため) */
   orderMenuItemId?: number
 }
