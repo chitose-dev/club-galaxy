@@ -864,7 +864,7 @@ export default function OrderPage() {
               <DangerButton
                 onClick={() => {
                   if (!selectedTableId || !bonusTarget) return
-                  setOrderBonus(selectedTableId, bonusTarget.menuItem.id, bonusTarget.castName, {})
+                  setOrderBonus(selectedTableId, bonusTarget.menuItem.id, bonusTarget.castName, {}, bonusTarget.setSequence ?? currentSetSequence)
                   setBonusTarget(null)
                 }}
                 className="flex-1"
@@ -879,7 +879,7 @@ export default function OrderPage() {
                 setOrderBonus(selectedTableId, bonusTarget.menuItem.id, bonusTarget.castName, {
                   bonusCastName,
                   bonusAmount,
-                })
+                }, bonusTarget.setSequence ?? currentSetSequence)
                 setBonusTarget(null)
               }}
               className="flex-1"

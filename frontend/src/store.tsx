@@ -98,7 +98,7 @@ interface Store {
    * 追補03 R18: 注文行にボーナス情報をセット / 解除する。
    * bonusCastName / bonusAmount を undefined にすると解除。
    */
-  setOrderBonus: (tableId: number, menuItemId: number, castName: string | undefined, bonus: { bonusCastName?: string; bonusAmount?: number }) => void
+  setOrderBonus: (tableId: number, menuItemId: number, castName: string | undefined, bonus: { bonusCastName?: string; bonusAmount?: number }, setSequence?: number) => void
   resetTable: (id: number) => void
   addDiscountLog: (log: DiscountLog) => void
   /** PDF C: 分割発行された領収書を 1 件記録する。 */
@@ -495,14 +495,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   // 追補03 R18: 注文行のボーナスを設定 / 解除
   const setOrderBonus = useCallback(
-    (tableId: number, menuItemId: number, castName: string | undefined, bonus: { bonusCastName?: string; bonusAmount?: number }) => {
+    (tableId: number, menuItemId: number, castName: string | undefined, bonus: { bonusCastName?: string; bonusAmount?: number }, setSequence?: number) => {
+      // セット所属まで一致させて対象行を一意化する。これをしないと 1Set目 と EX1 に
+      // 同一メニュー+キャストの注文がある場合、片方の操作で両方が更新される。
+      const seq = setSequence ?? 0
       setTables((prev) =>
         prev.map((t) => {
           if (t.id !== tableId) return t
           return {
             ...t,
             orders: t.orders.map((o) =>
-              o.menuItem.id === menuItemId && o.castName === castName
+              o.menuItem.id === menuItemId && o.castName === castName && (o.setSequence ?? 0) === seq
                 ? { ...o, bonusCastName: bonus.bonusCastName, bonusAmount: bonus.bonusAmount }
                 : o,
             ),
