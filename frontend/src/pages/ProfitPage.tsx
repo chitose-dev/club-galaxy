@@ -911,6 +911,8 @@ function CalendarView() {
       map.set(ds, { sales: 0, expense: 0, count: 0, food: 0, labor: 0, fl: 0 })
     }
     for (const r of billingRecords) {
+      // 合算 shadow は代表卓 record に総額が含まれるため、日別売上/件数から除外（二重計上防止）。
+      if (isMergedShadowRecord(r)) continue
       const d = r.businessDate ?? r.date ?? getJstTodayDateString()
       if (!d.startsWith(monthPrefix)) continue
       const b = map.get(d)
@@ -942,7 +944,8 @@ function CalendarView() {
 
   const dayDetail = useMemo(() => {
     if (!selectedDay) return null
-    const records = billingRecords.filter((r) => (r.businessDate ?? r.date ?? '') === selectedDay)
+    // 1組1行表示 + 担当キャスト別集計から合算 shadow を除外（代表卓 record に含まれるため）。
+    const records = billingRecords.filter((r) => (r.businessDate ?? r.date ?? '') === selectedDay && !isMergedShadowRecord(r))
     // 担当キャスト別にグループ化
     const grouped = new Map<string, typeof records>()
     for (const r of records) {

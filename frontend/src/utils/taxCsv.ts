@@ -26,7 +26,7 @@ import {
 import { calcHourlyPay } from './payroll'
 import { computeDailyWork } from './dailyWork'
 import { calcMonthlyGuaranteeShortfall } from './saleGuarantee'
-import { computeVisitBreakdown } from './visitBreakdown'
+import { computeVisitBreakdown, isMergedShadowRecord } from './visitBreakdown'
 
 // ─────────────────────────────────────────────────────────────
 // 共通ユーティリティ
@@ -69,9 +69,13 @@ export function downloadCsv(filename: string, csv: string): void {
 function filterMonthRecords(
   records: readonly BillingRecord[],
   monthPrefix: string,
+  // 売上/明細CSV(1組1行)は合算 shadow を除外（代表卓 record に総額が含まれ二重計上になる）。
+  // 給与/キャスト別CSVは per-cast 帰属に shadow を使うため除外しない（既定 false）。
+  excludeMergedShadow = false,
 ): BillingRecord[] {
   return records.filter((r) => {
     if (r.voidedAt) return false
+    if (excludeMergedShadow && isMergedShadowRecord(r)) return false
     const d = r.businessDate ?? r.date ?? r.completedAt.slice(0, 10)
     return d.startsWith(monthPrefix)
   })
@@ -104,7 +108,7 @@ export function buildMonthlySalesCsv(
     '支払方法', '現金', 'カード', 'カード手数料',
     '売上帰属(本指名按分)',
   ] as const
-  const filtered = filterMonthRecords(records, monthPrefix)
+  const filtered = filterMonthRecords(records, monthPrefix, true)
   // 営業日 + 会計日時 でソート (税理士提出用は時系列順が読みやすい)
   filtered.sort((a, b) => {
     const ad = a.businessDate ?? a.date ?? a.completedAt.slice(0, 10)
@@ -169,7 +173,7 @@ export function buildMonthlySalesDetailCsv(
     '営業日', '会計日時', '卓', '伝票No',
     '行種別', '区分', '名称', 'カテゴリ', '数量', '単価', '小計', '担当キャスト',
   ] as const
-  const filtered = filterMonthRecords(records, monthPrefix)
+  const filtered = filterMonthRecords(records, monthPrefix, true)
   filtered.sort((a, b) => {
     const ad = a.businessDate ?? a.date ?? a.completedAt.slice(0, 10)
     const bd = b.businessDate ?? b.date ?? b.completedAt.slice(0, 10)
