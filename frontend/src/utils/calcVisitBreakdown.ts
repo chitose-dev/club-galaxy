@@ -32,6 +32,10 @@ export interface BreakdownOrderInput {
   setSequence?: number
   /** 旧 useExtendTable が延長注文に立てるフラグ（あれば最優先で除外）。 */
   isExtension?: boolean
+  /** 原価。旧EX命名の複合判定（延長/charge は cost 0）で通常商品との誤判定を避けるために使う。 */
+  cost?: number
+  /** キャストバック。同上（延長/charge は castBack 0）。 */
+  castBack?: number
 }
 
 /** セット（1Set目 or 1 回分の延長）1 件の入力。指名は人数、料金は単価×人数で算出。 */
@@ -58,7 +62,8 @@ export interface CalcVisitBreakdownInput {
   banaiUnit: number
   douhanUnit: number
   taxRate: number
-  /** 値引き（税前小計から引く）。 */
+  /** 値引き。既存 BillingPage と同様、税前小計ではなく**税計算後の合計から**差し引く
+   *  （total = subtotalBeforeTax + tax − discount）。 */
   discount?: number
   /** 二重計上除外: 旧 useExtendTable が積んだ延長注文の menuItem.id 群
    *  (= extensionHistory[].orderMenuItemId)。 */
@@ -99,8 +104,12 @@ function isLegacyExtensionName(name: string): boolean {
 
 /**
  * 商品注文小計から除外すべき行か（延長料金行・指名/同伴 charge 行）。
- * 延長: isExtension フラグ → menuItem.id 一致 → 旧 EX 命名、の複合で厳しめに判定。
- * 指名 charge: 限定した品名一致のみ（同名の通常商品を誤除外しないため）。
+ * 延長の判定は信頼できるシグナル優先で厳しめに:
+ *   1. isExtension フラグ（延長コードが立てる）
+ *   2. menuItem.id が延長注文ID集合（extensionHistory[].orderMenuItemId）に一致
+ *   3. 旧 EX 命名 **かつ** 構造的に fee 行（原価0・バック0）の複合
+ *      → 通常商品が偶然 `EX(1)` 等の名前でも、原価>0 なら除外しない。
+ * 指名 charge は限定した品名一致のみ（charge ラベルは原価>0 のため構造ガードは使わない）。
  */
 export function isSeparatelyBilledRow(
   o: BreakdownOrderInput,
@@ -109,7 +118,7 @@ export function isSeparatelyBilledRow(
 ): boolean {
   if (o.isExtension === true) return true
   if (o.menuItemId !== undefined && excludedExtensionOrderIds.has(o.menuItemId)) return true
-  if (isLegacyExtensionName(o.name)) return true
+  if (isLegacyExtensionName(o.name) && (o.cost ?? 0) === 0 && (o.castBack ?? 0) === 0) return true
   if (nominationChargeNames.has(o.name)) return true
   return false
 }

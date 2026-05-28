@@ -125,11 +125,15 @@ function testExclusionStrictness(): void {
     ({ name: 'x', price: 0, quantity: 1, ...o })
   check('除外: isExtension=true', isSeparatelyBilledRow(row({ isExtension: true }), excl, nom) === true)
   check('除外: menuItemId が延長注文ID集合に一致', isSeparatelyBilledRow(row({ menuItemId: 2001 }), excl, nom) === true)
-  check('除外: 旧EX命名 EX(2)半', isSeparatelyBilledRow(row({ name: 'EX(2)半' }), excl, nom) === true)
-  check('除外: 旧延長命名 延長 +60分', isSeparatelyBilledRow(row({ name: '延長 +60分' }), excl, nom) === true)
+  // 旧EX命名は「原価0・バック0」の複合でのみ除外（延長 fee 行の構造）。
+  check('除外: 旧EX命名 EX(2)半 + 原価0/バック0', isSeparatelyBilledRow(row({ name: 'EX(2)半', cost: 0, castBack: 0 }), excl, nom) === true)
+  check('除外: 旧延長命名 延長 +60分 + 原価0/バック0', isSeparatelyBilledRow(row({ name: '延長 +60分', cost: 0, castBack: 0 }), excl, nom) === true)
   check('除外: 指名 charge 名 本指名', isSeparatelyBilledRow(row({ name: '本指名' }), excl, nom) === true)
-  check('非除外: 通常商品 ゲストショット', isSeparatelyBilledRow(row({ name: 'ゲストショット', menuItemId: 105 }), excl, nom) === false)
-  check('非除外: 通常商品 割り物各種', isSeparatelyBilledRow(row({ name: '割り物各種', menuItemId: 108 }), excl, nom) === false)
+  // Crow指摘: 通常商品が偶然 EX(1) 等の名前でも、原価>0 なら除外しない。
+  check('非除外: 通常商品名が EX(1) でも原価>0なら残す', isSeparatelyBilledRow(row({ name: 'EX(1)', price: 800, cost: 300, castBack: 0, menuItemId: 555 }), excl, nom) === false)
+  check('非除外: 通常商品名が 延長 +60分 でも原価>0なら残す', isSeparatelyBilledRow(row({ name: '延長 +60分', price: 1200, cost: 400 }), excl, nom) === false)
+  check('非除外: 通常商品 ゲストショット', isSeparatelyBilledRow(row({ name: 'ゲストショット', menuItemId: 105, cost: 500 }), excl, nom) === false)
+  check('非除外: 通常商品 割り物各種', isSeparatelyBilledRow(row({ name: '割り物各種', menuItemId: 108, cost: 100 }), excl, nom) === false)
 }
 
 function main(): number {
