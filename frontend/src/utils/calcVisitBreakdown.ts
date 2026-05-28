@@ -222,6 +222,26 @@ export interface VisitTableLike {
 export const NOMINATION_CHARGE_NAMES: readonly string[] = ['本指名', '場内指名', '同伴']
 
 /**
+ * 売上帰属の均等按分（端数は最後のキャストに寄せる）。本指名なしは空。
+ * **各レコードは自分の subtotalBeforeTax のみを渡すこと**。合算会計でも、代表卓は
+ * 代表卓分・合算対象卓は合算対象卓分のみを按分し、合算全体を代表卓キャストに
+ * 二重で乗せない（給与・キャスト別売上の誤帰属防止）。
+ */
+export function buildSalesAttribution(
+  subtotalBeforeTax: number,
+  nominationCastNames: readonly string[],
+): Record<string, number> {
+  const n = nominationCastNames.length
+  if (n === 0) return {}
+  const each = Math.floor(subtotalBeforeTax / n)
+  const acc: Record<string, number> = {}
+  nominationCastNames.forEach((name, i) => {
+    acc[name] = i === n - 1 ? subtotalBeforeTax - each * (n - 1) : each
+  })
+  return acc
+}
+
+/**
  * Table を calcVisitBreakdown 入力へ変換する。
  * - base セット指名: 0EX は現フラグ、≥1EX は baseNominationSnapshot（無ければ現フラグへ fallback）
  * - 各EXセット指名: そのエントリのスナップショット（本指名 = nominatedCastNames、
