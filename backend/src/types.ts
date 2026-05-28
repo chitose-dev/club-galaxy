@@ -186,6 +186,12 @@ export interface Table extends AuditFields {
   setDiscountPerSet?: number
   timeAdjustmentMinutes?: number
   extensionHistory?: ExtensionEntry[]
+  /** 1Set目の指名スナップショット（入店時に焼く。延長で現フラグが上書きされても保持）。 */
+  baseNominationSnapshot?: {
+    mainNominationCastNames: string[]
+    banaiCastNames: string[]
+    douhanCount: number
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
