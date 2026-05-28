@@ -192,7 +192,7 @@ export default function UsageDetailPage() {
                       ¥{(price * o.quantity).toLocaleString()}
                     </div>
                     <button
-                      onClick={() => itemId !== undefined && removeOrderFromTable(table.id, itemId, o.castName)}
+                      onClick={() => itemId !== undefined && removeOrderFromTable(table.id, itemId, o.castName, o.setSequence)}
                       disabled={itemId === undefined}
                       className="shrink-0 p-2 rounded-md bg-white/5 hover:bg-red-500/20 text-red-400 disabled:opacity-30 disabled:cursor-not-allowed"
                       aria-label="数量を1減らす"

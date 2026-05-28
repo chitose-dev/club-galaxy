@@ -19,12 +19,16 @@ export const tablesApi = {
     api.post<Table>(`/api/tables/${tableId}/orders`, order),
   removeOrder: (tableId: number, orderId: number) =>
     api.delete<Table>(`/api/tables/${tableId}/orders/${orderId}`),
-  /** Fix C: menuItem.id + castName で 1 減算（atomic）。
+  /** Fix C: menuItem.id + castName (+ setSequence) で 1 減算（atomic）。
    *  quantity > 1 なら -1、1 以下なら order 削除。 */
-  decrementOrder: (tableId: number, menuItemId: number, castName?: string) =>
+  decrementOrder: (tableId: number, menuItemId: number, castName?: string, setSequence?: number) =>
     api.post<{ ok: boolean; removedOrderId: number }>(
       `/api/tables/${tableId}/orders/decrement`,
-      castName !== undefined ? { menuItemId, castName } : { menuItemId },
+      {
+        menuItemId,
+        ...(castName !== undefined ? { castName } : {}),
+        ...(setSequence !== undefined ? { setSequence } : {}),
+      },
     ),
   reorder: (fromIndex: number, toIndex: number) =>
     api.put<void>('/api/tables/reorder', { fromIndex, toIndex }),

@@ -93,7 +93,7 @@ interface Store {
    */
   moveCast: (castName: string, toTableId: number | null) => void
   addOrderToTable: (tableId: number, order: OrderItem) => void
-  removeOrderFromTable: (tableId: number, menuItemId: number, castName?: string) => void
+  removeOrderFromTable: (tableId: number, menuItemId: number, castName?: string, setSequence?: number) => void
   /**
    * 追補03 R18: 注文行にボーナス情報をセット / 解除する。
    * bonusCastName / bonusAmount を undefined にすると解除。
@@ -421,46 +421,50 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   //    `POST /api/tables/:id/orders/decrement`) に切替。
   //   楽観的 local 更新は維持し、UI の即時反応を保つ。
   const addOrderToTable = useCallback((tableId: number, order: OrderItem) => {
+    // 注文の所属セット。呼び出し側 (OrderPage) が現在セットを焼き付けて渡す。
+    // 未指定は 1Set目(base) 扱い。マージ判定はセットも含めるため、別セットの
+    // 同一メニュー+キャストは別行として保持される。
+    const seq = order.setSequence ?? 0
+    const sameRow = (o: OrderItem) =>
+      o.menuItem.id === order.menuItem.id && o.castName === order.castName && (o.setSequence ?? 0) === seq
     setTables((prev) =>
       prev.map((t) => {
         if (t.id !== tableId) return t
-        const existing = t.orders.find((o) => o.menuItem.id === order.menuItem.id && o.castName === order.castName)
+        const existing = t.orders.find(sameRow)
         const nextOrders = existing
-          ? t.orders.map((o) =>
-              o.menuItem.id === order.menuItem.id && o.castName === order.castName
-                ? { ...o, quantity: o.quantity + order.quantity }
-                : o,
-            )
-          : [...t.orders, order]
+          ? t.orders.map((o) => (sameRow(o) ? { ...o, quantity: o.quantity + order.quantity } : o))
+          : [...t.orders, { ...order, setSequence: seq }]
         return { ...t, orders: nextOrders }
       }),
     )
-    // atomic append (backend 側で同 menuItem.id + castName をマージ)
+    // atomic append (backend 側で同 menuItem.id + castName + setSequence をマージ)
     // id は client 側で生成された値で backend が再採番するため、payload から除外する。
     const rest: OrderItem = {
       menuItem: order.menuItem,
       quantity: order.quantity,
       castName: order.castName,
+      setSequence: seq,
       bonusCastName: order.bonusCastName,
       bonusAmount: order.bonusAmount,
     }
     tablesApi.addOrder(tableId, rest).catch(console.error)
   }, [])
 
-  const removeOrderFromTable = useCallback((tableId: number, menuItemId: number, castName?: string) => {
+  const removeOrderFromTable = useCallback((tableId: number, menuItemId: number, castName?: string, setSequence?: number) => {
+    const seq = setSequence ?? 0
+    const sameRow = (o: OrderItem) =>
+      o.menuItem.id === menuItemId && o.castName === castName && (o.setSequence ?? 0) === seq
     setTables((prev) =>
       prev.map((t) => {
         if (t.id !== tableId) return t
         const nextOrders = t.orders
-          .map((o) =>
-            o.menuItem.id === menuItemId && o.castName === castName ? { ...o, quantity: o.quantity - 1 } : o,
-          )
+          .map((o) => (sameRow(o) ? { ...o, quantity: o.quantity - 1 } : o))
           .filter((o) => o.quantity > 0)
         return { ...t, orders: nextOrders }
       }),
     )
     // atomic decrement (backend 側で quantity-1、1以下なら order 削除)
-    tablesApi.decrementOrder(tableId, menuItemId, castName).catch(console.error)
+    tablesApi.decrementOrder(tableId, menuItemId, castName, seq).catch(console.error)
   }, [])
 
   const resetTable = useCallback((id: number) => {

@@ -185,6 +185,13 @@ export interface OrderItem {
    * として加算される。
    */
   bonusAmount?: number
+  /**
+   * この注文が属するセットの通し番号。0 = 1Set目(base)、1 = EX1、2 = EX2 …。
+   * 入店後の延長回数 (extensionHistory.length) を発注時点で焼き付ける。
+   * 未設定の既存注文は 0(1Set目/base) 扱い。注文画面は現在セット分のみ表示し、
+   * 過去セットの注文も内部データとしては保持する（会計合計には全セット分が乗る）。
+   */
+  setSequence?: number
 }
 
 export interface Cast {
