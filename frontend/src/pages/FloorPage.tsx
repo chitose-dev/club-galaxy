@@ -258,6 +258,15 @@ export default function FloorPage() {
       setDiscountPerSet: 0,
       timeAdjustmentMinutes: 0,
       extensionHistory: [],
+      // 1Set目の指名状態を入店時点で焼き付ける。延長で table フラグが上書きされても
+      // set0 の指名料をセット別請求で算出できるようにする。
+      baseNominationSnapshot: {
+        mainNominationCastNames: [...ciMainNominations],
+        banaiCastNames: ciIsBanaiShimei
+          ? assignedNames.filter((n) => !ciMainNominations.includes(n))
+          : [],
+        douhanCount: ciIsDouhan ? assignedNames.length : 0,
+      },
     }
     // Fix D: updateTable が backend 同期するので明示的な tablesApi.update は不要
     updateTable(selected.id, checkInPatch)
