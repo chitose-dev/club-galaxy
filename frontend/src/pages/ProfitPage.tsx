@@ -7,7 +7,7 @@ import { getJstTodayDateString } from '../utils/businessDay'
 import ContextualHeader from '../components/ContextualHeader'
 import { calcHourlyPay } from '../utils/payroll'
 import VisitBreakdownView from '../components/VisitBreakdownView'
-import { computeVisitBreakdown } from '../utils/visitBreakdown'
+import { computeVisitBreakdown, isMergedShadowRecord } from '../utils/visitBreakdown'
 import { ChevronDown, ChevronUp, FileDown, Printer } from 'lucide-react'
 import {
   buildMonthlySalesCsv,
@@ -87,6 +87,7 @@ function TodayView() {
   const todayVisits = useMemo(() => {
     return billingRecords.filter((r) => {
       if (r.voidedAt) return false
+      if (isMergedShadowRecord(r)) return false // 合算 shadow は代表卓 record に含まれる
       const d = r.businessDate ?? r.date ?? r.completedAt.slice(0, 10)
       return d === todayBusinessDate
     })
@@ -194,7 +195,7 @@ function DailyVisitDetailPanel({
     [records],
   )
   const subtotal = sorted
-    .filter((r) => !r.voidedAt)
+    .filter((r) => !r.voidedAt && !isMergedShadowRecord(r))
     .reduce((s, r) => s + r.total, 0)
 
   // カテゴリ別合計（メニュー側のみ、指名/チャージは除外）— 概況用。
@@ -378,6 +379,8 @@ function StoreTrendView() {
     labels.forEach((l) => map.set(l, { sales: 0, cardSales: 0, expense: 0 }))
 
     for (const r of billingRecords) {
+      // 合算 shadow は代表卓 record に総額が含まれるため売上集計から除外（二重計上防止）。
+      if (isMergedShadowRecord(r)) continue
       const d = r.businessDate ?? r.date ?? getJstTodayDateString()
       const k = keyOf(d)
       const b = map.get(k)
@@ -570,7 +573,8 @@ function StoreTrendView() {
         const b = buckets.find((x) => x.label === selectedBucket)
         if (!b) return null
         const dayRecords = billingRecords.filter(
-          (r) => (r.businessDate ?? r.date ?? r.completedAt.slice(0, 10)) === b.label,
+          (r) => (r.businessDate ?? r.date ?? r.completedAt.slice(0, 10)) === b.label
+            && !isMergedShadowRecord(r),
         )
         return (
           <div className="space-y-3">

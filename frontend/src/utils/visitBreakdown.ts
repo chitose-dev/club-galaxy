@@ -427,6 +427,23 @@ export function computeVisitBreakdown(
   }
 }
 
+/**
+ * 合算会計の shadow レコードか判定する。
+ * 代表卓レコードの total に合算総額が含まれるため、shadow を売上/利益/レジ締めの
+ * **総額集計から除外**して二重計上を防ぐ（per-cast 売上帰属には引き続き使う）。
+ * 明示フラグ `isMergedShadow` を優先し、フラグ無し旧データは
+ * 「mixed・receiptSnapshot なし・現金/カード 0」で後方互換判定する。
+ */
+export function isMergedShadowRecord(r: Pick<BillingRecord,
+  'isMergedShadow' | 'receiptSnapshot' | 'cashAmount' | 'cardAmount' | 'paymentMethod'
+>): boolean {
+  if (r.isMergedShadow === true) return true
+  return r.paymentMethod === 'mixed'
+    && !r.receiptSnapshot
+    && (r.cashAmount ?? 0) === 0
+    && (r.cardAmount ?? 0) === 0
+}
+
 /** 日付（businessDate / date）でグループ化された会計レコード一覧。 */
 export interface DailyVisitGroup {
   /** YYYY-MM-DD */
@@ -455,7 +472,8 @@ export function groupBillingRecordsByDate(
   }
   const out: DailyVisitGroup[] = []
   for (const [date, list] of map) {
-    const active = list.filter((r) => !r.voidedAt)
+    // 取消除外 + 合算 shadow 除外（shadow は代表卓 record に含まれ二重計上になる）。
+    const active = list.filter((r) => !r.voidedAt && !isMergedShadowRecord(r))
     out.push({
       businessDate: date,
       records: list,

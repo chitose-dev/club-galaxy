@@ -353,6 +353,10 @@ export interface BillingRecord {
   salesAttributionByCast?: Record<string, number>
   /** 会計履歴からの再印刷用スナップショット */
   receiptSnapshot?: ReceiptSnapshot
+  /** 合算会計の shadow レコード（代表卓に合算された対象卓の per-cast 帰属用）。
+   *  代表卓 record の total が合算総額を含むため、売上/利益/レジ締めの**総額集計から
+   *  除外**する（per-cast 売上帰属には引き続き使う）。 */
+  isMergedShadow?: boolean
   /** 未収（代金未収受）フラグ。誤開卓・トラブル等で代金回収できず退卓した場合に true */
   isUncollected?: boolean
   /** 未収ステータス（オーナーが管理画面で更新）。
