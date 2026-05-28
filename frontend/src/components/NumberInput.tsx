@@ -148,7 +148,14 @@ const NumberInput = forwardRef<HTMLInputElement, NumberInputProps>(function Numb
         disabled={disabled}
         autoFocus={autoFocus}
         aria-label={ariaLabel}
-        onChange={(e) => emit(e.target.value)}
+        onChange={(e) => {
+          // type="number" は "2000e" / "2-" 等の不正中間入力で value="" を返すが
+          // validity.badInput=true になる。これを「空欄にした」と誤認して
+          // setText('') すると blur で emptyValue(0) に落ちるため、badInput 中は
+          // state/onChange を更新せず直前の有効な表示を保持する。
+          if (e.currentTarget.validity.badInput) return
+          emit(e.target.value)
+        }}
         onFocus={handleFocus}
         onBlur={handleBlur}
         className={`${baseInputCls} ${inputClassName}`}
