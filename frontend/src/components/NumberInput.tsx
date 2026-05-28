@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useRef, useState } from 'react'
 
-import { parseNumberInput, stripLeadingZeros } from './numberInputUtils'
+import { clampNumber, parseNumberInput, stripLeadingZeros } from './numberInputUtils'
 
 interface NumberInputProps {
   value: number
@@ -41,8 +41,9 @@ interface NumberInputProps {
  *   - フォーカス中の数字入力で先頭 `0` を自動置換 (R12-3)
  *     → input[type="number"] のデフォルト挙動 + 手動で 0 始まり抑止
  *   - blur 時、値が空なら `emptyValue` (既定 0) に戻す (R12-4)
- *   - 入力中(emit)と確定(blur)で同じ clamp を通し、min/max を確定時にも必ず適用。
- *     表示値と onChange 値がズレない。step が整数のフィールドは整数化する。
+ *   - 入力中(emit)と確定(blur)が同じ clamp を通り、min/max を確定時にも必ず適用。
+ *     範囲外入力は表示も clamp 後へ揃えるので表示値と onChange 値がズレない。
+ *     step が整数のフィールドは整数化する (旧 parseInt 互換の切り捨て)。
  *
  * 全数値入力フィールドで統一使用する (R12-5)。
  * 確定ロジックの純関数は ./numberInputUtils に分離 (テスト容易化)。
@@ -73,30 +74,41 @@ const NumberInput = forwardRef<HTMLInputElement, NumberInputProps>(function Numb
   // step が整数なら整数前提フィールド (時給/休憩分/バック単価/値引き)。
   // 0.05 等の小数刻みは料率フィールド (保証率) として小数を許容する。
   const integerOnly = Number.isInteger(step)
-  const clampOpts = { min, max, integerOnly }
 
-  // 外部から value が変わったら text を同期 (フォーカス中は干渉しない)
+  // 外部から value が変わったら text を同期 (フォーカス中は干渉しない)。
+  // 過去に min/max 範囲外の値が保存されていた場合に備えて表示時点で clamp し、
+  // 超過分は親 state にも書き戻す。表示専用 string state を value (number) と
+  // 緩く同期する用途として意図的に Effect を使う。
   useEffect(() => {
-    if (!isFocusedRef.current) {
-      setText(String(value))
+    if (isFocusedRef.current) return
+    const clamped = clampNumber(value, { min, max, integerOnly })
+    /* eslint-disable-next-line react-hooks/set-state-in-effect */
+    setText(String(clamped))
+    if (clamped !== value) {
+      onChange(clamped)
     }
-  }, [value])
+  }, [value, min, max, integerOnly, onChange])
 
   const emit = (raw: string) => {
-    // 空文字 / 符号のみは中間入力として保持 (blur 時に emptyValue へ戻す)
+    // 空文字 / 符号のみは中間入力として保持 (blur で emptyValue へ確定)
     if (raw === '' || raw === '-') {
       setText(raw)
       return
     }
     // 先頭ゼロを畳む (R12-3)。"00"→"0" / "00.5"→"0.5" / "0.5"→"0.5"。
     const next = stripLeadingZeros(raw)
-    setText(next)
-    // 表示はユーザ入力のまま保持しつつ、親へは emit/blur 共通の clamp を通した
-    // 値だけ渡す。これにより保証率 (max=1) に 5 を入れても親が 5 を受け取らない。
-    const clamped = parseNumberInput(next, clampOpts)
-    if (clamped !== null) {
-      onChange(clamped)
+    const n = Number(next)
+    if (!Number.isFinite(n)) {
+      // "1." や "1e" 等の数値化途中は表示だけ保持し、確定は blur に委ねる
+      setText(next)
+      return
     }
+    const clamped = clampNumber(n, { min, max, integerOnly })
+    // 範囲内の入力は打鍵そのままを表示して小数・途中入力を壊さない。範囲外
+    // (保証率 max=1 に 5 等) のときだけ clamp 後の値を表示し、上限/下限へ達した
+    // ことを示す。これで保存される値 (onChange) と表示が乖離しない。
+    setText(clamped === n ? next : String(clamped))
+    onChange(clamped)
   }
 
   const handleFocus: React.FocusEventHandler<HTMLInputElement> = (e) => {
@@ -110,9 +122,9 @@ const NumberInput = forwardRef<HTMLInputElement, NumberInputProps>(function Numb
   const handleBlur = () => {
     isFocusedRef.current = false
     // emit と同じ clamp を通して確定。表示文字列と onChange 値を同じ結果へ揃える
-    // ので両者がズレない。数値化できない中間入力のみ emptyValue へ戻す
+    // ので両者がズレない。数値化できない / 空の中間入力のみ emptyValue へ戻す
     // (有効な数値は 0 へ落とさない)。
-    const resolved = parseNumberInput(text, clampOpts)
+    const resolved = parseNumberInput(text, { min, max, integerOnly })
     const final = resolved === null ? emptyValue : resolved
     setText(String(final))
     onChange(final)

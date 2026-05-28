@@ -4,6 +4,8 @@ import { useAuth } from '../auth'
 import { Pencil, Trash2, Printer, Download } from 'lucide-react'
 import { openPrintWindow } from '../utils/print'
 import type { DailyReport } from '../data/mock'
+import { isUncollectedActive } from '../utils/uncollected'
+import { getTodayBusinessDay } from '../utils/businessDay'
 import ContextualHeader from '../components/ContextualHeader'
 import Tabs from '../components/Tabs'
 import Modal from '../components/Modal'
@@ -48,12 +50,24 @@ function ClosingView() {
   const [note, setNote] = useState('')
   const [savedMessage, setSavedMessage] = useState('')
 
-  // レジ締めは本日分の会計のみ対象
-  const todayStr = new Date().toISOString().slice(0, 10)
-  const billingRecords = useMemo(
-    () => allBillingRecords.filter((r) => (r.date ?? todayStr) === todayStr),
-    [allBillingRecords, todayStr],
+  // レジ締めは本営業日分の会計のみ対象。深夜営業のため UTC/JST 暦日ではなく、
+  // 設計書の businessDay (営業日 = 開店時刻から翌朝の閉店までを 1 日として束ねる) を使う。
+  // 未回収の未収分 (旧 isUncollected フラグ or 新 uncollectedStatus='pending'/'written_off')
+  // は売上から除外。判定は isUncollectedActive ヘルパーに集約。
+  const todayBusinessDate = getTodayBusinessDay()
+  const todaysAllRecords = useMemo(
+    () => allBillingRecords.filter((r) => (r.businessDate ?? r.date) === todayBusinessDate),
+    [allBillingRecords, todayBusinessDate],
   )
+  const billingRecords = useMemo(
+    () => todaysAllRecords.filter((r) => !isUncollectedActive(r)),
+    [todaysAllRecords],
+  )
+  // 締め相殺フラグが立っている本日分の合計（締め画面表示用、売上には含めない）
+  const settledOffSummary = useMemo(() => {
+    const list = todaysAllRecords.filter((r) => r.settledOff)
+    return { count: list.length, total: list.reduce((s, r) => s + r.total, 0) }
+  }, [todaysAllRecords])
 
   const salesSummary = useMemo(() => {
     const cashSales = billingRecords
@@ -77,17 +91,19 @@ function ClosingView() {
     }
   }, [billingRecords])
 
+  // 日払い・現金経費・前借りは本営業日 (todayBusinessDate) に発生したものだけを集計。
+  // 全期間を引いていた旧実装では、過去分が紛れて理論有高が実態より小さく表示されていた。
   const dailyPayTotal = useMemo(
-    () => dailyPayRequests.reduce((s, r) => s + r.amount, 0),
-    [dailyPayRequests],
+    () => dailyPayRequests.filter((r) => r.date === todayBusinessDate).reduce((s, r) => s + r.amount, 0),
+    [dailyPayRequests, todayBusinessDate],
   )
   const cashExpenseTotal = useMemo(
-    () => expenses.filter((e) => e.source === 'register').reduce((s, e) => s + e.amount, 0),
-    [expenses],
+    () => expenses.filter((e) => e.source === 'register' && e.date === todayBusinessDate).reduce((s, e) => s + e.amount, 0),
+    [expenses, todayBusinessDate],
   )
   const cashAdvanceTotal = useMemo(
-    () => advancePayments.filter((p) => p.source === 'register').reduce((s, p) => s + p.amount, 0),
-    [advancePayments],
+    () => advancePayments.filter((p) => p.source === 'register' && p.date === todayBusinessDate).reduce((s, p) => s + p.amount, 0),
+    [advancePayments, todayBusinessDate],
   )
 
   const theoreticalCash =
@@ -101,10 +117,13 @@ function ClosingView() {
   const handleSaveDailyReport = () => {
     if (!hasActualInput) return
     const now = new Date()
-    const date = now.toISOString().slice(0, 10)
+    // 深夜帯に締めても 0:00〜6:00 が前営業日に集計されるよう businessDate を保存。
+    // 旧実装は UTC 暦日をそのまま date に入れていたため、日報・レジ締めとの突合で
+    // ズレる可能性があった。date には後方互換のため同値を入れておく。
     addDailyReport({
       id: Date.now(),
-      date,
+      date: todayBusinessDate,
+      businessDate: todayBusinessDate,
       initialCash,
       cashSales: salesSummary.cashSales,
       cardSales: salesSummary.cardSales,
@@ -174,7 +193,7 @@ function ClosingView() {
               <div className="divide-y divide-white/5">
                 {billingRecords.map((r) => (
                   <div key={r.id} className="flex justify-between text-sm py-1.5">
-                    <span className="text-gray-500">卓{r.tableNumber} ({r.timestamp})</span>
+                    <span className="text-gray-500">{r.tableNumber}卓 ({new Date(r.completedAt).toLocaleTimeString('ja-JP', {hour:'2-digit',minute:'2-digit'})})</span>
                     <span className="flex items-center gap-2">
                       <span className={`text-xs px-1.5 py-0.5 rounded ${
                         r.paymentMethod === 'cash' ? 'bg-emerald-500/10 text-emerald-400' :
@@ -193,18 +212,23 @@ function ClosingView() {
 
           <div className="panel p-4 mb-4">
             <h3 className="text-sm font-bold mb-3 text-gray-400">日払い支払</h3>
-            {dailyPayRequests.length === 0 ? (
-              <p className="text-sm text-gray-600">日払いなし</p>
-            ) : (
-              <div className="divide-y divide-white/5 mb-2">
-                {dailyPayRequests.map((r) => (
-                  <div key={r.id} className="flex justify-between text-sm py-1.5">
-                    <span className="text-gray-500">{r.castName} ({r.date})</span>
-                    <span className="tabular-nums">¥{r.amount.toLocaleString()}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+            {(() => {
+              // 表示も理論有高と同じく当該営業日のみ。amount===0 はノイズなので除外。
+              const todaysDailyPays = dailyPayRequests.filter((r) => r.date === todayBusinessDate && r.amount > 0)
+              if (todaysDailyPays.length === 0) {
+                return <p className="text-sm text-gray-600">日払いなし</p>
+              }
+              return (
+                <div className="divide-y divide-white/5 mb-2">
+                  {todaysDailyPays.map((r) => (
+                    <div key={r.id} className="flex justify-between text-sm py-1.5">
+                      <span className="text-gray-500">{r.castName} ({r.date})</span>
+                      <span className="tabular-nums">¥{r.amount.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
             <div className="border-t border-white/10 pt-2 flex justify-between text-sm font-bold">
               <span>日払い合計</span>
               <span className="text-red-400 tabular-nums">-¥{dailyPayTotal.toLocaleString()}</span>
@@ -243,6 +267,12 @@ function ClosingView() {
               <span className="font-bold">理論有高</span>
               <span className="font-bold text-xl text-gold tabular-nums">¥{theoreticalCash.toLocaleString()}</span>
             </div>
+            {settledOffSummary.count > 0 && (
+              <div className="flex justify-between text-xs text-gray-500">
+                <span>本日 未収相殺済</span>
+                <span className="tabular-nums">¥{settledOffSummary.total.toLocaleString()}（{settledOffSummary.count}件）</span>
+              </div>
+            )}
           </div>
 
           <div className="panel p-4 mb-4">
@@ -337,32 +367,37 @@ function HistoryView() {
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
 
-  const today = new Date()
-  const todayStr = today.toISOString().slice(0, 10)
+  // 履歴フィルタも営業日基準。深夜帯に開いても「本日」が暦日切替で前ズレしない。
+  // `new Date()` は毎 render で別 object になり依存配列が安定しないので useMemo
+  // 化する。todayBusinessDate も同じ初回値で安定させる。
+  const today = useMemo(() => new Date(), [])
+  const todayBusinessDate = useMemo(() => getTodayBusinessDay(), [])
 
   const filtered = useMemo(() => {
-    const sorted = [...dailyReports].sort((a, b) => b.date.localeCompare(a.date))
+    const reportKey = (r: DailyReport) => r.businessDate ?? r.date
+    const sorted = [...dailyReports].sort((a, b) => reportKey(b).localeCompare(reportKey(a)))
     if (range === 'all') return sorted
-    if (range === 'today') return sorted.filter((r) => r.date === todayStr)
+    if (range === 'today') return sorted.filter((r) => reportKey(r) === todayBusinessDate)
     if (range === 'week') {
       const d = new Date(today)
       d.setDate(d.getDate() - 7)
       const from = d.toISOString().slice(0, 10)
-      return sorted.filter((r) => r.date >= from)
+      return sorted.filter((r) => reportKey(r) >= from)
     }
     if (range === 'month') {
-      const prefix = todayStr.slice(0, 7)
-      return sorted.filter((r) => r.date.startsWith(prefix))
+      const prefix = todayBusinessDate.slice(0, 7)
+      return sorted.filter((r) => reportKey(r).startsWith(prefix))
     }
     if (range === 'custom') {
       return sorted.filter((r) => {
-        if (fromDate && r.date < fromDate) return false
-        if (toDate && r.date > toDate) return false
+        const key = reportKey(r)
+        if (fromDate && key < fromDate) return false
+        if (toDate && key > toDate) return false
         return true
       })
     }
     return sorted
-  }, [dailyReports, range, fromDate, toDate, todayStr, today])
+  }, [dailyReports, range, fromDate, toDate, todayBusinessDate, today])
 
   const summary = useMemo(() => {
     return filtered.reduce(
@@ -411,7 +446,7 @@ function HistoryView() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `日報履歴_${todayStr}.csv`
+    a.download = `日報履歴_${todayBusinessDate}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }

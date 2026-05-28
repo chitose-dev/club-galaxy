@@ -14,10 +14,10 @@ export interface PrintOptions {
 }
 
 const DEFAULT_STYLES = `
-  body { font-family: sans-serif; padding: 20px; font-size: 12px; margin: 0; }
+  body { font-family: sans-serif; padding: 8px; font-size: 11px; margin: 0; }
   h2 { text-align: center; margin: 0 0 10px; }
   table { width: 100%; border-collapse: collapse; margin: 10px 0; }
-  td, th { border: 1px solid #ccc; padding: 4px; text-align: right; }
+  td, th { border: 1px solid #ccc; padding: 2px 4px; text-align: right; }
   th { background: #f5f5f5; text-align: left; }
   .sign {
     margin-top: 40px;
@@ -31,7 +31,8 @@ const DEFAULT_STYLES = `
   .muted { color: #666; font-size: 10px; }
   .bold { font-weight: bold; }
   @media print {
-    body { padding: 10px; }
+    @page { size: 80mm auto; margin: 0; }
+    body { padding: 8px; }
   }
 `
 
@@ -46,7 +47,7 @@ export function openPrintWindow(
   title: string,
   options: PrintOptions = {},
 ): void {
-  const { width = 400, height = 600, extraStyles = '' } = options
+  const { width = 300, height = 600, extraStyles = '' } = options
   const w = window.open('', '_blank', `width=${width},height=${height}`)
   if (!w) {
     // ポップアップブロックされた場合
@@ -72,7 +73,7 @@ ${bodyHtml}
   }, 50)
 }
 
-function escapeHtml(s: string): string {
+export function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => {
     switch (c) {
       case '&': return '&amp;'

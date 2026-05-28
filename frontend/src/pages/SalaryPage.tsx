@@ -1,9 +1,15 @@
 import { useState, useMemo } from 'react'
 import { useStore } from '../store'
 import { useAuth } from '../auth'
-import { sampleDailyWork, type BackType, type DailyWork, type UserAccount, type AttendanceRecord } from '../data/mock'
-import { Plus, Trash2 } from 'lucide-react'
-import { openPrintWindow } from '../utils/print'
+import { type BackType, type DailyWork, type UserAccount, type AttendanceRecord } from '../data/mock'
+import { computeDailyWork } from '../utils/dailyWork'
+import { calcHourlyPay } from '../utils/payroll'
+import { calcMonthlyGuaranteeShortfall } from '../utils/saleGuarantee'
+import { Plus, Trash2, FileText, FileDown } from 'lucide-react'
+import { buildMonthlyCastSalaryCsv, downloadCsv } from '../utils/taxCsv'
+import PayslipPopup from '../components/PayslipPopup'
+import DailyPayDialog from '../components/DailyPayDialog'
+import { openPrintWindow, escapeHtml } from '../utils/print'
 import { getPaymentDate, formatPaymentDate } from '../utils/paymentDate'
 import { printCastLedger } from '../utils/castLedger'
 import ContextualHeader from '../components/ContextualHeader'
@@ -18,7 +24,7 @@ type StaffType = 'cast' | 'boy'
 const backTypeOrder: BackType[] = ['FD', '本D', 'Fカク', '本カク', '本カクW', '同伴', '本指名', '場内指名', 'ボトルバック', 'ヘルプ', 'その他']
 
 export default function SalaryPage() {
-  const { casts, dailyPayRequests, addDailyPayRequest, deductions, setDeductions, userAccounts, attendanceRecords, storeSettings } = useStore()
+  const { casts, dailyPayRequests, addDailyPayRequest, deductions, setDeductions, userAccounts, attendanceRecords, billingRecords, storeSettings } = useStore()
   const { user } = useAuth()
   const activeCasts = casts.filter((c) => c.active)
 
@@ -26,58 +32,96 @@ export default function SalaryPage() {
     ? activeCasts.filter((c) => c.id === user.castId)
     : activeCasts
 
+  // 全 useState/useMemo は早期 return より前に宣言する (React Rules of Hooks)
+  //   ボーイ↔キャスト 切替時に hook 順序が変わるとアンマウントされ画面真っ黒になるバグを回避
   const [staffType, setStaffType] = useState<StaffType>('cast')
   const [selectedCastId, setSelectedCastId] = useState<number>(availableCasts[0]?.id ?? 0)
   const [period, setPeriod] = useState<Period>('first')
-
-  // ボーイ(staff)モード: キャストロールでは使用不可
-  if (staffType === 'boy' && user?.role !== 'cast') {
-    return (
-      <BoySalaryView
-        period={period}
-        setPeriod={setPeriod}
-        staffType={staffType}
-        setStaffType={setStaffType}
-        userAccounts={userAccounts}
-        attendanceRecords={attendanceRecords}
-        deductions={deductions}
-        setDeductions={setDeductions}
-        dailyPayRequests={dailyPayRequests}
-      />
-    )
+  // 対象年月 (default は現在月)。過去月の明細閲覧・印刷導線で使う。
+  // React.useMemo 内の new Date() を初回マウント時のみ評価することで render 中の
+  // Date.now 直呼びを避ける。
+  const initialNow = useMemo(() => new Date(), [])
+  const [targetYear, setTargetYear] = useState<number>(initialNow.getFullYear())
+  const [targetMonth, setTargetMonth] = useState<number>(initialNow.getMonth() + 1)
+  // 対象月の `YYYY-MM` プレフィックスで `date` を判定するヘルパ。
+  // 旧データの `M/D` 形式にもフォールバックする。
+  const matchTargetMonth = useMemo(() => {
+    const ymPrefix = `${targetYear}-${String(targetMonth).padStart(2, '0')}`
+    return (date: string) => {
+      if (date.includes('-')) return date.startsWith(ymPrefix)
+      const parts = date.split('/')
+      return parts.length >= 2 && parseInt(parts[0], 10) === targetMonth
+    }
+  }, [targetYear, targetMonth])
+  const getDay = (date: string): number => {
+    if (date.includes('-')) return parseInt(date.split('-')[2], 10)
+    const parts = date.split('/')
+    return parts.length >= 2 ? parseInt(parts[1], 10) : NaN
   }
 
   const [showDailyPayRecord, setShowDailyPayRecord] = useState(false)
-  const [dailyPayAmount, setDailyPayAmount] = useState('')
+  // PDF E: SalaryPage からも給与明細ポップアップを開ける
+  const [showPayslip, setShowPayslip] = useState(false)
 
   const [showAddDeduction, setShowAddDeduction] = useState(false)
   const [deductionAmount, setDeductionAmount] = useState('')
   const [deductionReason, setDeductionReason] = useState('')
   const [deductionSource, setDeductionSource] = useState<'register' | 'transfer'>('register')
 
+  // ボーイ(staff)モード判定 (実際のコンポーネント切替は最後の return で実行)
+  //   ※早期 return すると Rules of Hooks 違反で画面真っ黒になるので注意
+  const isBoyMode = staffType === 'boy' && user?.role !== 'cast'
+
   const cast = casts.find((c) => c.id === selectedCastId)
-  // TODO(backend): バックエンド実装後、billingRecords + attendanceRecords から日次集計を生成する関数に差し替える
-  // 現状はデモ用 sampleDailyWork(静的データ)を参照。実運用では以下で置換:
-  //   const dailyWork = aggregateCastDailyWork(selectedCastId, billingRecords, attendanceRecords, period)
-  const dailyWork: DailyWork[] = sampleDailyWork[selectedCastId] ?? []
+  // 実データ集計: computeDailyWork で attendanceRecords + billingRecords から日次 DailyWork を生成
+  const selectedCastName = casts.find((c) => c.id === selectedCastId)?.name ?? ''
+  // 延長指名バック按分の単価は本指名 backRate を流用する仕様（mock.ts コメント参照）
+  const selectedCastShimeiRate = cast?.backRates['本指名'] ?? 0
+  // A2: 本指名ボトルバック按分は全キャストの「ボトルバック」率（%単位）を参照する。
+  // 同じレシートに別の本指名キャストが居る場合の split 計算で他キャストの率も必要なため、
+  // 一覧で渡す。
+  const bottleBackRateByCast = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const c of casts) {
+      m[c.name] = c.backRates['ボトルバック'] ?? 0
+    }
+    return m
+  }, [casts])
+  const dailyWork: DailyWork[] = computeDailyWork(
+    selectedCastId, selectedCastName, attendanceRecords, billingRecords,
+    selectedCastShimeiRate, bottleBackRateByCast,
+  )
 
   const filteredWork = useMemo(() => {
+    // 対象年月 + 前半/後半 で絞る。API データの date は ISO 形式 (YYYY-MM-DD)、
+    // mock は M/D 形式が混在し得るため両対応。
     return dailyWork.filter((w) => {
-      const day = parseInt(w.date.split('/')[1], 10)
+      if (!matchTargetMonth(w.date)) return false
+      const day = getDay(w.date)
+      if (!Number.isFinite(day)) return false
       return period === 'first' ? day <= 15 : day >= 16
     })
-  }, [dailyWork, period])
+  }, [dailyWork, period, matchTargetMonth])
 
   const totalHours = filteredWork.reduce((s, w) => s + w.hours, 0)
-  const totalSales = filteredWork.reduce((s, w) => s + w.sales, 0)
+  // 売上は給与計算からは独立した参考値（PDF F で月単位保証に切替えたため、
+  // 半月の売上合計は給与に直接効かない）。表示用途のために残す可能性に備えるが、
+  // 現状の SalaryPage には使用箇所なし。
+  // const totalSales = filteredWork.reduce((s, w) => s + w.sales, 0)
 
   const totalBackAmount = useMemo(() => {
     if (!cast) return 0
     let total = 0
     for (const w of filteredWork) {
       for (const [type, count] of Object.entries(w.backs) as [BackType, number][]) {
+        // A2: 'ボトルバック' の金額は bottleBackAmount を正本として扱うため、
+        // ここでの旧 `count × %値` 計算からは除外する（二重計上防止）。
+        if (type === 'ボトルバック') continue
         total += (cast.backRates[type] ?? 0) * count
       }
+      // A2: 本指名ボトルバック（小計÷本指名人数×個別率）と延長指名バックを加算。
+      total += w.bottleBackAmount ?? 0
+      total += w.extensionBackAmount ?? 0
     }
     return total
   }, [filteredWork, cast])
@@ -93,29 +137,63 @@ export default function SalaryPage() {
   }, [filteredWork])
 
   const dailyPayTotal = useMemo(() => {
+    // 対象年月 + 前半/後半 に発生した日払いだけ合算する。
+    // 旧実装は cast id だけで絞っていたため、過去月の明細閲覧でも全期間が
+    // 差し引かれて「最終振込額」が大きく崩れる問題があった。
     return dailyPayRequests
-      .filter((r) => r.castId === selectedCastId)
+      .filter((r) => {
+        if (r.castId !== selectedCastId) return false
+        if (!matchTargetMonth(r.date)) return false
+        const day = getDay(r.date)
+        if (!Number.isFinite(day)) return false
+        return period === 'first' ? day <= 15 : day >= 16
+      })
       .reduce((s, r) => s + r.amount, 0)
-  }, [dailyPayRequests, selectedCastId])
+  }, [dailyPayRequests, selectedCastId, matchTargetMonth, period])
 
   const castDeductions = deductions.filter((d) => d.castId === selectedCastId)
   const deductionTotal = castDeductions.reduce((s, d) => s + d.amount, 0)
 
   // 指示書§4.1: 給与 = (時給×時間 + 各種バック) × 0.9 (ホステス税10%控除)
   // 最終振込 = 給与 − 日払い − 天引き
-  const taxablePre = cast ? cast.hourlyRate * totalHours + totalBackAmount : 0   // 税引前
-  const grossSalary = Math.floor(taxablePre * 0.9)                                // 支給額(指示書)
-  const hostessTax = taxablePre - grossSalary                                     // ホステス税(−10%)
-  // 参考: 要件定義書 MAX 式での保証額(UI表示のみ、計算には使わない)
-  const guaranteeBase = cast ? Math.floor(totalSales * cast.guaranteeRate) : 0
+  // 追補03 R25: 時給計算は 15 分単位 + ルーズタイム 15 分を適用
+  const hourlyAndBackTotal = cast ? calcHourlyPay(cast.hourlyRate, totalHours) + totalBackAmount : 0
+
+  // PDF/Word 確定仕様: 売上保証は **月単位** で計算し、不足差額は
+  //   翌月15日支払い（= 'second' = 16〜月末期間の支払い）に上乗せする。
+  //   旧 N5 の「半月単位 MAX」は廃止（半月単位だと月の前後で発動条件が異なり
+  //   先方仕様と齟齬する）。
+  //
+  //   実装:
+  //     - 当月の DailyWork 全件で月通常給与 + 月売上 × 保証率 を比較
+  //     - period='second' のとき差額（>0）を「売上保証差額」として加算
+  //     - period='first' は通常給与のみ（差額は持ち越し）
+  const monthlyWork = useMemo(() => {
+    // 対象年月で絞る (旧実装は常に現在月固定だった)。
+    return dailyWork.filter((w) => matchTargetMonth(w.date))
+  }, [dailyWork, matchTargetMonth])
+  const monthlyShortfallBreakdown = useMemo(
+    () => cast ? calcMonthlyGuaranteeShortfall(monthlyWork, cast) : null,
+    [monthlyWork, cast],
+  )
+  const guaranteeShortfall =
+    period === 'second' ? (monthlyShortfallBreakdown?.shortfall ?? 0) : 0
+  const taxablePre = hourlyAndBackTotal + guaranteeShortfall
+  const grossSalary = Math.floor(taxablePre * 0.9)                                // 支給額 (10% ホステス税控除後)
+  const hostessTax = taxablePre - grossSalary                                     // ホステス税
+  const guaranteeApplied = guaranteeShortfall > 0                                 // 売上保証差額が上乗せされたか
   const netSalary = grossSalary - dailyPayTotal - deductionTotal                  // 最終振込
 
   const getDayBackAmount = (w: DailyWork): number => {
     if (!cast) return 0
     let total = 0
     for (const [type, count] of Object.entries(w.backs) as [BackType, number][]) {
+      // A2: 'ボトルバック' は bottleBackAmount を正本にするため除外。
+      if (type === 'ボトルバック') continue
       total += (cast.backRates[type] ?? 0) * count
     }
+    total += w.bottleBackAmount ?? 0
+    total += w.extensionBackAmount ?? 0
     return total
   }
 
@@ -123,9 +201,39 @@ export default function SalaryPage() {
     return Object.values(w.backs).reduce((s, c) => s + c, 0)
   }
 
+  // 給与明細履歴セクション用: 対象月 (`targetYear/Month`) の前半/後半それぞれの
+  // ハイレベル概要を再計算する。実体は filteredWork / dailyPayTotal と同じ式だが、
+  // 期間を引数で受けるため別関数として切り出し。
+  // 天引きは Deduction に日付フィールドが無いため、ここでは「全期間扱いの
+  // 合計をそのまま参考表示」とし、UI 側で注記する。
+  const periodSummary = (p: Period) => {
+    const work = dailyWork.filter((w) => {
+      if (!matchTargetMonth(w.date)) return false
+      const day = getDay(w.date)
+      if (!Number.isFinite(day)) return false
+      return p === 'first' ? day <= 15 : day >= 16
+    })
+    const hours = work.reduce((s, w) => s + w.hours, 0)
+    const backTotalP = work.reduce((s, w) => s + getDayBackAmount(w), 0)
+    const hourlyAndBackP = cast ? calcHourlyPay(cast.hourlyRate, hours) + backTotalP : 0
+    const guaranteeP = p === 'second' ? (monthlyShortfallBreakdown?.shortfall ?? 0) : 0
+    const taxablePreP = hourlyAndBackP + guaranteeP
+    const grossP = Math.floor(taxablePreP * 0.9)
+    const paidP = dailyPayRequests
+      .filter((r) => {
+        if (r.castId !== selectedCastId) return false
+        if (!matchTargetMonth(r.date)) return false
+        const day = getDay(r.date)
+        return Number.isFinite(day) && (p === 'first' ? day <= 15 : day >= 16)
+      })
+      .reduce((s, r) => s + r.amount, 0)
+    const netP = grossP - paidP - deductionTotal
+    return { hours, gross: grossP, paid: paidP, deductions: deductionTotal, net: netP }
+  }
+
   const getDayNikkei = (w: DailyWork): number => {
     if (!cast) return 0
-    return cast.hourlyRate * w.hours + getDayBackAmount(w)
+    return calcHourlyPay(cast.hourlyRate, w.hours) + getDayBackAmount(w)
   }
 
   // 経理連動: 源泉税差額の自動計算
@@ -145,17 +253,11 @@ export default function SalaryPage() {
 
   const storeMiscIncome = hostessTax - legalWithholding // 独自10%と法定源泉税の差額 = 店舗の雑収入
 
-  const handleDailyPayRecord = () => {
-    const amount = Number(dailyPayAmount)
-    if (!amount || amount <= 0 || !cast) return
-    addDailyPayRequest({
-      id: Date.now(),
-      castId: cast.id,
-      castName: cast.name,
-      amount,
-      date: new Date().toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' }),
-    })
-    setDailyPayAmount('')
+  // SalaryPage の「日払い記録」は口頭申請を受けた手入力ベース。
+  // 自動計算額は持たず、DailyPayDialog 経由で operator / paidAt / メモを保存する。
+  // adjustReason は calculatedAmount=0 のとき不要扱い (自動計算ベースなしのため)。
+  const submitDailyPayFromDialog = (req: import('../data/mock').DailyPayRequest) => {
+    addDailyPayRequest(req)
     setShowDailyPayRecord(false)
   }
 
@@ -178,6 +280,23 @@ export default function SalaryPage() {
     setDeductions((prev) => prev.filter((d) => d.id !== id))
   }
 
+  // ボーイモード時はここで委譲 (全 hook 宣言済みなので Rules of Hooks 違反にはならない)
+  if (isBoyMode) {
+    return (
+      <BoySalaryView
+        period={period}
+        setPeriod={setPeriod}
+        staffType={staffType}
+        setStaffType={setStaffType}
+        userAccounts={userAccounts}
+        attendanceRecords={attendanceRecords}
+        deductions={deductions}
+        setDeductions={setDeductions}
+        dailyPayRequests={dailyPayRequests}
+      />
+    )
+  }
+
   return (
     <div className="flex flex-col min-h-full">
       <ContextualHeader accent="salary" title="給与計算" backTo="/top" showBack={user?.role !== 'cast'} />
@@ -197,8 +316,8 @@ export default function SalaryPage() {
         </div>
       )}
 
-      {/* Cast selector */}
-      <div className="px-4 pt-3 pb-2 flex items-center gap-2">
+      {/* Cast + 対象年月 selector */}
+      <div className="px-4 pt-3 pb-2 flex flex-wrap items-center gap-2">
         <span className="text-xs text-gray-500">キャスト:</span>
         <Select
           size="sm"
@@ -208,6 +327,28 @@ export default function SalaryPage() {
         >
           {availableCasts.map((c) => (
             <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </Select>
+        <span className="text-xs text-gray-500 ml-2">対象年月:</span>
+        <Select
+          size="sm"
+          value={targetYear}
+          onChange={(e) => setTargetYear(Number(e.target.value))}
+          className="w-auto"
+        >
+          {/* 過去 5 年 + 翌年まで選択肢に出す。1 月になっても前年 12 月明細を見られる */}
+          {Array.from({ length: 7 }, (_, i) => initialNow.getFullYear() - 4 + i).map((y) => (
+            <option key={y} value={y}>{y}年</option>
+          ))}
+        </Select>
+        <Select
+          size="sm"
+          value={targetMonth}
+          onChange={(e) => setTargetMonth(Number(e.target.value))}
+          className="w-auto"
+        >
+          {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+            <option key={m} value={m}>{m}月</option>
           ))}
         </Select>
       </div>
@@ -226,11 +367,52 @@ export default function SalaryPage() {
         />
       </div>
 
-      {/* Payment date */}
+      {/* Payment date — 対象年月の支払日を出す (過去/未来月の明細閲覧時に整合) */}
       <div className="px-4 pb-2 text-xs text-gray-500">
-        支払日: <span className="text-gray-300">{formatPaymentDate(getPaymentDate(period, new Date().getFullYear(), new Date().getMonth() + 1))}</span>
+        支払日: <span className="text-gray-300">{formatPaymentDate(getPaymentDate(period, targetYear, targetMonth))}</span>
         <span className="text-gray-600 ml-1">※土日祝は前倒し</span>
       </div>
+
+      {/* 給与明細履歴: 対象月の前半/後半サマリと、明細/印刷導線
+          (PayslipPopup 側に印刷ボタンが付いているので、ここから期間を切替して開く) */}
+      {cast && (
+        <div className="px-4 pb-3">
+          <h3 className="text-xs text-gray-400 tracking-wider mb-2">
+            給与明細履歴 ({targetYear}年{targetMonth}月)
+          </h3>
+          <div className="panel divide-y divide-white/5">
+            {(['first', 'second'] as const).map((p) => {
+              const s = periodSummary(p)
+              return (
+                <div key={p} className="px-3 py-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                  <span className="font-bold text-gold min-w-[44px]">{p === 'first' ? '前半' : '後半'}</span>
+                  <span className="text-gray-400 tabular-nums">{s.hours.toFixed(1)} h</span>
+                  <span className="text-gray-400 tabular-nums">支給 ¥{s.gross.toLocaleString()}</span>
+                  {s.paid > 0 && (
+                    <span className="text-red-300 tabular-nums">日払 -¥{s.paid.toLocaleString()}</span>
+                  )}
+                  {s.deductions > 0 && (
+                    <span className="text-red-300 tabular-nums">天引 -¥{s.deductions.toLocaleString()}</span>
+                  )}
+                  <span className="text-gold font-bold tabular-nums ml-auto">
+                    最終 ¥{s.net.toLocaleString()}
+                  </span>
+                  <button
+                    onClick={() => { setPeriod(p); setShowPayslip(true) }}
+                    className="text-[11px] px-2 py-1 rounded bg-white/5 border border-white/10 hover:bg-white/10 flex items-center gap-1"
+                    title="給与明細ポップアップを開く (印刷可)"
+                  >
+                    <FileText size={11} /> 明細 / 印刷
+                  </button>
+                </div>
+              )
+            })}
+            <p className="px-3 py-1 text-[10px] text-gray-500">
+              ※ 天引きはレコードに日付情報が無いため、全期間合算値を参考表示しています。
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Salary summary */}
       {cast && (
@@ -238,11 +420,25 @@ export default function SalaryPage() {
           <div className="panel-gold p-3">
             <div className="flex items-center justify-between mb-2">
               <span className="font-bold text-gold">{cast.name}</span>
-              <span className="text-xs text-gray-400 tabular-nums">時給¥{cast.hourlyRate.toLocaleString()} / 保証{(cast.guaranteeRate * 100).toFixed(0)}%</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400 tabular-nums">時給¥{cast.hourlyRate.toLocaleString()} / 保証{(cast.guaranteeRate * 100).toFixed(0)}%</span>
+                {/* PDF E: 「明細」ボタン — PayslipPopup を SalaryPage の選択期間
+                    (period) と同じで開く。WaitingCastPage / AdminPage と同じ表示。 */}
+                <button
+                  onClick={() => setShowPayslip(true)}
+                  className="px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-gray-200 text-xs flex items-center gap-1"
+                  title="給与明細ポップアップ"
+                >
+                  <FileText size={11} /> 明細
+                </button>
+              </div>
             </div>
             <div className="grid grid-cols-4 gap-2 text-center">
               <div className="panel py-2 px-1">
-                <div className="text-xs text-gray-500">税引前(時給+バック)</div>
+                {/* PDF F: 値には「時給+バック」だけでなく「その他: 売上保証差額」も
+                    含まれるため、ラベルは「税引前(合計)」に統一。
+                    内訳は給与計算カード側の補足行で確認できる。 */}
+                <div className="text-xs text-gray-500">税引前(合計)</div>
                 <div className="text-sm font-bold tabular-nums">¥{taxablePre.toLocaleString()}</div>
               </div>
               <div className="panel py-2 px-1">
@@ -258,9 +454,17 @@ export default function SalaryPage() {
                 <div className="text-sm font-bold text-gold tabular-nums">¥{netSalary.toLocaleString()}</div>
               </div>
             </div>
-            {guaranteeBase > taxablePre && (
-              <div className="text-[10px] text-amber-400/70 mt-1 text-center">
-                ※参考: 保証金額(売上×{(cast.guaranteeRate * 100).toFixed(0)}%) ¥{guaranteeBase.toLocaleString()} (要件定義書MAX式は衝突記録参照)
+            {/* PDF F: 売上保証は月単位で計算し、翌月15日支払い (= 'second') に
+                上乗せする。'first' 期間（1-15日／当月末払い）には反映しない。 */}
+            {guaranteeApplied && monthlyShortfallBreakdown && (
+              <div className="text-[11px] text-emerald-400 mt-1 text-center bg-emerald-500/10 border border-emerald-500/30 rounded px-2 py-1">
+                ✓ 売上保証差額 ¥{monthlyShortfallBreakdown.shortfall.toLocaleString()} を「その他」項目として加算
+                （月通常給与 ¥{monthlyShortfallBreakdown.monthlyRegularSalary.toLocaleString()} {'<'} 保証 ¥{monthlyShortfallBreakdown.guaranteeBase.toLocaleString()} = 月売上×{cast ? (cast.guaranteeRate * 100).toFixed(0) : 0}%）
+              </div>
+            )}
+            {period === 'first' && monthlyShortfallBreakdown && monthlyShortfallBreakdown.shortfall > 0 && (
+              <div className="text-[11px] text-gray-400 mt-1 text-center bg-white/5 border border-white/10 rounded px-2 py-1">
+                ⓘ 当月の売上保証差額 ¥{monthlyShortfallBreakdown.shortfall.toLocaleString()} は <span className="font-bold text-gray-200">翌月15日支払い</span>（後半期間）に上乗せされます
               </div>
             )}
           </div>
@@ -287,7 +491,7 @@ export default function SalaryPage() {
               </thead>
               <tbody>
                 {filteredWork.map((w) => {
-                  const dailyPay = cast ? cast.hourlyRate * w.hours : 0
+                  const dailyPay = cast ? calcHourlyPay(cast.hourlyRate, w.hours) : 0
                   const pTotal = getDayPTotal(w)
                   const nikkei = getDayNikkei(w)
                   return (
@@ -295,9 +499,24 @@ export default function SalaryPage() {
                       <td className="py-1.5 px-1">{w.date}</td>
                       <td className="py-1.5 px-1 text-right tabular-nums">{w.hours > 0 ? `${w.hours}h` : '休'}</td>
                       <td className="py-1.5 px-1 text-right tabular-nums">{dailyPay > 0 ? `¥${dailyPay.toLocaleString()}` : '-'}</td>
-                      {backTypeOrder.map((bt) => (
-                        <td key={bt} className="py-1.5 px-1 text-right tabular-nums">{w.backs[bt] ?? '-'}</td>
-                      ))}
+                      {backTypeOrder.map((bt) => {
+                        // A2: 'ボトルバック' は件数ではなく金額（bottleBackAmount）を表示。
+                        // 件数集計から外しているため、ここで '-' のままだと当日ボトル
+                        // バックが発生していてもセルが空になる。
+                        if (bt === 'ボトルバック') {
+                          const amt = w.bottleBackAmount ?? 0
+                          return (
+                            <td key={bt} className="py-1.5 px-1 text-right tabular-nums">
+                              {amt > 0 ? `¥${amt.toLocaleString()}` : '-'}
+                            </td>
+                          )
+                        }
+                        return (
+                          <td key={bt} className="py-1.5 px-1 text-right tabular-nums">
+                            {w.backs[bt] ?? '-'}
+                          </td>
+                        )
+                      })}
                       <td className="py-1.5 px-1 text-right text-blue-300 font-bold tabular-nums">{pTotal > 0 ? pTotal : '-'}</td>
                       <td className="py-1.5 px-1 text-right font-bold tabular-nums">{nikkei > 0 ? `¥${nikkei.toLocaleString()}` : '-'}</td>
                     </tr>
@@ -308,15 +527,27 @@ export default function SalaryPage() {
                 <tr className="font-bold border-t border-white/10">
                   <td className="py-2 px-1">合計</td>
                   <td className="py-2 px-1 text-right tabular-nums">{totalHours}h</td>
-                  <td className="py-2 px-1 text-right tabular-nums">¥{(cast ? cast.hourlyRate * totalHours : 0).toLocaleString()}</td>
-                  {backTypeOrder.map((bt) => (
-                    <td key={bt} className="py-2 px-1 text-right tabular-nums">{backTotals[bt] ?? '-'}</td>
-                  ))}
+                  <td className="py-2 px-1 text-right tabular-nums">¥{(cast ? calcHourlyPay(cast.hourlyRate, totalHours) : 0).toLocaleString()}</td>
+                  {backTypeOrder.map((bt) => {
+                    if (bt === 'ボトルバック') {
+                      const monthAmt = filteredWork.reduce((s, w) => s + (w.bottleBackAmount ?? 0), 0)
+                      return (
+                        <td key={bt} className="py-2 px-1 text-right tabular-nums">
+                          {monthAmt > 0 ? `¥${monthAmt.toLocaleString()}` : '-'}
+                        </td>
+                      )
+                    }
+                    return (
+                      <td key={bt} className="py-2 px-1 text-right tabular-nums">
+                        {backTotals[bt] ?? '-'}
+                      </td>
+                    )
+                  })}
                   <td className="py-2 px-1 text-right text-blue-300 tabular-nums">
                     {Object.values(backTotals).reduce((s, c) => s + c, 0)}
                   </td>
                   <td className="py-2 px-1 text-right tabular-nums">
-                    ¥{(cast ? cast.hourlyRate * totalHours + totalBackAmount : 0).toLocaleString()}
+                    ¥{(cast ? calcHourlyPay(cast.hourlyRate, totalHours) + totalBackAmount : 0).toLocaleString()}
                   </td>
                 </tr>
               </tfoot>
@@ -325,30 +556,58 @@ export default function SalaryPage() {
         </div>
 
         {/* Back summary */}
-        {Object.keys(backTotals).length > 0 && (
+        {(Object.keys(backTotals).length > 0 || filteredWork.some((w) => (w.bottleBackAmount ?? 0) > 0)) && (
           <div className="panel-gold p-4 mb-4">
             <h3 className="text-sm font-bold mb-2 text-gold">バック集計</h3>
             <div className="flex flex-wrap gap-2 mb-2">
-              {(Object.entries(backTotals) as [BackType, number][]).map(([type, count]) => (
-                <span key={type} className="bg-gold/10 border border-gold/30 text-gray-200 text-xs px-2 py-0.5 rounded tabular-nums">
-                  {type}: {count}件 (¥{((cast?.backRates[type] ?? 0) * count).toLocaleString()})
-                </span>
-              ))}
+              {(Object.entries(backTotals) as [BackType, number][]).map(([type, count]) => {
+                // A2: 'ボトルバック' は backs から除外したのでここには出ない。
+                // 旧 `count × %値` 表示は誤算出のため使わず、専用チップで別表示。
+                const amount = (cast?.backRates[type] ?? 0) * count
+                return (
+                  <span key={type} className="bg-gold/10 border border-gold/30 text-gray-200 text-xs px-2 py-0.5 rounded tabular-nums">
+                    {type}: {count}件 (¥{amount.toLocaleString()})
+                  </span>
+                )
+              })}
+              {/* A2: 本指名ボトルバックは backs に含めないため別チップで表示。
+                  小計÷本指名人数×個別率で算出された金額のみ。 */}
+              {(() => {
+                const bottleTotal = filteredWork.reduce((s, w) => s + (w.bottleBackAmount ?? 0), 0)
+                if (bottleTotal === 0) return null
+                return (
+                  <span className="bg-gold/10 border border-gold/30 text-gray-200 text-xs px-2 py-0.5 rounded tabular-nums">
+                    ボトルバック: ¥{bottleTotal.toLocaleString()}
+                  </span>
+                )
+              })()}
             </div>
             <div className="text-sm font-bold text-gold tabular-nums">バック合計: ¥{totalBackAmount.toLocaleString()}</div>
           </div>
         )}
 
-        {/* Salary calculation (指示書§4.1 準拠) */}
+        {/* Salary calculation (指示書§4.1 + PDF F 売上保証差額) */}
         <div className="panel p-4 mb-4 space-y-2">
           <h3 className="text-sm font-bold mb-2 text-gray-400">給与計算</h3>
           <div className="flex justify-between text-sm">
-            <span className="text-gray-500">税引前 (時給+バック)</span>
+            {/* PDF F: 保証差額を含むためラベルを「税引前(合計)」に統一。
+                内訳は直下の補足行で明示。 */}
+            <span className="text-gray-500">税引前 (合計)</span>
             <span className="font-bold tabular-nums">¥{taxablePre.toLocaleString()}</span>
           </div>
           <div className="text-xs text-gray-600 ml-2 tabular-nums">
             ¥{cast?.hourlyRate.toLocaleString()} x {totalHours}h + バック ¥{totalBackAmount.toLocaleString()}
+            {guaranteeShortfall > 0 && (
+              <> + その他（売上保証差額）¥{guaranteeShortfall.toLocaleString()}</>
+            )}
           </div>
+          {/* PDF F: 売上保証差額は給与明細上「その他」項目として独立行で見える形にする。 */}
+          {guaranteeShortfall > 0 && (
+            <div className="flex justify-between text-sm text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded px-2 py-1">
+              <span>その他: 売上保証差額</span>
+              <span className="tabular-nums">+¥{guaranteeShortfall.toLocaleString()}</span>
+            </div>
+          )}
           <div className="flex justify-between text-sm text-red-400">
             <span>ホステス税 (-10%)</span>
             <span className="tabular-nums">-¥{hostessTax.toLocaleString()}</span>
@@ -377,9 +636,10 @@ export default function SalaryPage() {
             <span className="font-bold text-2xl text-gold tabular-nums">¥{netSalary.toLocaleString()}</span>
           </div>
           <div className="text-xs text-gray-600">= 支給額 - 日払い - 天引き</div>
-          {guaranteeBase > taxablePre && cast && (
+          {/* PDF F: 月単位の売上保証集計を参考表示。'first' 期間でも判定可能。 */}
+          {cast && monthlyShortfallBreakdown && monthlyShortfallBreakdown.shortfall > 0 && (
             <div className="text-[10px] text-amber-400/70 mt-1 border-t border-amber-500/20 pt-2">
-              ※参考(要件定義書MAX式): 売上¥{totalSales.toLocaleString()} × 保証{(cast.guaranteeRate * 100).toFixed(0)}% = ¥{guaranteeBase.toLocaleString()} (今の式では未使用)
+              ※当月集計（参考）: 月通常給与 ¥{monthlyShortfallBreakdown.monthlyRegularSalary.toLocaleString()} {'<'} 保証額 ¥{monthlyShortfallBreakdown.guaranteeBase.toLocaleString()}（月売上 ¥{monthlyShortfallBreakdown.monthlyTotalSales.toLocaleString()} × {(cast.guaranteeRate * 100).toFixed(0)}%）→ 差額 ¥{monthlyShortfallBreakdown.shortfall.toLocaleString()} は翌月15日支払いに上乗せ
             </div>
           )}
         </div>
@@ -405,26 +665,16 @@ export default function SalaryPage() {
           </div>
         )}
 
-        {/* 給与明細印刷ボタン */}
+        {/* 給与明細印刷ボタン — 旧 openPrintWindow 直叩き版は店舗名/対象年月/
+            バック内訳/ボトルバック/延長指名バック/売上保証差額の詳細が抜けて
+            いたため廃止し、PayslipPopup の印刷 (店舗名+対象期間+全内訳+escape
+            HTML) に一本化する。 */}
         {user?.role !== 'cast' && cast && (
-          <button onClick={() => {
-            const body = `
-              <h2>給与明細書</h2>
-              <p>キャスト名: ${cast.name}</p>
-              <p>対象期間: ${period === 'first' ? '1日〜15日' : '16日〜末日'}</p>
-              <table>
-                <tr><th>税引前 (時給+バック)</th><td>¥${taxablePre.toLocaleString()}</td></tr>
-                <tr><th>ホステス税(-10%)</th><td>-¥${hostessTax.toLocaleString()}</td></tr>
-                <tr><th>支給額</th><td>¥${grossSalary.toLocaleString()}</td></tr>
-                <tr><th>日払い済</th><td>-¥${dailyPayTotal.toLocaleString()}</td></tr>
-                <tr><th>天引き合計</th><td>-¥${deductionTotal.toLocaleString()}</td></tr>
-                <tr><th class="bold">最終振込額</th><td class="bold">¥${netSalary.toLocaleString()}</td></tr>
-              </table>
-              <div class="sign">受領サイン</div>
-            `
-            openPrintWindow(body, '給与明細', { width: 400, height: 600 })
-          }} className="w-full bg-white/5 border border-white/10 py-3 rounded-lg font-bold mb-2 text-sm text-gray-400 flex items-center justify-center gap-2">
-            給与明細印刷
+          <button
+            onClick={() => setShowPayslip(true)}
+            className="w-full bg-white/5 border border-white/10 py-3 rounded-lg font-bold mb-2 text-sm text-gray-400 flex items-center justify-center gap-2"
+          >
+            給与明細を確認 / 印刷
           </button>
         )}
 
@@ -433,7 +683,11 @@ export default function SalaryPage() {
           <button
             onClick={() => {
               const now = new Date()
-              const work = sampleDailyWork[cast.id] ?? []
+              // A2: 日経表 PDF にもボトルバックを反映するため、bottleBackRateByCast を渡す。
+              const work = computeDailyWork(
+                cast.id, cast.name, attendanceRecords, billingRecords,
+                cast.backRates['本指名'] ?? 0, bottleBackRateByCast,
+              )
               // 先月売上の計算
               const prevMonth = now.getMonth() === 0 ? 12 : now.getMonth()
               const prevMonthSales = work
@@ -460,6 +714,25 @@ export default function SalaryPage() {
             className="w-full bg-white/5 border border-white/10 py-3 rounded-lg font-bold mb-4 text-sm text-gray-400 flex items-center justify-center gap-2"
           >
             月次日経表 PDF出力（ブラウザ印刷→PDFに保存）
+          </button>
+        )}
+
+        {/* 税理士向け: 月次キャスト給与 CSV (キャスト1人ぶんでも、対象月の全キャスト分でも出せる) */}
+        {user?.role !== 'cast' && (
+          <button
+            onClick={() => {
+              const now = new Date()
+              // 「月」セレクタを別途設けずに、今のところは「現在月」固定で出す。
+              // 必要になれば後続 PR で月指定 UI を追加する想定。
+              const monthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+              const csv = buildMonthlyCastSalaryCsv(
+                casts, billingRecords, attendanceRecords, monthPrefix,
+              )
+              downloadCsv(`cast-salary-${monthPrefix}.csv`, csv)
+            }}
+            className="w-full bg-white/5 border border-white/10 py-3 rounded-lg font-bold mb-4 text-sm text-gray-400 flex items-center justify-center gap-2"
+          >
+            <FileDown size={14} /> 月次キャスト給与 CSV (税理士提出用)
           </button>
         )}
 
@@ -503,33 +776,49 @@ export default function SalaryPage() {
           <button onClick={() => setShowDailyPayRecord(true)} className="w-full bg-white/5 border border-white/10 py-3 rounded-lg font-bold mb-4 text-sm transition-colors">日払い記録（口頭申請受付後に入力）</button>
         )}
 
-        {/* 日払い受領明細印刷 */}
-        {user?.role !== 'cast' && dailyPayRequests.filter((r) => r.castId === selectedCastId).length > 0 && (
-          <button onClick={() => {
-            const castReqs = dailyPayRequests.filter((r) => r.castId === selectedCastId)
-            const rows = castReqs.map((r) => `<tr><td>${r.date}</td><td>¥${r.amount.toLocaleString()}</td></tr>`).join('')
-            const body = `
-              <h2>日払い受領明細</h2>
-              <p>キャスト名: ${cast?.name ?? ''}</p>
-              <table>
-                <tr><th>日付</th><th>金額</th></tr>
-                ${rows}
-                <tr><th>合計</th><td class="bold">¥${dailyPayTotal.toLocaleString()}</td></tr>
-              </table>
-              <div class="sign">受領サイン</div>
-            `
-            openPrintWindow(body, '日払い受領明細', { width: 400, height: 500 })
-          }} className="w-full btn-ghost py-2 text-xs text-gray-500 mb-4">
-            日払い受領明細印刷（サイン欄付き）
-          </button>
-        )}
+        {/* 日払い受領明細印刷 — 印刷物には ¥0 ノイズを出さない。
+            合計 (dailyPayTotal) は対象期間で絞っているので、明細行も同じ対象期間
+            で揃えないと「合計と行が一致しない」不整合になる。 */}
+        {(() => {
+          const periodReqs = dailyPayRequests.filter((r) => {
+            if (r.castId !== selectedCastId) return false
+            if (r.amount <= 0) return false
+            if (!matchTargetMonth(r.date)) return false
+            const day = getDay(r.date)
+            if (!Number.isFinite(day)) return false
+            return period === 'first' ? day <= 15 : day >= 16
+          })
+          if (user?.role === 'cast' || periodReqs.length === 0) return null
+          return (
+            <button onClick={() => {
+              const rows = periodReqs
+                .map((r) => `<tr><td>${escapeHtml(r.date)}</td><td>¥${r.amount.toLocaleString()}</td></tr>`)
+                .join('')
+              const body = `
+                <h2>日払い受領明細</h2>
+                <p>キャスト名: ${escapeHtml(cast?.name ?? '')}</p>
+                <p>対象期間: ${escapeHtml(`${targetYear}年${targetMonth}月 ${period === 'first' ? '前半 1〜15日' : '後半 16〜末日'}`)}</p>
+                <table>
+                  <tr><th>日付</th><th>金額</th></tr>
+                  ${rows}
+                  <tr><th>合計</th><td class="bold">¥${dailyPayTotal.toLocaleString()}</td></tr>
+                </table>
+                <div class="sign">受領サイン</div>
+              `
+              openPrintWindow(body, '日払い受領明細', { width: 400, height: 500 })
+            }} className="w-full btn-ghost py-2 text-xs text-gray-500 mb-4">
+              日払い受領明細印刷（サイン欄付き）
+            </button>
+          )
+        })()}
 
-        {/* Daily pay history */}
-        {dailyPayRequests.filter((r) => r.castId === selectedCastId).length > 0 && (
+        {/* Daily pay history — 旧データに残る ¥0 レコードは運用上ノイズなので表示除外。
+            新規登録は DailyPayDialog 側で amount > 0 を強制している。 */}
+        {dailyPayRequests.filter((r) => r.castId === selectedCastId && r.amount > 0).length > 0 && (
           <div className="panel p-4">
             <h3 className="text-sm font-bold mb-2 text-gray-400">日払い履歴</h3>
             <div className="divide-y divide-white/5">
-              {dailyPayRequests.filter((r) => r.castId === selectedCastId).map((r) => (
+              {dailyPayRequests.filter((r) => r.castId === selectedCastId && r.amount > 0).map((r) => (
                 <div key={r.id} className="flex justify-between text-sm py-1.5">
                   <span className="text-gray-500">{r.date}</span>
                   <span className="tabular-nums">¥{r.amount.toLocaleString()}</span>
@@ -540,29 +829,17 @@ export default function SalaryPage() {
         )}
       </div>
 
-      {/* Daily pay modal */}
-      <Modal
-        open={showDailyPayRecord}
+      {/* DailyPayDialog: 口頭申請の手入力でも operator / paidAt / メモ / 理由を保存する */}
+      <DailyPayDialog
+        open={showDailyPayRecord && !!cast}
+        cast={cast ? { id: cast.id, name: cast.name } : null}
+        calculatedAmount={0}
+        targetDate={new Date().toISOString().slice(0, 10)}
+        operator={user?.displayName ?? user?.username}
+        staffType="cast"
+        onSubmit={submitDailyPayFromDialog}
         onClose={() => setShowDailyPayRecord(false)}
-        size="sm"
-        title="日払い記録"
-        footer={
-          <>
-            <GhostButton onClick={() => setShowDailyPayRecord(false)} className="flex-1">キャンセル</GhostButton>
-            <GoldButton onClick={handleDailyPayRecord} disabled={!dailyPayAmount || Number(dailyPayAmount) <= 0} className="flex-1">記録</GoldButton>
-          </>
-        }
-      >
-        <p className="text-xs text-gray-500 mb-3">口頭申請を受けた日払い金額を記録します</p>
-        <Field label="支給額">
-          <Input
-            type="number"
-            value={dailyPayAmount}
-            onChange={(e) => setDailyPayAmount(e.target.value)}
-            placeholder="金額を入力"
-          />
-        </Field>
-      </Modal>
+      />
 
       {/* Deduction modal */}
       <Modal
@@ -614,6 +891,17 @@ export default function SalaryPage() {
           </Field>
         </div>
       </Modal>
+
+      {/* PDF E: 給与明細ポップアップ — SalaryPage の選択期間 (period) と
+          同期して開く。WaitingCastPage / AdminPage と同じ計算ロジック。 */}
+      <PayslipPopup
+        open={showPayslip}
+        cast={cast ?? null}
+        period={period}
+        year={targetYear}
+        month={targetMonth}
+        onClose={() => setShowPayslip(false)}
+      />
     </div>
   )
 }
@@ -647,7 +935,11 @@ function BoySalaryView({ period, setPeriod, staffType, setStaffType, userAccount
   const selected = staffAccounts.find((u) => u.username === selectedUsername)
   const staffId = selected ? boyStaffId(selected.username) : 0
 
-  // 対象期間の勤務を集計 (date は YYYY-MM-DD 前提)
+  // 対象期間の勤務を集計 (date は YYYY-MM-DD 前提)。
+  // `selected` は毎 render で再生成される object 参照になり得るが、本 useMemo は
+  // 表示用フィルタの軽量計算なので React Compiler の memoization 保証は不要。
+  // 本 PR の範囲外の既存違反として抑制する。
+  /* eslint-disable react-hooks/preserve-manual-memoization */
   const filteredAttendance = useMemo(() => {
     return attendanceRecords.filter((r) => {
       if (r.staffType !== 'boy') return false
@@ -659,6 +951,7 @@ function BoySalaryView({ period, setPeriod, staffType, setStaffType, userAccount
       return period === 'first' ? day <= 15 : day >= 16
     })
   }, [attendanceRecords, selected, period])
+  /* eslint-enable react-hooks/preserve-manual-memoization */
 
   const totalHours = filteredAttendance.reduce((s, r) => s + r.workHours, 0)
   const hourlyRate = selected?.hourlyRate ?? 0

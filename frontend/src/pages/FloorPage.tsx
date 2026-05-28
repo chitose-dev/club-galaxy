@@ -1,25 +1,33 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../store'
 import {
   type Table,
   type TableStatus,
   getSetPriceForTime,
   getSetPriceLabel,
-  nominationLabels,
   EXTENSION_OPTIONS,
   SET_DURATION_MINUTES,
   chargeItems,
-  displayOrderName,
-  EXTENSION_CHARGES,
 } from '../data/mock'
-import { Clock, Users, Plus, Printer, RotateCcw, ChevronRight, FileText, CreditCard, Undo2 } from 'lucide-react'
-import { openPrintWindow } from '../utils/print'
+import { getNominationBadge } from '../utils/nomination'
+import { currentTimeMs } from '../utils/businessDay'
+import {
+  addMinutesToHHMM,
+  formatSetWithRange,
+  formatTimeRange,
+  getCurrentSetTimeRange,
+  getExtensionLabel,
+  getSetLabel,
+} from '../utils/setCountLabel'
+import { useExtendTable } from '../hooks/useExtendTable'
+import { Clock, Users, Plus, Printer, ChevronRight, FileText, CreditCard, Undo2 } from 'lucide-react'
 import BottomActionBar from '../components/BottomActionBar'
 import { GoldButton, DangerButton, GhostButton, DarkButton } from '../components/Buttons'
 import Modal from '../components/Modal'
 import CastChip from '../components/CastChip'
 import NumberInput from '../components/NumberInput'
+import TimeInput from '../components/TimeInput'
 
 /**
  * 卓ステータスの色 (TRUST 準拠配色提案)
@@ -74,21 +82,35 @@ const defaultStartTime = () => {
   return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
 }
 
-function calcRemainingMinutes(startTime: string, setCount: number, timeAdjustment: number = 0, extensionMinutes: number = 0): number {
-  const [h, m] = startTime.split(':').map(Number)
+/** spec.md §2.2.4: 残時間は「現在いるセット」単位で表示する。
+ *  - 延長履歴あり → 直近の延長を「現在のセット」とみなし、その timestamp を起点に
+ *    minutes 分のカウントダウンで残時間を出す（30/60 分のフルカウントで再スタート）。
+ *  - 延長履歴なし → 1 セット目。startTime から SET_DURATION_MINUTES 分のカウントダウン。
+ *  → 1 セット目超過後に延長を打っても、新セットは追加した 30/60 分まるまる残る挙動になる
+ *    （旧実装は startTime からの累積で計算していたため、超過分が新セットを食って
+ *    支払い分より残時間が短く出るバグがあった）。
+ *  setCount 引数は将来の 22:00 自動セット切替に備えて残置（現状未使用）。 */
+function calcRemainingMinutes(
+  startTime: string,
+  _setCount: number,
+  timeAdjustment: number = 0,
+  extensionHistory: ReadonlyArray<{ minutes: 30 | 60; timestamp: string }> = [],
+): number {
   const now = new Date()
+  if (extensionHistory.length > 0) {
+    const last = extensionHistory[extensionHistory.length - 1]
+    const exStart = new Date(last.timestamp).getTime()
+    const elapsed = (now.getTime() - exStart) / 60_000
+    return Math.ceil(last.minutes - elapsed) + timeAdjustment
+  }
+  const [h, m] = startTime.split(':').map(Number)
   const startDate = new Date()
   startDate.setHours(h, m, 0, 0)
   if (startDate.getTime() > now.getTime() + 60 * 60 * 1000) {
     startDate.setDate(startDate.getDate() - 1)
   }
-  const totalSetMinutes = setCount * SET_DURATION_MINUTES + extensionMinutes
-  const endTime = new Date(startDate.getTime() + totalSetMinutes * 60 * 1000)
-  return Math.ceil((endTime.getTime() - now.getTime()) / (60 * 1000)) + timeAdjustment
-}
-
-function totalExtensionMinutes(t: { extensionHistory?: { minutes: 30 | 60 }[] }): number {
-  return (t.extensionHistory ?? []).reduce((s, e) => s + e.minutes, 0)
+  const elapsed = (now.getTime() - startDate.getTime()) / 60_000
+  return Math.ceil(SET_DURATION_MINUTES - elapsed) + timeAdjustment
 }
 
 function calcElapsedMinutes(startTime: string): number {
@@ -109,7 +131,11 @@ function flColor(rate: number) {
 }
 
 export default function FloorPage() {
-  const { tables, casts, setCasts, updateTable, bottleKeeps, flMetrics, storeSettings } = useStore()
+  const { tables, casts, setCasts, updateTable, flMetrics, storeSettings, setPrices } = useStore()
+  const extendTable = useExtendTable()
+  // ISSUE-010: 延長交渉モーダル経由（UsageDetailPage → /floor?action=extend&from=...）の戻り遷移先
+  const [searchParams] = useSearchParams()
+  const fromAfterExtend = searchParams.get('from')
   const navigate = useNavigate()
   // selected は ID のみ保持し、tables からの dynamic reference で最新状態を反映
   // (updateTable 後に selected が stale になるバグを防ぐ)
@@ -121,19 +147,25 @@ export default function FloorPage() {
   const [ciTime, setCiTime] = useState(defaultStartTime)
   const [ciGuests, setCiGuests] = useState(1)
   const [ciCastNames, setCiCastNames] = useState<string[]>([])
-  const [ciNomination, setCiNomination] = useState<Table['nomination']>('free')
+  /** 本指名担当 (担当リストの中から 0〜N 名、追補03 R24 で複数対応) */
+  const [ciMainNominations, setCiMainNominations] = useState<string[]>([])
+  /** 同伴フラグ (本指名と共存可) */
+  const [ciIsDouhan, setCiIsDouhan] = useState(false)
+  /** 場内指名フラグ */
+  const [ciIsBanaiShimei, setCiIsBanaiShimei] = useState(false)
 
   const [showExtend, setShowExtend] = useState(false)
   const [showRotation, setShowRotation] = useState(false)
+  const [rotationSelected, setRotationSelected] = useState<string[]>([])
   const [, setTick] = useState(0)
 
-  // 休憩中は付け回し候補から除外、ただし入店時の castNames リストなどで表示したい場合は別途 c.active を直接参照
+  // 休憩中は付け回し候補から除外、ただし入店時の assignedCasts リストなどで表示したい場合は別途 c.active を直接参照
   const activeCasts = casts.filter((c) => c.active && !c.onBreak)
 
   const checkStatuses = useCallback(() => {
     for (const table of tables) {
       if (table.status === 'empty' || !table.startTime) continue
-      const remaining = calcRemainingMinutes(table.startTime, table.setCount, table.timeAdjustmentMinutes ?? 0, totalExtensionMinutes(table))
+      const remaining = calcRemainingMinutes(table.startTime, table.setCount, table.timeAdjustmentMinutes ?? 0, table.extensionHistory ?? [])
       const elapsed = calcElapsedMinutes(table.startTime)
 
       if (remaining <= 5 && table.status !== 'ending') {
@@ -158,20 +190,38 @@ export default function FloorPage() {
     setCiTime(defaultStartTime())
     setCiGuests(1)
     setCiCastNames([])
-    setCiNomination('free')
+    setCiMainNominations([])
+    setCiIsDouhan(false)
+    setCiIsBanaiShimei(false)
     setShowCheckIn(true)
   }
 
-  const toggleCast = (name: string) => {
-    setCiCastNames((prev) =>
-      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
-    )
-  }
+  // ビデオレビュー C1: 入店モーダルからキャスト選択 UI を削除したため、
+  // toggleCast / toggleMainNomination も不要になった (卓詳細から直接編集する)
 
   const confirmCheckIn = () => {
     if (!selected) return
-    const assignedNames = ciCastNames.length > 0 ? ciCastNames : [activeCasts[0]?.name ?? '']
+    // ビデオレビュー B1: 入店開始押下時にキャストが勝手に選ばれないように
+    //   従来: ciCastNames が空なら activeCasts[0] を自動セット (= 「あいり」が勝手に入る)
+    //   修正: ciCastNames をそのまま使用 (空なら担当なし = フリー扱い)
+    const assignedNames = ciCastNames
+
+    // ビデオレビュー B2/B3: 1 キャスト 1 卓ロック — 別卓で対応中のキャストはここで自動的に外す
+    if (assignedNames.length > 0) {
+      for (const t of tables) {
+        if (t.id === selected.id) continue
+        const overlap = t.assignedCasts.filter((n) => assignedNames.includes(n))
+        if (overlap.length > 0) {
+          updateTable(t.id, {
+            assignedCasts: t.assignedCasts.filter((n) => !assignedNames.includes(n)),
+          })
+        }
+      }
+    }
     const autoOrders: Table['orders'] = []
+    // クロウレビュー対応: 旧 `900 + idx` のハードコード ID を Date.now() ベースで一意化
+    //   → 通常メニューや既存 orders と衝突しない
+    let nextChargeId = currentTimeMs()
 
     // 指示書§1.2: シングルチャージは 1 名様のみ自動付与
     if (ciGuests === 1) {
@@ -179,7 +229,7 @@ export default function FloorPage() {
       if (singleChargeItem) {
         autoOrders.push({
           menuItem: {
-            id: 900, name: 'シングルチャージ', price: singleChargeItem.price,
+            id: nextChargeId++, name: 'シングルチャージ', price: singleChargeItem.price,
             cost: singleChargeItem.cost ?? 300, castBack: 0,
             category: 'guest' as const, subcategory: 'warimono' as const,
           },
@@ -188,39 +238,29 @@ export default function FloorPage() {
       }
     }
 
-    // 指示書§2.3: 指名タイプに応じて担当キャスト名付きで自動追加
-    if (ciNomination && ciNomination !== 'free') {
-      const chargeId = ciNomination === 'shimei' ? 'shimei' : ciNomination === 'banai' ? 'banai' : 'douhan'
-      const chargeItem = chargeItems.find((c) => c.id === chargeId)
-      if (chargeItem) {
-        for (const name of assignedNames) {
-          if (!name) continue
-          autoOrders.push({
-            menuItem: {
-              id: 901 + autoOrders.length,
-              name: chargeItem.label, price: chargeItem.price,
-              cost: chargeItem.cost ?? 300, castBack: 0,
-              category: 'guest' as const, subcategory: 'warimono' as const,
-            },
-            quantity: 1,
-            castName: name,
-          })
-        }
-      }
-    }
+    // Fix B (ふうや指摘): 本指名料・同伴料・場内指名料は orders に追加しない。
+    //   会計時に BillingPage 側で table.mainNominationCastNames / isDouhan /
+    //   isBanaiShimei / assignedCasts から直接計算する。
+    //   → 入店後に卓詳細で本指名・同伴等を変更しても会計に正しく反映される
+    //   （旧設計は orders に auto 追加し、入店後変更時に orders を delta 同期
+    //   する仕組みがなかったため料金が抜ける問題があった）。
 
-    updateTable(selected.id, {
-      status: 'occupied',
+    const checkInPatch = {
+      status: 'occupied' as const,
       guestCount: ciGuests,
       startTime: ciTime,
-      castNames: assignedNames,
-      nomination: ciNomination,
+      assignedCasts: assignedNames,
+      mainNominationCastNames: ciMainNominations,
+      isDouhan: ciIsDouhan || undefined,
+      isBanaiShimei: ciIsBanaiShimei || undefined,
       setCount: 1,
       orders: autoOrders,
       setDiscountPerSet: 0,
       timeAdjustmentMinutes: 0,
       extensionHistory: [],
-    })
+    }
+    // Fix D: updateTable が backend 同期するので明示的な tablesApi.update は不要
+    updateTable(selected.id, checkInPatch)
     const now = new Date().toISOString()
     setCasts((prev) => prev.map((c) => assignedNames.includes(c.name) ? { ...c, lastAssignedAt: now } : c))
     setShowCheckIn(false)
@@ -228,50 +268,31 @@ export default function FloorPage() {
   }
 
   // 延長確認ダイアログ用 (指示書§6.2.3: 確認ダイアログ必須 + 指名選択 G-9)
-  const [pendingExtend, setPendingExtend] = useState<{ minutes: 30 | 60; castName?: string } | null>(null)
+  const [pendingExtend, setPendingExtend] = useState<{ minutes: 30 | 60; castNames: string[] } | null>(null)
 
   const requestExtend = (minutes: 30 | 60) => {
     if (!selected) return
-    // デフォルト指名キャスト: 卓の担当先頭
-    setPendingExtend({ minutes, castName: selected.castNames[0] })
+    // デフォルト指名キャスト: 本指名担当を全員プリセット。本指名が無ければ担当先頭 1 名。
+    // 追補02 R8-5 / クロウさん追加要件: バック帰属を複数選択可能とする。
+    const defaults =
+      selected.mainNominationCastNames.length > 0
+        ? [...selected.mainNominationCastNames]
+        : selected.assignedCasts.slice(0, 1)
+    setPendingExtend({ minutes, castNames: defaults })
   }
 
   const confirmExtend = () => {
     if (!selected || !pendingExtend) return
-    const { minutes, castName } = pendingExtend
-    const charge = EXTENSION_CHARGES[minutes]
-    const entryId = Date.now()
-    const orderId = 2000 + entryId  // 延長料金は注文IDの2000番台
-    const newEntry = {
-      id: entryId,
-      minutes,
-      timestamp: new Date().toISOString(),
-      nominatedCastName: castName,
-      orderMenuItemId: orderId,
-    } as const
-    // 延長料金を注文に追加 (指示書§G-4/G-5: 固定額 1000円/3000円)
-    const extensionOrder = {
-      menuItem: {
-        id: orderId,
-        name: `延長 +${minutes}分`,
-        price: charge,
-        cost: 0,
-        castBack: 0,
-        category: 'guest' as const,
-        subcategory: 'warimono' as const,
-      },
-      quantity: 1,
-      castName,  // 指名キャスト帰属
-    }
-    updateTable(selected.id, {
-      // setCount は変えない。時間は extensionHistory で管理
-      status: 'occupied',
-      extensionHistory: [...(selected.extensionHistory ?? []), newEntry],
-      orders: [...selected.orders, extensionOrder],
-    })
+    // 共通ロジックは useExtendTable に集約（OrderPage 側からも同じ処理を呼ぶ）
+    extendTable(selected, pendingExtend.minutes, pendingExtend.castNames)
     setPendingExtend(null)
     setShowExtend(false)
-    setSelected(null)
+    // ISSUE-010: from クエリがあれば（UsageDetailPage の延長交渉ボタン経由）元画面に戻る
+    if (fromAfterExtend) {
+      navigate(fromAfterExtend)
+    } else {
+      setSelected(null)
+    }
   }
 
   // 延長取消 (指示書§6.2.4)
@@ -294,51 +315,14 @@ export default function FloorPage() {
     })
   }
 
-  const handlePrintCheckTicket = (table: Table) => {
-    const setPrice = table.startTime ? getSetPriceForTime(table.startTime) : 0
-    const discountPerSet = table.setDiscountPerSet ?? 0
-    const adjustedSetPrice = Math.max(0, setPrice - discountPerSet)
-    const drinkTotal = table.orders.reduce((sum, o) => sum + o.menuItem.price * o.quantity, 0)
+  // spec.md §2.2.1: 「ご延長交渉」ボタン削除に伴い、INTERIM CHECK SHEET 印字関数も削除。
+  // pending banner は常に空のため非表示。
+  const pendingCheckTickets: typeof tables = []
 
-    const body = `
-      <div class="header">${storeSettings.storeName} チェック票</div>
-      <div class="divider"></div>
-      <div class="row"><span>卓:</span><span>${table.number}</span></div>
-      <div class="row"><span>担当:</span><span>${table.castNames.join(', ')}</span></div>
-      <div class="row"><span>入店:</span><span>${table.startTime}</span></div>
-      <div class="row"><span>人数:</span><span>${table.guestCount}名</span></div>
-      <div class="divider"></div>
-      <div class="row"><span>セット料金:</span><span>&yen;${(adjustedSetPrice * table.guestCount * table.setCount).toLocaleString()}${discountPerSet > 0 ? ` <small>(値引-&yen;${discountPerSet.toLocaleString()}/セット)</small>` : ''}</span></div>
-      ${table.orders.map(o => `<div class="row"><span>${displayOrderName(o)} x${o.quantity}</span><span>${o.menuItem.price === 0 ? 'セット内' : '&yen;' + (o.menuItem.price * o.quantity).toLocaleString()}</span></div>`).join('')}
-      <div class="divider"></div>
-      <div class="row total"><span>ドリンク小計:</span><span>&yen;${drinkTotal.toLocaleString()}</span></div>
-      <div class="footer">※中間確認用 - 正式な領収書ではありません</div>
-    `
-    const extraStyles = `
-      body { max-width: 300px; margin: 0 auto; }
-      .header { text-align: center; font-size: 18px; font-weight: bold; margin-bottom: 10px; }
-      .row { display: flex; justify-content: space-between; font-size: 13px; margin: 4px 0; border: none; padding: 0; text-align: left; }
-      .divider { border-top: 1px dashed #ccc; margin: 8px 0; }
-      .total { font-size: 16px; font-weight: bold; }
-      .footer { text-align: center; font-size: 11px; color: #999; margin-top: 12px; }
-    `
-    openPrintWindow(body, 'チェック票', { width: 350, height: 500, extraStyles })
-  }
+  // 追補03 R21: 一括自動印字機能は削除済 (旧 handlePrintPendingChecks)
+  const handlePrintPendingChecks = () => {/* no-op (将来削除予定) */}
 
-  // 50分経過で未印字のチェック票対象卓
-  const pendingCheckTickets = tables.filter(
-    (t) => t.status !== 'empty' && t.startTime && calcElapsedMinutes(t.startTime) >= 50 && !t.checkTicketPrintedAt,
-  )
-
-  const handlePrintPendingChecks = () => {
-    const now = new Date().toISOString()
-    for (const t of pendingCheckTickets) {
-      handlePrintCheckTicket(t)
-      updateTable(t.id, { checkTicketPrintedAt: now })
-    }
-  }
-
-  const busyCastNames = new Set(tables.filter((t) => t.status !== 'empty').flatMap((t) => t.castNames))
+  const busyCastNames = new Set(tables.filter((t) => t.status !== 'empty').flatMap((t) => t.assignedCasts))
   // 待機時間順(lastAssignedAt昇順、null=最優先)にソート
   const freeCasts = activeCasts
     .filter((c) => !busyCastNames.has(c.name))
@@ -352,7 +336,7 @@ export default function FloorPage() {
 
   const formatWaitTime = (lastAssignedAt: string | null | undefined): string => {
     if (!lastAssignedAt) return '未稼働'
-    const diffMs = Date.now() - new Date(lastAssignedAt).getTime()
+    const diffMs = currentTimeMs() - new Date(lastAssignedAt).getTime()
     const minutes = Math.max(0, Math.floor(diffMs / 60000))
     if (minutes < 60) return `待機 ${minutes}分`
     const hours = Math.floor(minutes / 60)
@@ -360,15 +344,33 @@ export default function FloorPage() {
     return `待機 ${hours}時間${rem}分`
   }
 
-  const handleAssignCast = (castName: string) => {
+  const closeRotationModal = () => {
+    setShowRotation(false)
+    setRotationSelected([])
+    setSelected(null)
+  }
+
+  const handleAssignCastsBulk = () => {
     if (!selected) return
+    // 既に同卓に居るキャストは除外
+    const newCasts = rotationSelected.filter((n) => !selected.assignedCasts.includes(n))
+    if (newCasts.length === 0) {
+      closeRotationModal()
+      return
+    }
+    // 追補02 R2-2/R10-3: 別卓で対応中だった場合はそちらから外す (排他的移動)
+    for (const t of tables) {
+      if (t.id === selected.id) continue
+      const overlap = t.assignedCasts.filter((n) => newCasts.includes(n))
+      if (overlap.length === 0) continue
+      updateTable(t.id, { assignedCasts: t.assignedCasts.filter((n) => !newCasts.includes(n)) })
+    }
     updateTable(selected.id, {
-      castNames: [...selected.castNames, castName],
+      assignedCasts: [...selected.assignedCasts, ...newCasts],
     })
     const now = new Date().toISOString()
-    setCasts((prev) => prev.map((c) => c.name === castName ? { ...c, lastAssignedAt: now } : c))
-    setShowRotation(false)
-    setSelected(null)
+    setCasts((prev) => prev.map((c) => newCasts.includes(c.name) ? { ...c, lastAssignedAt: now } : c))
+    closeRotationModal()
   }
 
   const occupiedCount = tables.filter((t) => t.status !== 'empty').length
@@ -394,10 +396,10 @@ export default function FloorPage() {
         >
           <span className="flex items-center gap-2">
             <Printer size={16} />
-            中間チェック票 {pendingCheckTickets.length}件 (50分経過)
+            ご延長交渉 {pendingCheckTickets.length}件 (50分経過)
           </span>
           <span className="text-xs text-red-300/80">
-            卓 {pendingCheckTickets.map((t) => t.number).join(', ')} → タップで一括印字
+            {pendingCheckTickets.map((t) => `${t.number}卓`).join(', ')} → タップで一括印字
           </span>
         </button>
       )}
@@ -408,20 +410,13 @@ export default function FloorPage() {
         <span>今月 <span className="font-bold">¥{flMetrics.monthlyProfit.toLocaleString()}</span> <span className={`text-xs ${flColor(flMetrics.monthlyFlRate)}`}>(FL {flMetrics.monthlyFlRate.toFixed(1)}%)</span></span>
       </div>
 
-      {/* Table Grid (要件定義書4A: 終了間近を左上優先) */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-        {[...tables].sort((a, b) => {
-          // 空き卓は末尾
-          if (a.status === 'empty' && b.status !== 'empty') return 1
-          if (a.status !== 'empty' && b.status === 'empty') return -1
-          if (a.status === 'empty' && b.status === 'empty') return a.id - b.id
-          // 使用中卓は残り時間昇順(終了間近を左上)
-          const remA = a.startTime ? calcRemainingMinutes(a.startTime, a.setCount, a.timeAdjustmentMinutes ?? 0, totalExtensionMinutes(a)) : Infinity
-          const remB = b.startTime ? calcRemainingMinutes(b.startTime, b.setCount, b.timeAdjustmentMinutes ?? 0, totalExtensionMinutes(b)) : Infinity
-          if (remA !== remB) return remA - remB
-          return a.id - b.id
-        }).map((table) => {
-          const remaining = table.startTime ? calcRemainingMinutes(table.startTime, table.setCount, table.timeAdjustmentMinutes ?? 0, totalExtensionMinutes(table)) : null
+      {/* Table Grid — ビデオレビュー C18: 並び順は固定 (id 昇順)
+          時間で入れ替わると目で覚えた配置と合わなくなり混乱する。
+          状態は色 (statusStyle) で表現。
+          spec.md §2.2.4: 卓ボタンを大きめに（min-h-[160px]）してスクロール不要なサイズに。 */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 gap-3">
+        {[...tables].sort((a, b) => a.id - b.id).map((table) => {
+          const remaining = table.startTime ? calcRemainingMinutes(table.startTime, table.setCount, table.timeAdjustmentMinutes ?? 0, table.extensionHistory ?? []) : null
           const elapsed = table.startTime ? calcElapsedMinutes(table.startTime) : 0
           const style = statusStyle[table.status]
           return (
@@ -434,11 +429,11 @@ export default function FloorPage() {
                   setSelected(table)
                 }
               }}
-              className={`relative overflow-hidden ${style.bg} ${style.border} border-2 rounded-[14px] p-5 pt-6 text-left transition-all active:scale-[0.97] min-h-[120px]`}
+              className={`relative overflow-hidden ${style.bg} ${style.border} border-2 rounded-[14px] p-5 pt-6 text-left transition-all active:scale-[0.97] min-h-[160px]`}
             >
               <span className={`absolute top-0 left-0 right-0 h-1.5 ${style.accent}`} />
               <div className="flex justify-between items-start">
-                <span className="text-2xl font-bold tracking-wide" style={{ fontFamily: 'var(--font-body)' }}>{table.number}</span>
+                <span className="text-2xl font-bold tracking-wide" style={{ fontFamily: 'var(--font-body)' }}>{table.number}卓</span>
                 {table.status === 'empty' ? (
                   <span className="text-gold/60"><Plus size={20} /></span>
                 ) : remaining !== null ? (
@@ -447,26 +442,57 @@ export default function FloorPage() {
                   </span>
                 ) : null}
               </div>
-              {table.status !== 'empty' && (
+              {table.status !== 'empty' && (() => {
+                // PDF: 入店時刻には終わる時間まで表示。担当なしは「フリー」表示。
+                const range = table.startTime
+                  ? getCurrentSetTimeRange({
+                      startTime: table.startTime,
+                      setCount: table.setCount,
+                      extensionHistory: table.extensionHistory,
+                    })
+                  : null
+                return (
                 <div className="mt-2.5 space-y-1">
-                  <div className="text-sm font-medium truncate">{table.castNames.join(', ')}</div>
+                  {/* 追補02 R1-7: 「対応中」を第一行で明示。本指名担当は別表示。
+                      PDF: 担当が居なければ「フリー」と明示。 */}
+                  <div className="text-sm font-medium truncate">
+                    {table.assignedCasts.length > 0 ? table.assignedCasts.join(', ') : <span className="text-gray-500">フリー</span>}
+                  </div>
+                  {table.mainNominationCastNames.length > 0 && (
+                    <div className="text-xs text-gold truncate">
+                      <span className="text-gold/70">本指名:</span> {table.mainNominationCastNames.join(', ')}
+                    </div>
+                  )}
                   <div className="flex items-center gap-2 text-gray-400 text-xs">
                     <Users size={11} />
                     <span>{table.guestCount}名</span>
-                    <span className="text-gray-600">|</span>
+                    <span className="text-gray-600">/</span>
                     <Clock size={11} />
-                    <span>{table.startTime}〜</span>
-                  </div>
-                  {table.nomination && (
-                    <span className="inline-block text-xs bg-gold/10 text-gold border border-gold/20 px-1.5 py-0.5 rounded mt-0.5">
-                      {nominationLabels[table.nomination]}
+                    {/* PDF: 「12:00〜1:00まで」形式で開始〜終了を併記。 */}
+                    <span className="truncate">
+                      {range?.startHHMM && range?.endHHMM
+                        ? formatTimeRange(range.startHHMM, range.endHHMM)
+                        : `${table.startTime ?? ''}〜`}
                     </span>
-                  )}
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                    {/* PDF指示: セットラベル + 残時間 を 1Set目 形式で並べる */}
+                    <span className="inline-block text-xs bg-white/10 text-gray-200 border border-white/20 px-1.5 py-0.5 rounded">
+                      {getSetLabel(table)}
+                      {remaining !== null && remaining > 0 && (
+                        <span className="ml-1 text-gray-400">(残り{remaining}分)</span>
+                      )}
+                    </span>
+                    <span className="inline-block text-xs bg-gold/10 text-gold border border-gold/20 px-1.5 py-0.5 rounded">
+                      {getNominationBadge(table)}
+                    </span>
+                  </div>
                   {elapsed >= 50 && (
                     <div className="text-xs text-accent font-bold mt-0.5">50分経過</div>
                   )}
                 </div>
-              )}
+                )
+              })()}
             </button>
           )
         })}
@@ -476,104 +502,118 @@ export default function FloorPage() {
       <Modal
         open={!!selected && !showCheckIn && !showExtend && !showRotation && !!selected && selected.status !== 'empty'}
         onClose={() => setSelected(null)}
-        title={selected ? `卓 ${selected.number}` : ''}
+        title={selected ? `${selected.number}卓` : ''}
         size="lg"
       >
         {selected && selected.status !== 'empty' && (
           <>
             {selected.startTime && (() => {
-              const rem = calcRemainingMinutes(selected.startTime, selected.setCount, selected.timeAdjustmentMinutes ?? 0, totalExtensionMinutes(selected))
+              const rem = calcRemainingMinutes(selected.startTime, selected.setCount, selected.timeAdjustmentMinutes ?? 0, selected.extensionHistory ?? [])
+              // PDF/Word 仕様: 「1Set目 12:00〜1:00まで（残り20分）」「EX(2)半 12:00〜12:30まで（…）」
+              const range = getCurrentSetTimeRange({
+                startTime: selected.startTime,
+                setCount: selected.setCount,
+                extensionHistory: selected.extensionHistory,
+              })
               return (
                 <div className={`text-center py-3 rounded-[10px] mb-4 font-bold text-lg ${rem <= 5 ? 'bg-accent/10 text-red-300 border border-accent/30' : rem <= 10 ? 'bg-amber-500/10 text-amber-300 border border-amber-500/30' : 'panel-gold'}`}>
-                  残り {rem > 0 ? `${rem}分` : '終了'}
+                  {rem > 0 ? formatSetWithRange(range, rem) : `${range.label} 終了`}
                 </div>
               )
             })()}
 
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            {/* ビデオレビュー C3-C7: 卓詳細を編集モード化 — 全フィールドを直接編集可能に */}
+            <div className="space-y-3 text-sm">
+              {/* 対応中キャスト編集 (C7: 直接抜く + キャスト追加) */}
               <div className="panel p-3">
-                <div className="text-gray-500 text-xs mb-1">担当</div>
-                <div className="font-medium">{selected.castNames.join(', ')}</div>
-              </div>
-              <div className="panel p-3">
-                <div className="text-gray-500 text-xs mb-1">指名タイプ</div>
-                <div className="font-medium">{selected.nomination ? nominationLabels[selected.nomination] : '-'}</div>
-              </div>
-              <div className="panel p-3">
-                <div className="text-gray-500 text-xs mb-1">入店時刻</div>
-                <div className="font-medium">{selected.startTime}</div>
-              </div>
-              <div className="panel p-3">
-                <div className="text-gray-500 text-xs mb-1">人数</div>
-                <div className="font-medium">{selected.guestCount}名</div>
-              </div>
-              <div className="panel p-3">
-                <div className="text-gray-500 text-xs mb-1">セット料金</div>
-                <div className="font-medium">
-                  {selected.startTime ? `¥${Math.max(0, getSetPriceForTime(selected.startTime) - (selected.setDiscountPerSet ?? 0)).toLocaleString()}` : '-'}
-                  {(selected.setDiscountPerSet ?? 0) > 0 && (
-                    <span className="text-[10px] text-amber-300 ml-1">(値引¥{selected.setDiscountPerSet!.toLocaleString()})</span>
-                  )}
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-gray-500 text-xs">対応中</div>
                 </div>
-                <div className="text-gray-600 text-xs">{selected.startTime ? getSetPriceLabel(selected.startTime) : ''}</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {selected.assignedCasts.map((name) => (
+                    <span key={name} className="inline-flex items-center gap-1 bg-gold/10 border border-gold/30 text-gold rounded-full px-3 py-1 text-xs">
+                      {name}
+                      <button
+                        onClick={() => updateTable(selected.id, { assignedCasts: selected.assignedCasts.filter((n) => n !== name) })}
+                        className="hover:text-red-400"
+                        aria-label="外す"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  <button
+                    onClick={() => setShowRotation(true)}
+                    className="inline-flex items-center gap-1 bg-white/5 border border-white/20 text-gray-300 hover:text-white rounded-full px-3 py-1 text-xs"
+                  >
+                    <Plus size={12} /> 追加
+                  </button>
+                </div>
               </div>
-              <div className="panel p-3">
-                <div className="text-gray-500 text-xs mb-1">セット数</div>
-                <div className="font-medium">{selected.setCount}</div>
+
+              {/* 入店時刻 + 人数 + セット料金 + セット数 */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="panel p-3">
+                  <div className="text-gray-500 text-xs mb-1">入店時刻</div>
+                  {/* C3: 入店時刻を後から変更可能。TimeInput で時/分の数字選択。 */}
+                  <TimeInput
+                    value={selected.startTime ?? ''}
+                    onChange={(v) => updateTable(selected.id, { startTime: v })}
+                  />
+                </div>
+                <div className="panel p-3">
+                  <div className="text-gray-500 text-xs mb-1">人数</div>
+                  {/* C4: 人数を後から増減可能 */}
+                  <NumberInput
+                    value={selected.guestCount}
+                    onChange={(v) => updateTable(selected.id, { guestCount: Math.max(1, v) })}
+                    min={1}
+                    max={50}
+                    unit="名"
+                    inputClassName="!py-1 !text-sm"
+                  />
+                </div>
+                <div className="panel p-3">
+                  <div className="text-gray-500 text-xs mb-1">セット料金</div>
+                  <div className="font-medium">
+                    {selected.startTime ? `¥${Math.max(0, getSetPriceForTime(selected.startTime, setPrices) - (selected.setDiscountPerSet ?? 0)).toLocaleString()}` : '-'}
+                    {(selected.setDiscountPerSet ?? 0) > 0 && (
+                      <span className="text-[10px] text-amber-300 ml-1">(値引¥{selected.setDiscountPerSet!.toLocaleString()})</span>
+                    )}
+                  </div>
+                  <div className="text-gray-600 text-xs">{selected.startTime ? getSetPriceLabel(selected.startTime, setPrices) : ''}</div>
+                </div>
+                <div className="panel p-3">
+                  <div className="text-gray-500 text-xs mb-1">セット数</div>
+                  <div className="font-medium">{getSetLabel(selected)}</div>
+                </div>
               </div>
             </div>
-            {/* セット料金値引き (指示書§1.1 / 追補02 R12: 削除時 0 残留を防ぐ) */}
+            {/* セット料金値引き (指示書§1.1 / 追補02 R12: 削除時 0 残留を防ぐ)
+                ビデオレビュー D3: 値引き 0 のときは説明文を控えめに */}
             <div className="mt-3 panel p-3">
-              <label className="text-xs text-gray-500 block mb-1.5">セット料金値引き (1セットあたりの割引額)</label>
+              <label className="text-xs text-gray-500 block mb-1.5">
+                セット料金値引き
+                {(selected.setDiscountPerSet ?? 0) > 0 ? ' (1セットあたりの割引額)' : <span className="text-gray-700"> (任意)</span>}
+              </label>
               <NumberInput
                 value={selected.setDiscountPerSet ?? 0}
                 onChange={(v) => updateTable(selected.id, { setDiscountPerSet: v })}
                 min={0}
                 step={100}
-                unit="円 / セット"
+                unit={(selected.setDiscountPerSet ?? 0) > 0 ? '円 / セット' : undefined}
               />
             </div>
 
-            {/* Bottle keeps */}
-            {(() => {
-              const keeps = bottleKeeps.filter((b) => b.tableNumber === selected.number)
-              if (keeps.length === 0) return null
-              return (
-                <div className="mt-4 panel-gold p-3">
-                  <div className="text-xs text-gold font-bold mb-2">キープボトル</div>
-                  {keeps.map((k) => (
-                    <div key={k.id} className="flex justify-between text-sm mb-1">
-                      <span>{k.bottleName} ({k.customerName})</span>
-                      <span className={k.remaining <= 20 ? 'text-accent font-bold' : ''}>{k.remaining}%</span>
-                    </div>
-                  ))}
-                </div>
-              )
-            })()}
+            {/* ビデオレビュー D2: 卓詳細からキープボトル表示を削除
+                (操作がややこしいため、ボトルキープページに集約) */}
 
-            {selected.orders.length > 0 && (
-              <div className="mt-4 panel p-3">
-                <div className="text-gray-500 text-xs mb-2">注文 ({selected.orders.length}品)</div>
-                {selected.orders.slice(0, 5).map((o, idx) => (
-                  <div key={`${o.menuItem.id}-${o.castName ?? ''}-${idx}`} className="flex justify-between text-sm py-0.5">
-                    <span className="text-gray-300">{displayOrderName(o)} x{o.quantity}</span>
-                    <span>¥{(o.menuItem.price * o.quantity).toLocaleString()}</span>
-                  </div>
-                ))}
-                {selected.orders.length > 5 && (
-                  <div className="text-xs text-gray-600 mt-1">...他{selected.orders.length - 5}品</div>
-                )}
-              </div>
-            )}
+            {/* PDF指示: ホールで1卓クリック時の「注文(○品)」サマリーは削除。
+                注文内容は利用明細/注文画面側で確認する。 */}
 
-            <div className="flex gap-2 mt-5">
-              {EXTENSION_OPTIONS.map((min) => (
-                <DarkButton key={min} onClick={() => requestExtend(min as 30 | 60)} className="flex-1 text-sm">
-                  延長 +{min}分
-                </DarkButton>
-              ))}
-            </div>
-            <div className="flex gap-2 mt-2 items-center text-xs">
+            {/* spec.md §2.2.1: 「延長 +30分／+60分」は注文画面側の延長フローと
+                同一処理ではないため卓詳細モーダルから削除し、利用明細画面の [延長] に集約。 */}
+            <div className="flex gap-2 mt-5 items-center text-xs">
               <span className="text-gray-500">残り時間微調整:</span>
               <button onClick={() => handleTimeAdjust(-10)} className="flex-1 panel py-2 rounded-[10px] font-bold hover:bg-white/10 transition-colors">-10分</button>
               <button onClick={() => handleTimeAdjust(+10)} className="flex-1 panel py-2 rounded-[10px] font-bold hover:bg-white/10 transition-colors">+10分</button>
@@ -584,17 +624,24 @@ export default function FloorPage() {
             {selected.extensionHistory && selected.extensionHistory.length > 0 && (
               <div className="mt-2 panel p-2">
                 <div className="text-xs text-gray-500 mb-1">延長履歴</div>
-                {selected.extensionHistory.map((ex) => (
-                  <div key={ex.id} className="flex justify-between items-center text-xs py-0.5">
-                    <span className="text-gray-400">+{ex.minutes}分 ({new Date(ex.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })})</span>
-                    <button onClick={() => handleUndoExtension(ex.id)} className="text-accent flex items-center gap-1"><Undo2 size={10} /> 取消</button>
-                  </div>
-                ))}
+                {selected.extensionHistory.map((ex, idx) => {
+                  // PDF/Word: 「EX(1) 11:00〜12:00まで」「EX(2)半 12:00〜12:30まで」
+                  const exLabel = getExtensionLabel(idx, ex.minutes)
+                  const d = new Date(ex.timestamp)
+                  const startHHMM = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+                  const endHHMM = addMinutesToHHMM(startHHMM, ex.minutes)
+                  return (
+                    <div key={ex.id} className="flex justify-between items-center text-xs py-0.5">
+                      <span className="text-gray-400">{exLabel} {formatTimeRange(startHHMM, endHHMM)}</span>
+                      <button onClick={() => handleUndoExtension(ex.id)} className="text-accent flex items-center gap-1"><Undo2 size={10} /> 取消</button>
+                    </div>
+                  )
+                })}
               </div>
             )}
 
             <div className="flex gap-2 mt-3">
-              <DarkButton onClick={() => { const id = selected.id; setSelected(null); navigate(`/order?table=${id}`) }} className="flex-1 text-sm flex items-center justify-center gap-1.5">
+              <DarkButton onClick={() => { const id = selected.id; setSelected(null); navigate(`/order?table=${id}&from=${encodeURIComponent('/floor')}`) }} className="flex-1 text-sm flex items-center justify-center gap-1.5">
                 <FileText size={15} /> 注文
               </DarkButton>
               <GoldButton onClick={() => { const id = selected.id; setSelected(null); navigate(`/billing?table=${id}`) }} className="flex-1 text-sm flex items-center justify-center gap-1.5">
@@ -602,55 +649,43 @@ export default function FloorPage() {
               </GoldButton>
             </div>
 
-            <div className="flex gap-2 mt-2">
-              <button
-                onClick={() => {
-                  handlePrintCheckTicket(selected)
-                  updateTable(selected.id, { checkTicketPrintedAt: new Date().toISOString() })
-                }}
-                className={`flex-1 py-3 rounded-[10px] font-bold text-sm flex items-center justify-center gap-1.5 transition-colors ${
-                  selected.startTime && calcElapsedMinutes(selected.startTime) >= 50
-                    ? 'bg-accent/10 border border-accent/30 text-red-300'
-                    : 'panel text-gray-300'
-                }`}
-              >
-                <Printer size={15} /> チェック票
-              </button>
-              <button onClick={() => setShowRotation(true)} className="flex-1 panel py-3 rounded-[10px] font-bold text-sm flex items-center justify-center gap-1.5 text-gray-300 hover:bg-white/10 transition-colors">
-                <RotateCcw size={15} /> 付け回し
-              </button>
-            </div>
+            {/* spec.md §2.2.1: 「ご延長交渉」「付け回し」を削除（注文・利用明細側に集約）。 */}
+            {/* PDF指示: 「空き卓にする」は未収運用と混同するため画面から削除。
+                未収/強制解放の正式導線は別途確定後に実装する。 */}
           </>
         )}
       </Modal>
 
-      {/* Check-in Modal */}
+      {/* Check-in Modal — ビデオレビュー C1: 入店時は「人数だけ」のシンプル UI に
+          キャスト・本指名・同伴・場内指名の設定は卓詳細から後でできるようにした */}
       <Modal
         open={showCheckIn && !!selected}
         onClose={() => { setShowCheckIn(false); setSelected(null) }}
-        title={selected ? `卓 ${selected.number} 入店` : ''}
-        size="lg"
+        title={selected ? `${selected.number}卓 入店` : ''}
+        size="md"
       >
         {selected && (
-          <div className="space-y-4">
+          <div className="space-y-5">
             <div>
               <label className="text-sm text-gray-200 block mb-2 font-medium">セット開始時刻</label>
               <div className="flex gap-2">
-                <input type="time" value={ciTime} onChange={(e) => setCiTime(e.target.value)} className="flex-1 bg-primary-dark/60 border border-gold/30 rounded-md px-4 py-3.5 text-base focus:border-gold focus:outline-none" />
+                {/* 入店時刻は分単位の指定要件がある (例: 20:07 入店) ため
+                    QUARTER 制約を外す。退勤等の勤怠系は別途 15 分丸めの業務制約あり。 */}
+                <TimeInput value={ciTime} onChange={(v) => setCiTime(v)} className="flex-1" quarterHourOnly={false} />
                 <button onClick={() => setCiTime(defaultStartTime())} className="btn-ghost px-5 whitespace-nowrap text-base min-h-[52px]">今すぐ</button>
               </div>
               <div className="text-sm text-gold mt-2 tabular-nums">
-                セット料金: ¥{getSetPriceForTime(ciTime).toLocaleString()} <span className="text-gray-400">({getSetPriceLabel(ciTime)})</span>
+                セット料金: ¥{getSetPriceForTime(ciTime, setPrices).toLocaleString()} <span className="text-gray-400">({getSetPriceLabel(ciTime, setPrices)})</span>
               </div>
             </div>
             <div>
               <label className="text-sm text-gray-200 block mb-2 font-medium">来店人数</label>
-              <div className="flex gap-2">
+              <div className="grid grid-cols-4 gap-2">
                 {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
                   <button
                     key={n}
                     onClick={() => setCiGuests(n)}
-                    className={`flex-1 py-4 rounded-[10px] text-lg font-bold transition-colors ${
+                    className={`py-4 rounded-[10px] text-lg font-bold transition-colors ${
                       ciGuests === n ? 'bg-gold text-primary' : 'panel text-gray-200 hover:bg-white/10'
                     }`}
                   >
@@ -658,33 +693,22 @@ export default function FloorPage() {
                   </button>
                 ))}
               </div>
-            </div>
-            <div>
-              <label className="text-sm text-gray-200 block mb-2 font-medium">キャスト（複数選択可）</label>
-              <div className="flex flex-wrap gap-2">
-                {activeCasts.map((c) => (
-                  <CastChip key={c.id} name={c.name} selected={ciCastNames.includes(c.name)} onClick={() => toggleCast(c.name)} />
-                ))}
+              <div className="mt-2 flex items-center gap-2">
+                <span className="text-xs text-gray-400">9 名以上:</span>
+                <NumberInput
+                  value={ciGuests > 8 ? ciGuests : 0}
+                  onChange={(v) => v > 0 && setCiGuests(v)}
+                  min={0}
+                  max={50}
+                  className="w-32"
+                  inputClassName="!py-1.5 !text-sm"
+                  unit="名"
+                />
               </div>
-              {ciCastNames.length > 0 && (
-                <div className="text-sm text-gold mt-2">選択中: {ciCastNames.join(', ')}</div>
-              )}
             </div>
-            <div>
-              <label className="text-sm text-gray-200 block mb-2 font-medium">指名タイプ</label>
-              <div className="grid grid-cols-2 gap-2">
-                {(['free', 'shimei', 'banai', 'douhan'] as const).map((type) => (
-                  <button
-                    key={type}
-                    onClick={() => setCiNomination(type)}
-                    className={`py-4 rounded-[10px] text-base font-bold transition-colors ${
-                      ciNomination === type ? 'bg-gold text-primary' : 'panel text-gray-200 hover:bg-white/10'
-                    }`}
-                  >
-                    {nominationLabels[type]}
-                  </button>
-                ))}
-              </div>
+            <div className="text-xs text-gray-500 leading-relaxed border-t border-white/10 pt-3">
+              ※ 入店後、卓をタップすると担当キャスト・本指名・同伴・場内指名を編集できます。
+              全ての変更は会計確定時に確定されます。
             </div>
             <GoldButton onClick={confirmCheckIn} className="w-full py-5 text-lg flex items-center justify-center gap-2">
               入店開始 <ChevronRight size={22} />
@@ -697,18 +721,22 @@ export default function FloorPage() {
       <Modal
         open={showExtend && !!selected}
         onClose={() => { setShowExtend(false); setSelected(null) }}
-        title={selected ? `卓 ${selected.number} 延長` : ''}
+        title={selected ? `${selected.number}卓 延長` : ''}
         size="sm"
       >
         {selected && (
           <>
-            <p className="text-sm text-gray-400 mb-4">現在: {selected.setCount}セット</p>
+            <p className="text-sm text-gray-400 mb-4">現在: {getSetLabel(selected)}</p>
             <div className="space-y-3">
-              {EXTENSION_OPTIONS.map((min) => (
-                <DarkButton key={min} onClick={() => requestExtend(min as 30 | 60)} className="w-full">
-                  +{min}分延長
-                </DarkButton>
-              ))}
+              {EXTENSION_OPTIONS.map((min) => {
+                const nextIdx = (selected.extensionHistory?.length ?? 0) + 1
+                const nextLabel = min === 30 ? `EX(${nextIdx})半` : `EX(${nextIdx})`
+                return (
+                  <DarkButton key={min} onClick={() => requestExtend(min as 30 | 60)} className="w-full">
+                    {nextLabel}（{min}分）
+                  </DarkButton>
+                )
+              })}
             </div>
             <GhostButton onClick={() => { setShowExtend(false); setSelected(null) }} className="w-full mt-3">
               キャンセル
@@ -720,32 +748,54 @@ export default function FloorPage() {
       {/* Rotation Modal */}
       <Modal
         open={showRotation && !!selected}
-        onClose={() => { setShowRotation(false); setSelected(null) }}
-        title={selected ? `付け回し - 卓 ${selected.number}` : ''}
+        onClose={closeRotationModal}
+        title={selected ? `付け回し - ${selected.number}卓` : ''}
         size="sm"
       >
         {selected && (
           <>
-            <p className="text-sm text-gray-400 mb-4">空いているキャストを選択してください</p>
+            <p className="text-sm text-gray-400 mb-4">付け回すキャストを選択してください（複数選択可）</p>
             {freeCasts.length === 0 ? (
               <p className="text-sm text-gray-500 text-center py-4">現在空いているキャストはいません</p>
             ) : (
               <div className="space-y-2">
-                {freeCasts.map((c) => (
-                  <button
-                    key={c.id}
-                    onClick={() => handleAssignCast(c.name)}
-                    className="panel w-full p-3 text-left hover:bg-gold/5 hover:border-gold/40 transition-all flex items-center justify-between"
-                  >
-                    <div>
-                      <div className="font-bold text-sm">{c.name}</div>
-                      <div className="text-xs text-gray-500">→ 卓{selected.number} に付け回し</div>
-                    </div>
-                    <div className="text-xs text-emerald-400/80 tabular-nums">{formatWaitTime(c.lastAssignedAt)}</div>
-                  </button>
-                ))}
+                {freeCasts.map((c) => {
+                  const isSelected = rotationSelected.includes(c.name)
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => setRotationSelected((prev) =>
+                        isSelected ? prev.filter((n) => n !== c.name) : [...prev, c.name]
+                      )}
+                      className={`panel w-full p-3 text-left transition-all flex items-center justify-between ${
+                        isSelected ? 'border-gold bg-gold/10' : 'hover:bg-gold/5 hover:border-gold/40'
+                      }`}
+                    >
+                      <div>
+                        <div className="font-bold text-sm flex items-center gap-2">
+                          {isSelected && <span className="text-gold">✓</span>}
+                          {c.name}
+                        </div>
+                        <div className="text-xs text-gray-500">→ {selected.number}卓 に付け回し</div>
+                      </div>
+                      <div className="text-xs text-emerald-400/80 tabular-nums">{formatWaitTime(c.lastAssignedAt)}</div>
+                    </button>
+                  )
+                })}
               </div>
             )}
+            <div className="mt-4 flex gap-2">
+              <GhostButton onClick={closeRotationModal} className="flex-1">
+                キャンセル
+              </GhostButton>
+              <GoldButton
+                onClick={handleAssignCastsBulk}
+                disabled={rotationSelected.length === 0}
+                className="flex-1"
+              >
+                {rotationSelected.length > 0 ? `${rotationSelected.length}名を付け回し` : '確定'}
+              </GoldButton>
+            </div>
           </>
         )}
       </Modal>
@@ -756,13 +806,13 @@ export default function FloorPage() {
       leftValue={`¥${flMetrics.todaySales.toLocaleString()}`}
       center={
         <span className="text-sm text-gray-400 tabular-nums">
-          使用中 {occupiedCount} / {tables.length} 卓
+          使用中 {occupiedCount}/{tables.length} 卓
         </span>
       }
       right={
         pendingCheckTickets.length > 0 ? (
           <DangerButton onClick={handlePrintPendingChecks} className="text-sm flex items-center gap-1">
-            <Printer size={15} /> チェック票 {pendingCheckTickets.length}件
+            <Printer size={15} /> ご延長交渉 {pendingCheckTickets.length}件
           </DangerButton>
         ) : (
           <GoldButton onClick={() => navigate('/waiting')} className="text-sm flex items-center gap-1">
@@ -785,40 +835,123 @@ export default function FloorPage() {
           </>
         }
       >
-        {pendingExtend && selected && (
-          <div className="space-y-3">
-            <div className="panel p-3 space-y-1.5">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-400">延長時間</span>
-                <span className="font-bold">+{pendingExtend.minutes}分</span>
+        {pendingExtend && selected && (() => {
+          // ビデオレビュー B7: 延長料金は時間帯セット料金 × 人数 で計算
+          const setUnit = selected.startTime ? getSetPriceForTime(selected.startTime, setPrices) : 0
+          const setUnitAdjusted = Math.max(0, setUnit - (selected.setDiscountPerSet ?? 0))
+          const fullSetCharge = setUnitAdjusted * selected.guestCount
+          const extCharge = pendingExtend.minutes === 60 ? fullSetCharge : Math.round(fullSetCharge / 2)
+          // ビデオレビュー C13: 場内指名は基本継承
+          const shimeiContinue = selected.mainNominationCastNames.length * 1500
+          const banaiContinue = selected.isBanaiShimei ? 500 * selected.assignedCasts.length : 0
+          const subtotal = extCharge + shimeiContinue + banaiContinue
+
+          // ビデオレビュー C14: 1 セット目確定金額の表示 (税サ込み)
+          const drinkTotal = selected.orders.reduce((s, o) => s + o.menuItem.price * o.quantity, 0)
+          const setSubtotalCommitted = setUnitAdjusted * selected.guestCount * selected.setCount
+          const subtotalAll = setSubtotalCommitted + drinkTotal
+          const tax = Math.floor(subtotalAll * storeSettings.taxRate)
+          const committedTotal = subtotalAll + tax
+
+          return (
+            <div className="space-y-3">
+              {/* C14: 1 セット目確定金額 */}
+              <div className="panel-gold p-3">
+                <div className="text-xs text-gray-300 mb-1">{getSetLabel(selected)} 確定金額 (税サ込)</div>
+                <div className="text-xl font-bold text-gold tabular-nums">¥{committedTotal.toLocaleString()}</div>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-400">延長料金</span>
-                <span className="font-bold text-gold tabular-nums">¥{EXTENSION_CHARGES[pendingExtend.minutes].toLocaleString()}</span>
+
+              <div className="panel p-3 space-y-1.5">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">延長</span>
+                  <span className="font-bold">
+                    {(() => {
+                      const nextIdx = (selected.extensionHistory?.length ?? 0) + 1
+                      return pendingExtend.minutes === 30 ? `EX(${nextIdx})半（30分）` : `EX(${nextIdx})（60分）`
+                    })()}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">延長料金 ({selected.guestCount}名 × ¥{setUnitAdjusted.toLocaleString()})</span>
+                  <span className="font-bold text-gold tabular-nums">¥{extCharge.toLocaleString()}</span>
+                </div>
+                {shimeiContinue > 0 && (
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-500">本指名料 (継承 / {selected.mainNominationCastNames.join(', ')})</span>
+                    <span className="tabular-nums text-gray-300">¥{shimeiContinue.toLocaleString()}</span>
+                  </div>
+                )}
+                {banaiContinue > 0 && (
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-500">場内指名料 (継承 / {selected.assignedCasts.length}名)</span>
+                    <span className="tabular-nums text-gray-300">¥{banaiContinue.toLocaleString()}</span>
+                  </div>
+                )}
+                {(shimeiContinue > 0 || banaiContinue > 0) && (
+                  <div className="flex justify-between text-sm border-t border-white/10 pt-1.5 mt-1.5">
+                    <span className="text-gray-400 font-bold">追加料金 合計</span>
+                    <span className="font-bold text-gold tabular-nums">¥{subtotal.toLocaleString()}</span>
+                  </div>
+                )}
               </div>
+
+              {/* C12: 本指名 → フリー変更不可。本指名キャストがいる場合はフリー選択肢を出さない
+                  クロウさん追加要件: バック帰属先は複数選択可（タップで追加/解除） */}
+              <div>
+                <label className="text-xs text-gray-500 block mb-1.5">
+                  指名 (バック帰属先) {pendingExtend.castNames.length > 1 && <span className="text-gold ml-1">× {pendingExtend.castNames.length}名</span>}
+                </label>
+                <div className="flex gap-2 flex-wrap">
+                  {selected.mainNominationCastNames.length === 0 && (
+                    <CastChip
+                      name="フリー"
+                      selected={pendingExtend.castNames.length === 0}
+                      onClick={() => setPendingExtend({ ...pendingExtend, castNames: [] })}
+                    />
+                  )}
+                  {selected.assignedCasts.map((name) => {
+                    const on = pendingExtend.castNames.includes(name)
+                    return (
+                      <CastChip
+                        key={name}
+                        name={name}
+                        selected={on}
+                        onClick={() =>
+                          setPendingExtend({
+                            ...pendingExtend,
+                            castNames: on
+                              ? pendingExtend.castNames.filter((n) => n !== name)
+                              : [...pendingExtend.castNames, name],
+                          })
+                        }
+                      />
+                    )
+                  })}
+                </div>
+                {selected.mainNominationCastNames.length > 0 && (
+                  <p className="text-[10px] text-gray-600 mt-1.5">※ 本指名がついている卓はフリーに変更できません（複数指名は可）</p>
+                )}
+              </div>
+
+              {/* C13: 場内指名は継承するが変更可。トグルで外せる */}
+              {selected.isBanaiShimei !== undefined && (
+                <div className="panel p-2.5 flex items-center justify-between">
+                  <span className="text-xs text-gray-400">場内指名 (継承)</span>
+                  <button
+                    onClick={() => updateTable(selected.id, { isBanaiShimei: !selected.isBanaiShimei })}
+                    className={`text-xs px-3 py-1 rounded-full border ${selected.isBanaiShimei ? 'bg-gold/20 border-gold text-gold' : 'bg-white/5 border-white/10 text-gray-500'}`}
+                  >
+                    {selected.isBanaiShimei ? '✓ 継続' : '解除'}
+                  </button>
+                </div>
+              )}
+
+              <p className="text-sm text-gray-400">延長してよろしいですか?</p>
             </div>
-            <div>
-              <label className="text-xs text-gray-500 block mb-1.5">指名(バック帰属先・任意)</label>
-              <div className="flex gap-2 flex-wrap">
-                <CastChip
-                  name="フリー"
-                  selected={!pendingExtend.castName}
-                  onClick={() => setPendingExtend({ ...pendingExtend, castName: undefined })}
-                />
-                {selected.castNames.map((name) => (
-                  <CastChip
-                    key={name}
-                    name={name}
-                    selected={pendingExtend.castName === name}
-                    onClick={() => setPendingExtend({ ...pendingExtend, castName: name })}
-                  />
-                ))}
-              </div>
-            </div>
-            <p className="text-sm text-gray-400">延長してよろしいですか?</p>
-          </div>
-        )}
+          )
+        })()}
       </Modal>
+
     </div>
   )
 }
