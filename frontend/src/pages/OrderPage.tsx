@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../store'
 import type { MenuItem, CastMenuItem, OrderItem } from '../data/mock'
 import { displayOrderName, chargeItems } from '../data/mock'
-import { Minus, Plus, Trash2, CreditCard, Gift, UserMinus } from 'lucide-react'
+import { Minus, Plus, Trash2, CreditCard, Gift, UserMinus, Check } from 'lucide-react'
 import ContextualHeader from '../components/ContextualHeader'
 import BottomActionBar from '../components/BottomActionBar'
 import CastChip from '../components/CastChip'
@@ -88,6 +88,8 @@ export default function OrderPage() {
     billingRecords, dailyPayRequests,
   } = useStore()
   const [showAddCast, setShowAddCast] = useState(false)
+  // 「女の子を追加」モーダルで複数選択 → まとめて移動するための選択バッファ。
+  const [castsToAdd, setCastsToAdd] = useState<string[]>([])
   // 注文中でも本日の売上/日払いをヘッダ右の小バッジから即確認できるよう、
   // タップでサマリモーダルを開く state を持つ。
   const [showQuickSummary, setShowQuickSummary] = useState(false)
@@ -315,6 +317,36 @@ export default function OrderPage() {
     updateTable(selectedTable.id, {
       isDouhan: selectedTable.isDouhan ? false : true,
     })
+  }
+
+  // 場内指名も卓単位フラグ。メニュー側ボタン・名前横バッジ・このトグルが
+  // すべて isBanaiShimei を真の truth として参照するため、どこから操作しても
+  // 表示が連動する。同伴と同じく off 導線をここで担保する。
+  const toggleBanai = () => {
+    if (!selectedTable) return
+    updateTable(selectedTable.id, {
+      isBanaiShimei: selectedTable.isBanaiShimei ? false : true,
+    })
+  }
+
+  // 「女の子を追加」モーダルでの選択トグル / 一括移動。
+  const toggleCastToAdd = (name: string) => {
+    setCastsToAdd((prev) =>
+      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
+    )
+  }
+
+  const closeAddCast = () => {
+    setShowAddCast(false)
+    setCastsToAdd([])
+  }
+
+  const handleAddSelectedCasts = () => {
+    if (!selectedTable || castsToAdd.length === 0) return
+    // moveCast は排他移動なので、他卓対応中の子も含めて順に呼べば
+    // それぞれ元の卓から外れてこの卓へ移る。
+    castsToAdd.forEach((name) => moveCast(name, selectedTable.id))
+    closeAddCast()
   }
 
   const subtotal = orders.reduce((sum, o) => sum + o.menuItem.price * o.quantity, 0)
@@ -554,6 +586,20 @@ export default function OrderPage() {
             {selectedTable.isDouhan ? '☑ 同伴あり' : '☐ 同伴なし'}
           </button>
 
+          {/* 場内指名フラグの卓単位トグル。メニュー側「場内指名」ボタンと同じ
+              isBanaiShimei を見て連動し、ここで OFF にも戻せる。 */}
+          <button
+            onClick={toggleBanai}
+            className={`mb-2 w-full text-[11px] py-1.5 rounded-md border transition-colors ${
+              selectedTable.isBanaiShimei
+                ? 'bg-blue-500/20 border-blue-400/50 text-blue-200 font-bold'
+                : 'bg-white/5 border-white/10 text-gray-400 hover:text-blue-200 hover:border-blue-400/30'
+            }`}
+            title="この卓の場内指名フラグを切り替え"
+          >
+            {selectedTable.isBanaiShimei ? '☑ 場内指名あり' : '☐ 場内指名なし'}
+          </button>
+
           <div className="grid grid-cols-1 gap-1.5">
             <CastChip
               name="指名なし"
@@ -600,7 +646,7 @@ export default function OrderPage() {
 
           {/* 追補02 R2-1: 「女の子を追加」で他卓キャストをこの卓に移動 (排他移動) */}
           <button
-            onClick={() => setShowAddCast(true)}
+            onClick={() => { setCastsToAdd([]); setShowAddCast(true) }}
             className="mt-2 w-full btn-ghost text-xs py-1.5 flex items-center justify-center gap-1"
           >
             <Plus size={12} /> 女の子を追加
@@ -856,13 +902,24 @@ export default function OrderPage() {
         )}
       </Modal>
 
-      {/* 追補02 R2: 「女の子を追加」 — 他卓対応中 or 待機中キャストを排他的に移動 */}
+      {/* 追補02 R2: 「女の子を追加」 — 他卓対応中 or 待機中キャストを複数選択して一括で排他移動 */}
       <Modal
         open={showAddCast && !!selectedTable}
-        onClose={() => setShowAddCast(false)}
+        onClose={closeAddCast}
         size="md"
         title={`${selectedTable?.number ?? ''}卓 に追加する女の子`}
-        footer={<GhostButton onClick={() => setShowAddCast(false)} className="flex-1">キャンセル</GhostButton>}
+        footer={
+          <>
+            <GhostButton onClick={closeAddCast} className="flex-1">キャンセル</GhostButton>
+            <GoldButton
+              onClick={handleAddSelectedCasts}
+              disabled={castsToAdd.length === 0}
+              className="flex-1"
+            >
+              追加{castsToAdd.length > 0 && ` (${castsToAdd.length}名)`}
+            </GoldButton>
+          </>
+        }
       >
         {selectedTable && (() => {
           // この卓の assignedCasts に含まれない、active かつ非休憩のキャスト
@@ -882,14 +939,17 @@ export default function OrderPage() {
               )}
               {candidateCasts.map((c) => {
                 const busyAt = castTableMap.get(c.name)
+                const checked = castsToAdd.includes(c.name)
                 return (
                   <button
                     key={c.id}
-                    onClick={() => {
-                      moveCast(c.name, selectedTable.id)
-                      setShowAddCast(false)
-                    }}
-                    className="w-full panel p-3 flex items-center justify-between hover:bg-white/10 transition-colors text-left"
+                    onClick={() => toggleCastToAdd(c.name)}
+                    aria-pressed={checked}
+                    className={`w-full panel p-3 flex items-center justify-between transition-colors text-left border ${
+                      checked
+                        ? 'bg-gold/15 border-gold/60'
+                        : 'border-transparent hover:bg-white/10'
+                    }`}
                   >
                     <div>
                       <div className="font-bold">{c.name}</div>
@@ -897,10 +957,21 @@ export default function OrderPage() {
                         {busyAt ? `現在: ${busyAt.number}卓 対応中 (移動すると元の卓から外れます)` : '待機中'}
                       </div>
                     </div>
-                    <Plus size={18} className="text-gold" />
+                    <span
+                      className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 ${
+                        checked ? 'bg-gold text-primary' : 'bg-white/5 text-gray-500'
+                      }`}
+                    >
+                      {checked ? <Check size={16} /> : <Plus size={16} />}
+                    </span>
                   </button>
                 )
               })}
+              {candidateCasts.length > 0 && (
+                <div className="text-[10px] text-gray-500 pt-1">
+                  タップで複数選択し、「追加」でまとめてこの卓へ移動します。
+                </div>
+              )}
             </div>
           )
         })()}
