@@ -10,16 +10,20 @@ export interface NumberClampOptions {
   min?: number
   max?: number
   /**
-   * 整数前提フィールドか。time給/休憩分/バック単価/値引きなど step が整数の
+   * 整数前提フィールドか。時給/休憩分/バック単価/値引きなど step が整数の
    * フィールドは true (小数入力を整数化する)。保証率など小数刻み (step=0.05) は
    * false で小数を維持する。
    */
   integerOnly: boolean
 }
 
-/** 整数化 (整数フィールドのみ) → min/max クランプ。確定処理の単一の真実。 */
+/**
+ * 整数化 (整数フィールドのみ) → min/max クランプ。確定処理の単一の真実。
+ * 整数化は旧 parseInt 互換の切り捨て (0 方向) で、勝手な四捨五入を避ける
+ * (例: 時給 2500.99 → 2500、四捨五入の 2501 にしない)。
+ */
 export function clampNumber(n: number, { min, max, integerOnly }: NumberClampOptions): number {
-  let v = integerOnly ? Math.round(n) : n
+  let v = integerOnly ? Math.trunc(n) : n
   if (min !== undefined && v < min) v = min
   if (max !== undefined && v > max) v = max
   return v
