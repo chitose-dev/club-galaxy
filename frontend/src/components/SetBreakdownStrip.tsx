@@ -1,6 +1,7 @@
 import type { Table, SetPrice } from '../data/mock'
 import { getSetPriceForTime, SET_DURATION_MINUTES } from '../data/mock'
 import { getExLabel, addMinutesToHHmm, formatTimeRange } from '../utils/setCountLabel'
+import { useStore } from '../store'
 
 /**
  * 「1セット目 / EX1 / EX2 / ...」を横並びカードで表示するストリップ。
@@ -22,6 +23,7 @@ export default function SetBreakdownStrip({
   table: Table
   setPrices: SetPrice[]
 }) {
+  const { storeSettings } = useStore()
   if (!table.startTime) return null
 
   const guestCount = table.guestCount || 0
@@ -51,8 +53,9 @@ export default function SetBreakdownStrip({
   extensions.forEach((ext, idx) => {
     const start = cursor
     const end = addMinutesToHHmm(start, ext.minutes)
-    const fullSetCharge = adjustedSetUnit * guestCount
-    const amount = ext.minutes === 60 ? fullSetCharge : Math.round(fullSetCharge / 2)
+    // 延長料金は設定の延長単価（会計 calcVisitBreakdown と同一）。旧セット単価ベースを廃止。
+    const extUnit = (ext.minutes === 30 ? storeSettings.extensionPrice30Min : storeSettings.extensionPrice60Min) ?? 0
+    const amount = extUnit * guestCount
     cards.push({
       label: getExLabel(idx + 1, ext.minutes),
       rangeLabel: formatTimeRange(start, end),

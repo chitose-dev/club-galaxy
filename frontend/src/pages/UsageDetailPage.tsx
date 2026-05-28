@@ -17,6 +17,7 @@ import {
 } from '../utils/setCountLabel'
 import ExtensionInheritanceModal from '../components/ExtensionInheritanceModal'
 import SetBreakdownStrip from '../components/SetBreakdownStrip'
+import { calcVisitBreakdown, buildVisitBreakdownInput } from '../utils/calcVisitBreakdown'
 import { FileText, CreditCard, Trash2, ArrowLeft, Clock as ClockIcon } from 'lucide-react'
 
 /**
@@ -32,7 +33,7 @@ export default function UsageDetailPage() {
   const params = useParams<{ id: string }>()
   const [searchParams] = useSearchParams()
   const from = searchParams.get('from') || undefined
-  const { tables, removeOrderFromTable, storeSettings, setPrices } = useStore()
+  const { tables, removeOrderFromTable, storeSettings, setPrices, chargeItems } = useStore()
   // spec.md §5.2: 延長押下 → キャスト継承選択モーダル → 確定で /table/:id/extend へ
   const [showExtModal, setShowExtModal] = useState(false)
 
@@ -63,11 +64,21 @@ export default function UsageDetailPage() {
   const setPrice = table.startTime ? getSetPriceForTime(table.startTime, setPrices) : 0
   const discountPerSet = table.setDiscountPerSet ?? 0
   const adjustedSetPrice = Math.max(0, setPrice - discountPerSet)
-  const setSubtotal = adjustedSetPrice * guestCount * setCount
-  const orderSubtotal = orders.reduce((s, o) => s + (o.menuItem?.price ?? 0) * o.quantity, 0)
-  const subtotal = setSubtotal + orderSubtotal
-  const tax = Math.round(subtotal * storeSettings.taxRate)
-  const total = subtotal + tax
+  // セット単位の正準計算（会計 BillingPage と同じ calcVisitBreakdown）。
+  // 延長料金・per-set 指名料込みで、利用明細の小計/合計を会計と一致させる。
+  const visitBreakdown = calcVisitBreakdown(buildVisitBreakdownInput(table, {
+    baseSetUnit: setPrice,
+    extPrice30: storeSettings.extensionPrice30Min ?? 0,
+    extPrice60: storeSettings.extensionPrice60Min ?? 0,
+    honShimeiUnit: chargeItems.find((c) => c.id === 'shimei')?.price ?? 0,
+    banaiUnit: chargeItems.find((c) => c.id === 'banai')?.price ?? 0,
+    douhanUnit: chargeItems.find((c) => c.id === 'douhan')?.price ?? 0,
+    taxRate: storeSettings.taxRate,
+  }))
+  const setSubtotal = visitBreakdown.setFeeTotal  // 1Set目+各EXのセット料金合計
+  const subtotal = visitBreakdown.subtotalBeforeTax  // 延長・指名料込み
+  const tax = visitBreakdown.tax
+  const total = visitBreakdown.total
 
   // spec.md §4.1.1: 表頭の時間帯（HH:MM 〜 HH:MM）。
   //   開始 = startTime、終了 = startTime + 通常セット * 60 + 延長累計分。
