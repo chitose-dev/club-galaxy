@@ -262,9 +262,9 @@ export default function FloorPage() {
       // set0 の指名料をセット別請求で算出できるようにする。
       baseNominationSnapshot: {
         mainNominationCastNames: [...ciMainNominations],
-        banaiCastNames: ciIsBanaiShimei
-          ? assignedNames.filter((n) => !ciMainNominations.includes(n))
-          : [],
+        // 現行 billing 踏襲: isBanaiShimei 卓は assignedCasts 全員に場内料がかかる
+        // （本指名キャストも含む）。0EX の請求総額を変えないため count をこれに揃える。
+        banaiCastNames: ciIsBanaiShimei ? [...assignedNames] : [],
         douhanCount: ciIsDouhan ? assignedNames.length : 0,
       },
     }
