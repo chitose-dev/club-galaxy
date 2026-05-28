@@ -13,8 +13,11 @@
 import {
   calcVisitBreakdown,
   isSeparatelyBilledRow,
+  buildVisitBreakdownInput,
   type BreakdownOrderInput,
   type BreakdownSetInput,
+  type VisitTableLike,
+  type VisitBreakdownRates,
 } from './calcVisitBreakdown'
 
 let failures = 0
@@ -136,6 +139,72 @@ function testExclusionStrictness(): void {
   check('非除外: 通常商品 割り物各種', isSeparatelyBilledRow(row({ name: '割り物各種', menuItemId: 108, cost: 100 }), excl, nom) === false)
 }
 
+// ── buildVisitBreakdownInput アダプタ（両経路の Table 形から正しく組むか） ──
+const RATES: VisitBreakdownRates = {
+  baseSetUnit: 4000, extPrice30: 1000, extPrice60: 3000,
+  honShimeiUnit: 1500, banaiUnit: 500, douhanUnit: 4000, taxRate: 0.2,
+}
+
+// 旧 useExtendTable 経路の Table 形: 延長確定で orders をクリア&延長/本指名を注文行で積む。
+// extensionHistory に orderMenuItemId / nominatedCastNames、現フラグは継続本指名。
+function testAdapterUseExtendTablePath(): void {
+  const table: VisitTableLike = {
+    guestCount: 2, setCount: 1, startTime: '20:30',
+    mainNominationCastNames: ['あいり'], isBanaiShimei: false, isDouhan: false,
+    assignedCasts: ['あいり'],
+    baseNominationSnapshot: { mainNominationCastNames: ['あいり'], banaiCastNames: [], douhanCount: 0 },
+    extensionHistory: [{ minutes: 60, nominatedCastNames: ['あいり'], banaiCastNames: [], orderMenuItemId: 2001 }],
+    orders: [
+      { menuItem: { id: 105, name: 'ゲストショット', price: 2000, cost: 500, castBack: 0 }, quantity: 1, setSequence: 0 },
+      { menuItem: { id: 2001, name: 'EX(1)', price: 6000, cost: 0, castBack: 0 }, quantity: 1 }, // 延長注文(除外)
+      { menuItem: { id: 3001, name: '本指名', price: 1500, cost: 300, castBack: 0 }, quantity: 1, castName: 'あいり' }, // 本指名料(除外)
+    ],
+  }
+  const r = calcVisitBreakdown(buildVisitBreakdownInput(table, RATES))
+  eq('Adapter-旧経路: orderTotal=実商品のみ(2000)', r.orderTotal, 2000)
+  eq('Adapter-旧経路: setFeeTotal=8000+6000', r.setFeeTotal, 14000)
+  eq('Adapter-旧経路: nominationTotal=1500(base)+1500(EX)', r.nominationTotal, 3000)
+  eq('Adapter-旧経路: 税前小計=19000(二重計上なし)', r.subtotalBeforeTax, 19000)
+}
+
+// ExtensionConfirmPage 経路: 延長注文を積まない。base は入店時スナップショット(場内=全員)。
+// EX1 で本指名みく/場内なし。注文は base/EX1 に setSequence で振り分け。
+function testAdapterExtensionConfirmPath(): void {
+  const table: VisitTableLike = {
+    guestCount: 2, setCount: 1, startTime: '20:30',
+    mainNominationCastNames: ['みく'], isBanaiShimei: false, isDouhan: false,
+    assignedCasts: ['みく'],
+    baseNominationSnapshot: { mainNominationCastNames: ['あいり'], banaiCastNames: ['あいり', 'ゆい'], douhanCount: 0 },
+    extensionHistory: [{ minutes: 60, nominatedCastNames: ['みく'], banaiCastNames: [] }],
+    orders: [
+      { menuItem: { id: 105, name: 'ゲストショット', price: 2000, cost: 500, castBack: 0 }, quantity: 1, setSequence: 0 },
+      { menuItem: { id: 108, name: '割り物各種', price: 600, cost: 100, castBack: 0 }, quantity: 1, setSequence: 1 },
+    ],
+  }
+  const r = calcVisitBreakdown(buildVisitBreakdownInput(table, RATES))
+  eq('Adapter-新経路: base場内=スナップショット2名×500', r.sets[0].banaiFee, 1000)
+  eq('Adapter-新経路: 延長料金6000が計上(setFeeTotal=14000)', r.setFeeTotal, 14000)
+  eq('Adapter-新経路: base注文=2000', r.sets[0].orderSubtotal, 2000)
+  eq('Adapter-新経路: EX1注文=600(setSequence振り分け)', r.sets[1].orderSubtotal, 600)
+  eq('Adapter-新経路: nominationTotal=base(1500+1000)+EX(1500)', r.nominationTotal, 4000)
+  eq('Adapter-新経路: 税前小計=14000+4000+2600', r.subtotalBeforeTax, 20600)
+}
+
+// 0EX は現フラグ由来（既存 billing と一致）。
+function testAdapterBaseOnly(): void {
+  const table: VisitTableLike = {
+    guestCount: 3, setCount: 1, startTime: '22:30',
+    mainNominationCastNames: ['あいり'], isBanaiShimei: true, isDouhan: false,
+    assignedCasts: ['あいり', 'みく'],
+    orders: [],
+  }
+  // baseSetUnit を 22時台 5000 として渡す
+  const r = calcVisitBreakdown(buildVisitBreakdownInput(table, { ...RATES, baseSetUnit: 5000 }))
+  eq('Adapter-0EX: base setFee=5000×3', r.sets[0].setFee, 15000)
+  eq('Adapter-0EX: 本指名1×1500', r.sets[0].honShimeiFee, 1500)
+  eq('Adapter-0EX: 場内=assignedCasts全員2×500(現行踏襲)', r.sets[0].banaiFee, 1000)
+}
+
 function main(): number {
   testUseExtendTablePath()
   testExtensionConfirmPath()
@@ -143,6 +212,9 @@ function main(): number {
   testResetExtensionNoNomination()
   testBanaiDouhan()
   testExclusionStrictness()
+  testAdapterUseExtendTablePath()
+  testAdapterExtensionConfirmPath()
+  testAdapterBaseOnly()
   console.log(failures === 0 ? '\nAll calcVisitBreakdown tests passed.' : `\n${failures} test(s) FAILED.`)
   return failures
 }

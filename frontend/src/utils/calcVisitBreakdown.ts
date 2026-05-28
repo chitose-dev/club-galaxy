@@ -167,3 +167,131 @@ export function calcVisitBreakdown(input: CalcVisitBreakdownInput): CalcVisitBre
 
   return { sets, setFeeTotal, nominationTotal, orderTotal, subtotalBeforeTax, discount, tax, total }
 }
+
+// ─────────────────────────────────────────────────────────────
+// Table -> calcVisitBreakdown 入力アダプタ
+// アプリ側（BillingPage 等）が解決済みの単価を rates で渡し、Table から per-set
+// 入力を組み立てる。mock/React 非依存（構造的型）で単体テスト可能。
+// ─────────────────────────────────────────────────────────────
+
+/** アダプタが必要とする、解決済みの単価・税率。 */
+export interface VisitBreakdownRates {
+  /** 時間帯セット単価（getSetPriceForTime 解決済み、値引き前）。 */
+  baseSetUnit: number
+  /** 30分延長単価（storeSettings.extensionPrice30Min）。 */
+  extPrice30: number
+  /** 60分延長単価（storeSettings.extensionPrice60Min）。 */
+  extPrice60: number
+  honShimeiUnit: number
+  banaiUnit: number
+  douhanUnit: number
+  taxRate: number
+}
+
+/** アダプタが読む最小限の Table 形（構造的型。実 Table はこれを満たす）。 */
+export interface VisitTableLike {
+  guestCount: number
+  setCount: number
+  startTime: string | null
+  mainNominationCastNames: string[]
+  isBanaiShimei?: boolean
+  isDouhan?: boolean
+  assignedCasts: string[]
+  setDiscountPerSet?: number
+  extensionHistory?: ReadonlyArray<{
+    minutes: 30 | 60
+    nominatedCastNames?: string[]
+    banaiCastNames?: string[]
+    orderMenuItemId?: number
+  }>
+  baseNominationSnapshot?: {
+    mainNominationCastNames: string[]
+    banaiCastNames: string[]
+    douhanCount: number
+  }
+  orders: ReadonlyArray<{
+    menuItem: { id: number; name: string; price: number; cost?: number; castBack?: number }
+    quantity: number
+    castName?: string
+    setSequence?: number
+    isExtension?: boolean
+  }>
+}
+
+/** 指名料 charge 行として商品小計から除外する品名（chargeItems の本指名/場内/同伴ラベル）。 */
+export const NOMINATION_CHARGE_NAMES: readonly string[] = ['本指名', '場内指名', '同伴']
+
+/**
+ * Table を calcVisitBreakdown 入力へ変換する。
+ * - base セット指名: 0EX は現フラグ、≥1EX は baseNominationSnapshot（無ければ現フラグへ fallback）
+ * - 各EXセット指名: そのエントリのスナップショット（本指名 = nominatedCastNames、
+ *   場内 = banaiCastNames）。同伴は EX では課金しない
+ * - 場内 count は現行 billing 踏襲（isBanaiShimei 卓は assignedCasts 全員）
+ * - 延長料金は設定の延長単価（extPrice）× 人数
+ */
+export function buildVisitBreakdownInput(t: VisitTableLike, rates: VisitBreakdownRates): CalcVisitBreakdownInput {
+  const guests = t.guestCount
+  const ex = t.extensionHistory ?? []
+  const n = ex.length
+  const baseSetFee = Math.max(0, rates.baseSetUnit - (t.setDiscountPerSet ?? 0)) * guests * Math.max(1, t.setCount || 1)
+
+  // 現行 billing 準拠の現フラグ由来 count（0EX の base、および fallback に使う）。
+  const currentHon = t.mainNominationCastNames.length
+  const currentBanai = t.isBanaiShimei ? t.assignedCasts.length : 0
+  const currentDouhan = t.isDouhan ? t.assignedCasts.length : 0
+
+  const baseSnap = t.baseNominationSnapshot
+  const baseHon = n === 0 ? currentHon : (baseSnap ? baseSnap.mainNominationCastNames.length : currentHon)
+  const baseBanai = n === 0 ? currentBanai : (baseSnap ? baseSnap.banaiCastNames.length : currentBanai)
+  const baseDouhan = n === 0 ? currentDouhan : (baseSnap ? baseSnap.douhanCount : currentDouhan)
+
+  const sets: BreakdownSetInput[] = [{
+    kind: 'base',
+    label: '1Set目',
+    minutes: 60,
+    setFee: baseSetFee,
+    honShimeiCount: baseHon,
+    banaiCount: baseBanai,
+    douhanCount: baseDouhan,
+  }]
+
+  ex.forEach((e, i) => {
+    const extUnit = e.minutes === 30 ? rates.extPrice30 : rates.extPrice60
+    sets.push({
+      kind: 'extension',
+      label: e.minutes === 30 ? `EX(${i + 1})半` : `EX(${i + 1})`,
+      minutes: e.minutes,
+      setFee: extUnit * guests,
+      honShimeiCount: e.nominatedCastNames?.length ?? 0,
+      banaiCount: e.banaiCastNames?.length ?? 0,
+      douhanCount: 0,
+    })
+  })
+
+  const orders: BreakdownOrderInput[] = t.orders.map((o) => ({
+    menuItemId: o.menuItem.id,
+    name: o.menuItem.name,
+    price: o.menuItem.price,
+    quantity: o.quantity,
+    castName: o.castName,
+    setSequence: o.setSequence,
+    isExtension: o.isExtension,
+    cost: o.menuItem.cost,
+    castBack: o.menuItem.castBack,
+  }))
+
+  const excludedExtensionOrderIds = ex
+    .map((e) => e.orderMenuItemId)
+    .filter((id): id is number => typeof id === 'number')
+
+  return {
+    sets,
+    orders,
+    honShimeiUnit: rates.honShimeiUnit,
+    banaiUnit: rates.banaiUnit,
+    douhanUnit: rates.douhanUnit,
+    taxRate: rates.taxRate,
+    excludedExtensionOrderIds,
+    nominationChargeNames: [...NOMINATION_CHARGE_NAMES],
+  }
+}
