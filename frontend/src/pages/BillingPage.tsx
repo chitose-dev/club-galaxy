@@ -9,7 +9,7 @@ import { Printer, CheckCircle, ArrowLeft, CreditCard, ChevronDown, ChevronUp, Lo
 import ContextualHeader from '../components/ContextualHeader'
 import VisitBreakdownView from '../components/VisitBreakdownView'
 import { computeVisitBreakdown } from '../utils/visitBreakdown'
-import { calcVisitBreakdown, buildVisitBreakdownInput } from '../utils/calcVisitBreakdown'
+import { calcVisitBreakdown, buildVisitBreakdownInput, buildSalesAttribution } from '../utils/calcVisitBreakdown'
 import { isBusinessDateClosed, LOCKED_TOOLTIP } from '../utils/closing'
 import { isUncollectedActive } from '../utils/uncollected'
 import { getJstTodayDateString, currentTimeMs } from '../utils/businessDay'
@@ -779,17 +779,10 @@ export default function BillingPage() {
       .map((n) => casts.find((c) => c.name === n)?.id)
       .filter((id): id is number => typeof id === 'number')
     const nominatedCastId = nominatedCastIdsSnapshot[0]
-    // 均等按分（端数は最後のキャストに寄せる）。本指名なしのフリー卓は誰にも帰属しない。
-    const buildAttribution = (subtotal: number): Record<string, number> => {
-      if (nomNames.length === 0) return {}
-      const each = Math.floor(subtotal / nomNames.length)
-      const acc: Record<string, number> = {}
-      nomNames.forEach((n, i) => {
-        acc[n] = i === nomNames.length - 1 ? subtotal - each * (nomNames.length - 1) : each
-      })
-      return acc
-    }
-    const salesAttributionByCast = buildAttribution(subtotalAll)
+    // 売上帰属は **代表卓分のみ**（mainBreakdown.subtotalBeforeTax）を按分する。
+    // 旧実装は合算全体の subtotalAll を代表卓キャストに乗せており、合算対象卓の
+    // shadow レコードとで二重/誤帰属になっていた（給与・キャスト別売上が過大）。
+    const salesAttributionByCast = buildSalesAttribution(mainBreakdown.subtotalBeforeTax, nomNames)
 
     const receiptNumberForRecord = getNextReceiptNumber()
 
@@ -873,14 +866,8 @@ export default function BillingPage() {
       const mNomIds = mNomNames
         .map((n) => casts.find((c) => c.name === n)?.id)
         .filter((id): id is number => typeof id === 'number')
-      // shadow レコードも spec.md §5.5 に従い卓単位で salesAttributionByCast を計算
-      const mAttribution: Record<string, number> = {}
-      if (mNomNames.length > 0) {
-        const mEach = Math.floor(mSubtotal / mNomNames.length)
-        mNomNames.forEach((n, i) => {
-          mAttribution[n] = i === mNomNames.length - 1 ? mSubtotal - mEach * (mNomNames.length - 1) : mEach
-        })
-      }
+      // shadow レコードは合算対象卓分のみを按分（代表卓分は乗せない）。
+      const mAttribution = buildSalesAttribution(mSubtotal, mNomNames)
       addBillingRecord({
         id: String(currentTimeMs() + mid),
         tableNumber: mt.number,
@@ -897,6 +884,9 @@ export default function BillingPage() {
         salesAttributionByCast: mAttribution,
         // 合算対象卓 (shadow) も卓単位で延長履歴を保持し按分対象に含める。
         extensionHistorySnapshot: (mt.extensionHistory ?? []).map((e) => ({ ...e })),
+        // 合算 shadow: 売上/利益/レジ締めの総額集計から除外する（代表卓 record が
+        // 合算総額を含むため二重計上になる）。per-cast 帰属には引き続き使う。
+        isMergedShadow: true,
         // shadow レコードには receiptSnapshot を付けない (代表卓 1 枚で印字済)
       })
     }
@@ -1384,11 +1374,9 @@ export default function BillingPage() {
                     <h3 className="text-xs text-gray-400 tracking-wider mb-2">合算会計</h3>
                     <div className="space-y-1.5">
                       {occupiedTables.filter((t) => t.id !== selectedTableId).map((t) => {
-                        const mSet = t.startTime ? getSetPriceForTime(t.startTime, setPrices) : 0
-                        const mDisc = t.setDiscountPerSet ?? 0
-                        const mSetTotal = Math.max(0, mSet - mDisc) * t.guestCount * t.setCount
-                        const mDrink = t.orders.reduce((s, o) => s + o.menuItem.price * o.quantity, 0)
-                        const mSub = mSetTotal + mDrink
+                        // 確定額とズレないよう、候補金額も会計と同じセット単位計算で出す
+                        // （延長料金・per-set 指名料込み、二重計上除外）。
+                        const mSub = calcVisitBreakdown(buildVisitBreakdownInput(t, ratesFor(t))).subtotalBeforeTax
                         return (
                           <label key={t.id} className="flex items-center justify-between gap-2 text-sm bg-white/5 px-3 py-2 rounded-lg cursor-pointer hover:bg-white/10">
                             <div className="flex items-center gap-2">
@@ -1414,7 +1402,7 @@ export default function BillingPage() {
                     {mergeTableIds.length > 0 && (
                       <div className="mt-2 text-xs text-gold flex justify-between">
                         <span>{mergeTableIds.length} 卓 合算中</span>
-                        <span className="tabular-nums">+¥{(mergedSetFee + mergedDrinkTotal).toLocaleString()}</span>
+                        <span className="tabular-nums">+¥{mergedBreakdowns.reduce((a, b) => a + b.subtotalBeforeTax, 0).toLocaleString()}</span>
                       </div>
                     )}
                   </div>

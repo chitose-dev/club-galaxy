@@ -15,6 +15,7 @@ import {
   isSeparatelyBilledRow,
   buildVisitBreakdownInput,
   allocatePerSetTax,
+  buildSalesAttribution,
   type BreakdownOrderInput,
   type BreakdownSetInput,
   type VisitTableLike,
@@ -236,7 +237,35 @@ function testAllocatePerSetTax(): void {
   eq('allocate: 小計0なら tax0', allocatePerSetTax(z)[0], 0)
 }
 
+// ── buildSalesAttribution（合算で代表卓=代表卓分のみ・対象卓=対象卓分のみ） ──
+function testSalesAttributionDistribution(): void {
+  const a = buildSalesAttribution(10000, ['A', 'B', 'C'])
+  eq('帰属: A', a['A'], 3333)
+  eq('帰属: B', a['B'], 3333)
+  eq('帰属: C(端数寄せ)', a['C'], 3334)
+  eq('帰属: 合計=渡した小計', a['A'] + a['B'] + a['C'], 10000)
+  check('帰属: 本指名なしは空', Object.keys(buildSalesAttribution(5000, [])).length === 0)
+  eq('帰属: 単独は全額', buildSalesAttribution(5000, ['X'])['X'], 5000)
+}
+
+// 合算会計: 代表卓レコードは代表卓分のみ、合算対象卓 shadow は対象卓分のみを按分し、
+// 合算全体が代表卓キャストに二重で乗らないこと。
+function testSalesAttributionMergedNoDoubleCount(): void {
+  const mainSub = 19000 // 代表卓（あいり）
+  const shadowSub = 8000 // 合算対象卓（みく）
+  const mainAttr = buildSalesAttribution(mainSub, ['あいり'])
+  const shadowAttr = buildSalesAttribution(shadowSub, ['みく'])
+  eq('合算: 代表卓キャスト=代表卓分のみ', mainAttr['あいり'], 19000)
+  eq('合算: 対象卓キャスト=対象卓分のみ', shadowAttr['みく'], 8000)
+  check('合算: 代表卓に合算対象卓キャストは乗らない', mainAttr['みく'] === undefined)
+  check('合算: 対象卓に代表卓キャストは乗らない', shadowAttr['あいり'] === undefined)
+  // 全体合計 = 代表卓分 + 対象卓分（合算総額の二重計上なし）
+  eq('合算: 帰属総額=各卓小計の和', mainAttr['あいり'] + shadowAttr['みく'], mainSub + shadowSub)
+}
+
 function main(): number {
+  testSalesAttributionDistribution()
+  testSalesAttributionMergedNoDoubleCount()
   testUseExtendTablePath()
   testExtensionConfirmPath()
   testBaseOnly()
