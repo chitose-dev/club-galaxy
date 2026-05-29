@@ -14,6 +14,7 @@ import {
   calcVisitBreakdown,
   isSeparatelyBilledRow,
   buildVisitBreakdownInput,
+  allocatePerSetTax,
   type BreakdownOrderInput,
   type BreakdownSetInput,
   type VisitTableLike,
@@ -205,6 +206,36 @@ function testAdapterBaseOnly(): void {
   eq('Adapter-0EX: 場内=assignedCasts全員2×500(現行踏襲)', r.sets[0].banaiFee, 1000)
 }
 
+// TAX のセット按分（利用明細 / 延長確認のセット別 TAX・合計表示）。
+function testAllocatePerSetTax(): void {
+  // 2セット・小計按分。端数は最終セットが吸収し、Σ=visit TAX を保証する。
+  const r = calcVisitBreakdown({
+    sets: [
+      { kind: 'base', label: '1Set目', minutes: 60, setFee: 333, honShimeiCount: 0, banaiCount: 0, douhanCount: 0 },
+      { kind: 'extension', label: 'EX(1)', minutes: 60, setFee: 667, honShimeiCount: 0, banaiCount: 0, douhanCount: 0 },
+    ],
+    orders: [],
+    ...UNITS,
+  })
+  eq('allocate: visit tax=floor(1000×0.2)=200', r.tax, 200)
+  const t = allocatePerSetTax(r)
+  eq('allocate: set0 tax=floor(200×333/1000)=66', t[0], 66)
+  eq('allocate: set1(last) 端数吸収=200-66=134', t[1], 134)
+  eq('allocate: Σ per-set tax = visit tax', t[0] + t[1], r.tax)
+  check(
+    'allocate: per-set 合計の総和 = visit 合計',
+    (r.sets[0].subtotal + t[0]) + (r.sets[1].subtotal + t[1]) === r.total,
+    `sum=${(r.sets[0].subtotal + t[0]) + (r.sets[1].subtotal + t[1])} total=${r.total}`,
+  )
+  // 小計0なら全セット tax 0。
+  const z = calcVisitBreakdown({
+    sets: [{ kind: 'base', label: '1Set目', minutes: 60, setFee: 0, honShimeiCount: 0, banaiCount: 0, douhanCount: 0 }],
+    orders: [],
+    ...UNITS,
+  })
+  eq('allocate: 小計0なら tax0', allocatePerSetTax(z)[0], 0)
+}
+
 function main(): number {
   testUseExtendTablePath()
   testExtensionConfirmPath()
@@ -215,6 +246,7 @@ function main(): number {
   testAdapterUseExtendTablePath()
   testAdapterExtensionConfirmPath()
   testAdapterBaseOnly()
+  testAllocatePerSetTax()
   console.log(failures === 0 ? '\nAll calcVisitBreakdown tests passed.' : `\n${failures} test(s) FAILED.`)
   return failures
 }
