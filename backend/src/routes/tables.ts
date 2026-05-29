@@ -219,8 +219,13 @@ tablesRouter.post('/:id/orders', async (req, res) => {
       //   新規 order を追加せず quantity を加算してマージ。複数端末で同卓に同じ
       //   メニューを並列で投入しても orders の行数が増えず、tx 内 merge により
       //   counter race も防げる。
+      // セット所属 (setSequence) が異なる注文は別セットの行として区別し、マージしない。
+      const reqSeq = typeof body.setSequence === 'number' ? body.setSequence : 0
       const existingIdx = table.orders.findIndex(
-        (o) => o.menuItem.id === (mi.id as number) && o.castName === body.castName,
+        (o) =>
+          o.menuItem.id === (mi.id as number) &&
+          o.castName === body.castName &&
+          (o.setSequence ?? 0) === reqSeq,
       )
       if (existingIdx >= 0) {
         const merged: OrderEmbedded = {
@@ -253,6 +258,7 @@ tablesRouter.post('/:id/orders', async (req, res) => {
         },
         quantity: body.quantity as number,
         ...(typeof body.castName === 'string' ? { castName: body.castName as string } : {}),
+        ...(typeof body.setSequence === 'number' ? { setSequence: body.setSequence as number } : {}),
         ...(typeof body.bonusCastName === 'string' ? { bonusCastName: body.bonusCastName as string } : {}),
         ...(typeof body.bonusAmount === 'number' ? { bonusAmount: body.bonusAmount as number } : {}),
         ...(Array.isArray(body.splitCastIds)
@@ -292,6 +298,8 @@ tablesRouter.post('/:id/orders/decrement', async (req, res) => {
       throwBadRequest('menuItemId は数値')
     }
     const castName = typeof body.castName === 'string' ? body.castName : undefined
+    // setSequence 指定時は当該セットの行だけを対象にする（未指定は 0=1Set目）。
+    const reqSeq = typeof body.setSequence === 'number' ? body.setSequence : 0
 
     const result = await col().firestore.runTransaction(async (tx) => {
       const ref = col().doc(tableId)
@@ -299,7 +307,10 @@ tablesRouter.post('/:id/orders/decrement', async (req, res) => {
       if (!snap.exists) throwNotFound('卓が見つかりません')
       const table = snap.data() as Table
       const idx = table.orders.findIndex(
-        (o) => o.menuItem.id === body.menuItemId && o.castName === castName,
+        (o) =>
+          o.menuItem.id === body.menuItemId &&
+          o.castName === castName &&
+          (o.setSequence ?? 0) === reqSeq,
       )
       if (idx < 0) throwNotFound('注文が見つかりません')
       const newOrders = [...table.orders]

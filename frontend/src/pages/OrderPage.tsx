@@ -115,6 +115,17 @@ export default function OrderPage() {
   const selectedTable = tables.find((t) => t.id === selectedTableId)
   const orders = selectedTable?.orders ?? []
   const hasMainShimei = (selectedTable?.mainNominationCastNames?.length ?? 0) > 0
+  // 現在のセット = 入店後の延長回数 (0=1Set目, 1=EX1 …)。新規注文はこの番号を
+  // 焼き付け、注文明細は現在セット分のみ表示する。過去セットの注文は内部保持
+  // され、会計合計には全セット分が乗る。
+  const currentSetSequence = selectedTable?.extensionHistory?.length ?? 0
+  const currentSetOrders = orders.filter((o) => (o.setSequence ?? 0) === currentSetSequence)
+  const pastSetOrderCount = orders.length - currentSetOrders.length
+  // 注文系の作成は全てこの卓の現在セット番号を焼き付けて行う。
+  const addCurrentSetOrder = (order: OrderItem) => {
+    if (!selectedTableId) return
+    addOrderToTable(selectedTableId, { ...order, setSequence: currentSetSequence })
+  }
 
   const menuItems: MenuItem[] = useMemo(() => {
     const all = [...guestMenu, ...castMenu]
@@ -151,11 +162,11 @@ export default function OrderPage() {
   const addOrderForSelectedCasts = (item: MenuItem) => {
     if (!selectedTableId) return
     if (selectedCastNames.length === 0) {
-      addOrderToTable(selectedTableId, { menuItem: item, quantity: 1 })
+      addCurrentSetOrder({ menuItem: item, quantity: 1 })
       return
     }
     selectedCastNames.forEach((name) => {
-      addOrderToTable(selectedTableId, { menuItem: item, quantity: 1, castName: name })
+      addCurrentSetOrder({ menuItem: item, quantity: 1, castName: name })
     })
   }
 
@@ -185,7 +196,7 @@ export default function OrderPage() {
 
   const confirmFreeOrder = () => {
     if (!selectedTableId || !pendingFreeMenuItem) return
-    addOrderToTable(selectedTableId, { menuItem: pendingFreeMenuItem, quantity: 1 })
+    addCurrentSetOrder({ menuItem: pendingFreeMenuItem, quantity: 1 })
     setPendingFreeMenuItem(null)
   }
 
@@ -193,7 +204,7 @@ export default function OrderPage() {
   const confirmCastDrinkOrder = () => {
     if (!selectedTableId || !pendingCastDrinkItem || !selectedTable) return
     selectedTable.mainNominationCastNames.forEach((name) => {
-      addOrderToTable(selectedTableId, { menuItem: pendingCastDrinkItem, quantity: 1, castName: name })
+      addCurrentSetOrder({ menuItem: pendingCastDrinkItem, quantity: 1, castName: name })
     })
     setPendingCastDrinkItem(null)
   }
@@ -259,14 +270,14 @@ export default function OrderPage() {
         quantity: 1,
         castName: name,
       }
-      addOrderToTable(selectedTableId, order)
+      addCurrentSetOrder(order)
     })
   }
 
   const handleAddHelp = () => {
     if (!selectedTableId) return
     // ビデオレビュー N6: ヘルプはキャスト紐付けなし、全額店舗売上
-    addOrderToTable(selectedTableId, { menuItem: HELP_GUEST_ITEM, quantity: 1 })
+    addCurrentSetOrder({ menuItem: HELP_GUEST_ITEM, quantity: 1 })
   }
 
   // ISSUE-003: 選択中のキャスト全員を一括で待機に戻す
@@ -278,20 +289,20 @@ export default function OrderPage() {
 
   const handleRemove = (itemId: number, castName?: string) => {
     if (!selectedTableId) return
-    removeOrderFromTable(selectedTableId, itemId, castName)
+    removeOrderFromTable(selectedTableId, itemId, castName, currentSetSequence)
   }
 
   const handleIncrement = (o: OrderItem) => {
     if (!selectedTableId) return
-    addOrderToTable(selectedTableId, { menuItem: o.menuItem, quantity: 1, castName: o.castName })
+    addCurrentSetOrder({ menuItem: o.menuItem, quantity: 1, castName: o.castName })
   }
 
   const handleDelete = (itemId: number, castName?: string) => {
     if (!selectedTableId) return
-    const order = orders.find((o) => o.menuItem.id === itemId && o.castName === castName)
+    const order = currentSetOrders.find((o) => o.menuItem.id === itemId && o.castName === castName)
     if (!order) return
     for (let i = 0; i < order.quantity; i++) {
-      removeOrderFromTable(selectedTableId, itemId, castName)
+      removeOrderFromTable(selectedTableId, itemId, castName, currentSetSequence)
     }
   }
 
@@ -510,7 +521,7 @@ export default function OrderPage() {
           ) : (
             <div className="grid grid-cols-2 gap-2 content-start">
               {menuItems.map((item) => {
-                const orderedQty = orders.filter((o) => o.menuItem.id === item.id).reduce((s, o) => s + o.quantity, 0)
+                const orderedQty = currentSetOrders.filter((o) => o.menuItem.id === item.id).reduce((s, o) => s + o.quantity, 0)
                 return (
                   <button
                     key={item.id}
@@ -687,15 +698,25 @@ export default function OrderPage() {
             )
           })()}
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs text-gray-400 tracking-wider">注文明細</span>
-            <span className="text-[10px] text-gray-500">{orders.length} 品</span>
+            <span className="text-xs text-gray-400 tracking-wider">
+              注文明細
+              <span className="text-gold/70 ml-1">（{getSetLabel(selectedTable)}）</span>
+            </span>
+            <span className="text-[10px] text-gray-500">{currentSetOrders.length} 品</span>
           </div>
 
-          {orders.length === 0 ? (
-            <div className="text-center text-gray-500 text-sm py-12">注文なし</div>
+          {/* 現在セットの注文のみ表示。過去セット分は内部保持され、会計合計には乗る。 */}
+          {pastSetOrderCount > 0 && (
+            <div className="text-[10px] text-gray-500 mb-2">
+              ※ 過去セットの注文 {pastSetOrderCount} 件は内部保持され、合計・利用明細に反映されます。
+            </div>
+          )}
+
+          {currentSetOrders.length === 0 ? (
+            <div className="text-center text-gray-500 text-sm py-12">このセットの注文なし</div>
           ) : (
             <div className="space-y-1.5">
-              {orders.map((o, idx) => (
+              {currentSetOrders.map((o, idx) => (
                 <div
                   key={`${o.menuItem.id}-${o.castName ?? ''}-${idx}`}
                   className="panel p-2.5 flex flex-col gap-1"
@@ -843,7 +864,7 @@ export default function OrderPage() {
               <DangerButton
                 onClick={() => {
                   if (!selectedTableId || !bonusTarget) return
-                  setOrderBonus(selectedTableId, bonusTarget.menuItem.id, bonusTarget.castName, {})
+                  setOrderBonus(selectedTableId, bonusTarget.menuItem.id, bonusTarget.castName, {}, bonusTarget.setSequence ?? currentSetSequence)
                   setBonusTarget(null)
                 }}
                 className="flex-1"
@@ -858,7 +879,7 @@ export default function OrderPage() {
                 setOrderBonus(selectedTableId, bonusTarget.menuItem.id, bonusTarget.castName, {
                   bonusCastName,
                   bonusAmount,
-                })
+                }, bonusTarget.setSequence ?? currentSetSequence)
                 setBonusTarget(null)
               }}
               className="flex-1"

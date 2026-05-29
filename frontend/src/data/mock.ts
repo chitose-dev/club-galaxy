@@ -45,8 +45,12 @@ export interface ExtensionEntry {
    * 後方互換のため残置。新規書込みは nominatedCastNames[0] と同じ値が入る。
    */
   nominatedCastName?: string
-  /** 延長時に指名した全キャスト（複数選択対応、空配列ならフリー） */
+  /** 延長時に指名した全キャスト（複数選択対応、空配列ならフリー）。
+   *  この EX セットの本指名スナップショット。延長確定時点の本指名状態を焼き付ける。 */
   nominatedCastNames?: string[]
+  /** この EX セットの場内指名スナップショット（延長確定時点の場内指名キャスト）。
+   *  未設定は「場内指名なし」扱い。セット別内訳で EX ごとの指名料を出すために使う。 */
+  banaiCastNames?: string[]
   /** このエントリで追加された注文ID(取消時に一緒に削除するため) */
   orderMenuItemId?: number
 }
@@ -185,6 +189,13 @@ export interface OrderItem {
    * として加算される。
    */
   bonusAmount?: number
+  /**
+   * この注文が属するセットの通し番号。0 = 1Set目(base)、1 = EX1、2 = EX2 …。
+   * 入店後の延長回数 (extensionHistory.length) を発注時点で焼き付ける。
+   * 未設定の既存注文は 0(1Set目/base) 扱い。注文画面は現在セット分のみ表示し、
+   * 過去セットの注文も内部データとしては保持する（会計合計には全セット分が乗る）。
+   */
+  setSequence?: number
 }
 
 export interface Cast {

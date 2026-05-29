@@ -130,6 +130,8 @@ export interface OrderEmbedded {
   quantity: number
   /** 売上帰属先キャスト */
   castName?: string
+  /** 所属セットの通し番号。0=1Set目(base)、1=EX1 … 未設定は 0 扱い。 */
+  setSequence?: number
   /** 追補03 R18: ボーナス加算先（M7、`maxBonusRatePerOrder=0.3` 上限ガード） */
   bonusCastName?: string
   bonusAmount?: number
@@ -152,8 +154,12 @@ export interface ExtensionEntry {
   timestamp: string
   /** 延長時の指名キャスト（バック帰属、M23 で本指名バック継続） */
   nominatedCastName?: string
+  /** この EX セットの本指名スナップショット（複数選択対応） */
+  nominatedCastNames?: string[]
+  /** この EX セットの場内指名スナップショット */
+  banaiCastNames?: string[]
   /** 連動して追加した orderItem ID 群（取消時に同時削除） */
-  orderItemIds: string[]
+  orderItemIds?: string[]
 }
 
 export interface Table extends AuditFields {

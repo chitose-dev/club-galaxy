@@ -182,11 +182,17 @@ export default function ExtensionConfirmPage() {
       const c: Cast | undefined = casts.find((cc) => cc.name === name)
       if (c) moveCast(name, table.id)
     }
-    // 4. 新規 ExtensionEntry を追加
+    // 4. 新規 ExtensionEntry を追加。
+    //    この EX セットの指名状態（本指名 = 承継+追加、場内 = 承継分）を
+    //    スナップショットとして焼き付ける。旧実装はこれを保存しておらず、
+    //    セット別内訳で EX ごとの指名を復元できなかった。
     const entry: ExtensionEntry = {
       id: Date.now(),
       minutes: config.minutes,
       timestamp: new Date().toISOString(),
+      nominatedCastName: newShimei[0],        // 後方互換（単一指名）
+      nominatedCastNames: newShimei,          // 本指名スナップショット
+      banaiCastNames: [...config.keptBanaiCastNames], // 場内指名スナップショット
     }
     // updateTable で extensionHistory + mainNominationCastNames + assignedCasts を一括更新
     const nextAssigned = Array.from(
