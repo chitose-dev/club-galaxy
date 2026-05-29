@@ -51,9 +51,10 @@ export default function ExtensionInheritanceModal({ open, table, onClose, onConf
     return table.assignedCasts.filter((n) => !currentShimei.includes(n))
   }, [table, currentShimei])
 
-  // チェック状態（初期値: 全 ON）
-  const [keptShimei, setKeptShimei] = useState<Set<string>>(new Set(currentShimei))
-  // 場内指名の継承は明示オプトイン（必要なものだけユーザーがチェック ON）。
+  // 指名形態は EX 以降「基本リセット」。本指名・場内とも継承は明示オプトイン
+  // （承継したいものだけユーザーがチェック ON）。spec: EX1以降は1セットごとに
+  // 指名形態を基本リセットし、承継設定した分だけ引き継ぐ。
+  const [keptShimei, setKeptShimei] = useState<Set<string>>(new Set())
   const [keptBanai, setKeptBanai] = useState<Set<string>>(new Set())
   const [addedShimei, setAddedShimei] = useState<Set<string>>(new Set())
   const [minutes, setMinutes] = useState<30 | 60>(60)
@@ -63,8 +64,8 @@ export default function ExtensionInheritanceModal({ open, table, onClose, onConf
   // table.id のみを依存に置き、チェック中の操作で state を上書きしないようにする。
   useEffect(() => {
     if (!table) return
-    setKeptShimei(new Set(table.mainNominationCastNames))
-    // 場内指名の継承は明示オプトイン（モーダルを開き直すたびに全 OFF にリセット）。
+    // EX は基本リセット: 本指名・場内とも継承は明示オプトイン（開き直すたび全 OFF）。
+    setKeptShimei(new Set())
     setKeptBanai(new Set())
     setAddedShimei(new Set())
     setMinutes(60)
@@ -142,9 +143,9 @@ export default function ExtensionInheritanceModal({ open, table, onClose, onConf
             )}
           </section>
 
-          {/* 本指名キャストの継承 */}
+          {/* 本指名キャストの継承（既定リセット・承継はオプトイン） */}
           <section className="panel p-3">
-            <h4 className="text-xs text-gray-400 mb-2 tracking-wider">本指名キャストの継承</h4>
+            <h4 className="text-xs text-gray-400 mb-2 tracking-wider">本指名キャストの継承 <span className="text-gray-600">（既定リセット / 引き継ぐ人をチェック）</span></h4>
             {currentShimei.length === 0 ? (
               <div className="text-xs text-gray-500">本指名キャストはいません</div>
             ) : (
