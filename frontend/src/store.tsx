@@ -486,6 +486,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               extensionHistory: [],
               setDiscountPerSet: 0,
               timeAdjustmentMinutes: 0,
+              baseNominationSnapshot: undefined,
             }
           : t,
       ),

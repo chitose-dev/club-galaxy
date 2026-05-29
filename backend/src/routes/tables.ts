@@ -155,6 +155,7 @@ tablesRouter.post('/:id/reset', async (req, res) => {
       setDiscountPerSet: null,
       timeAdjustmentMinutes: null,
       extensionHistory: [],
+      baseNominationSnapshot: null,
       updatedBy: user.username,
       updatedAt: nowJstIso(),
     })

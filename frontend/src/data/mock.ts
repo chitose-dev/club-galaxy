@@ -34,6 +34,18 @@ export interface Table {
   timeAdjustmentMinutes?: number
   /** 延長履歴(延長取消のため) */
   extensionHistory?: ExtensionEntry[]
+  /**
+   * 1Set目(base)の指名スナップショット。入店時に焼き付け、延長で table の
+   * mainNominationCastNames / isBanaiShimei が上書きされても 1Set目の指名状態
+   * （入店時点の情報）を保持する。セット別請求で set0 の指名料を算出するのに使う。
+   * 未設定の旧データは会計時に現 table フラグへ fallback する。
+   */
+  baseNominationSnapshot?: {
+    mainNominationCastNames: string[]
+    banaiCastNames: string[]
+    /** 同伴対象人数（入店時 isDouhan ? assignedCasts.length : 0）。 */
+    douhanCount: number
+  }
 }
 
 export interface ExtensionEntry {
