@@ -336,6 +336,10 @@ export interface BillingRecord extends AuditFields, SoftDeletable {
   receiptSnapshot: ReceiptSnapshot
   receiptIssued: boolean
 
+  /** 合算会計の shadow レコード（代表卓に合算された対象卓の per-cast 帰属用）。
+   *  売上/利益/レジ締めの総額集計からは除外する。 */
+  isMergedShadow?: boolean
+
   /** ★ Rev.4.1 再発行（M3）— 上限 20 で打ち切り */
   reissueParentId?: string
   /** 1〜20。表示は `${receiptNumber}-${reissueIndex}` */

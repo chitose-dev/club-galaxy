@@ -884,6 +884,9 @@ export default function BillingPage() {
         salesAttributionByCast: mAttribution,
         // 合算対象卓 (shadow) も卓単位で延長履歴を保持し按分対象に含める。
         extensionHistorySnapshot: (mt.extensionHistory ?? []).map((e) => ({ ...e })),
+        // 合算 shadow: 売上/利益/レジ締めの総額集計から除外する（代表卓 record が
+        // 合算総額を含むため二重計上になる）。per-cast 帰属には引き続き使う。
+        isMergedShadow: true,
         // shadow レコードには receiptSnapshot を付けない (代表卓 1 枚で印字済)
       })
     }
