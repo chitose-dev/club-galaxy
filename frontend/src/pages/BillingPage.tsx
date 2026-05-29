@@ -2,14 +2,14 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useStore } from '../store'
 import { useAuth } from '../auth'
-import { getSetPriceForTime, getSetPriceLabel, displayOrderName } from '../data/mock'
+import { getSetPriceForTime } from '../data/mock'
 import type { DiscountLog, BillingRecord, IssuedReceipt } from '../data/mock'
 import { getNominationLabel } from '../utils/nomination'
 import { Printer, CheckCircle, ArrowLeft, CreditCard, ChevronDown, ChevronUp, Lock } from 'lucide-react'
 import ContextualHeader from '../components/ContextualHeader'
 import VisitBreakdownView from '../components/VisitBreakdownView'
 import { computeVisitBreakdown } from '../utils/visitBreakdown'
-import SetBreakdownStrip from '../components/SetBreakdownStrip'
+import { calcVisitBreakdown, buildVisitBreakdownInput, buildSalesAttribution } from '../utils/calcVisitBreakdown'
 import { isBusinessDateClosed, LOCKED_TOOLTIP } from '../utils/closing'
 import { isUncollectedActive } from '../utils/uncollected'
 import { getJstTodayDateString, currentTimeMs } from '../utils/businessDay'
@@ -638,11 +638,79 @@ export default function BillingPage() {
   )
   const mergedNominationFees = mergedTables.reduce((s, t) => s + calcNominationFees(t), 0)
 
-  const subtotal = drinkTotal + mergedDrinkTotal + nominationFees + mergedNominationFees  // 内税扱い
-  const setFee = setPriceTotal + mergedSetFee  // 内税扱い
   const taxRate = storeSettings.taxRate
   const cardFeeRate = storeSettings.cardFeeRate
+
+  // ── 旧計算（差分表示用に保持）: 延長料金が乗らない/指名は現フラグ1回のみ ──
+  const oldSubtotal = drinkTotal + mergedDrinkTotal + nominationFees + mergedNominationFees
+  const oldSetFee = setPriceTotal + mergedSetFee
+  const oldSubtotalAll = oldSubtotal + oldSetFee
+
+  // ── 新計算（セット単位・正準）: calcVisitBreakdown に集約 ──
+  //   延長料金を両経路で計上し、指名料はセットごと（base=スナップショット/現フラグ、
+  //   各EX=エントリスナップショット）に計上。旧 useExtendTable が積んだ延長order/指名charge
+  //   行は商品小計から除外して二重計上を防ぐ。0EX の請求総額は不変。
+  const ratesFor = (t: typeof table) => ({
+    baseSetUnit: t.startTime ? getSetPriceForTime(t.startTime, setPrices) : 0,
+    extPrice30: storeSettings.extensionPrice30Min ?? 0,
+    extPrice60: storeSettings.extensionPrice60Min ?? 0,
+    honShimeiUnit,
+    banaiUnit: banaiShimeiUnit,
+    douhanUnit,
+    taxRate,
+  })
+  const mainBreakdown = calcVisitBreakdown(buildVisitBreakdownInput(table, ratesFor(table)))
+  const mergedBreakdowns = mergedTables.map((mt) => calcVisitBreakdown(buildVisitBreakdownInput(mt, ratesFor(mt))))
+  const allBreakdowns = [mainBreakdown, ...mergedBreakdowns]
+  const newSetFee = allBreakdowns.reduce((a, b) => a + b.setFeeTotal, 0)
+  const newSubtotal = allBreakdowns.reduce((a, b) => a + b.nominationTotal + b.orderTotal, 0)
+
+  // 請求はセット単位の新計算を正とする（延長未請求の是正・セット別指名料）。
+  // 表示・保存・税・帰属すべてこの値を参照するため、表示と保存でズレない。
+  const subtotal = newSubtotal  // 内税扱い（指名料+商品）
+  const setFee = newSetFee  // 内税扱い（1Set目+各EXのセット料金）
   const subtotalAll = subtotal + setFee  // 全て内税
+  // 旧→新の差分。0EX なら 0。増えるのは未請求だった延長料金 + EXごとの指名料差分。
+  const billingDelta = subtotalAll - oldSubtotalAll
+  const extensionFeeAdded = newSetFee - oldSetFee  // 延長セット料金の増加分
+  const nominationDelta = newSubtotal - oldSubtotal  // 指名料+商品の差分（per-set指名 − 旧1回 ± 二重計上除去）
+
+  // セット単位内訳のレンダリング（calcVisitBreakdown 由来。請求と一致する）。
+  // breakdowns[0] が代表卓、以降は合算対象卓（mergedLabels に対応）。
+  const renderPerSetDetail = (
+    breakdowns: ReturnType<typeof calcVisitBreakdown>[],
+    mergedLabels: string[],
+  ) =>
+    breakdowns.map((bd, bi) => (
+      <div key={bi} className="space-y-1">
+        {bi > 0 && (
+          <div className="text-[11px] text-gray-500 border-b border-white/5 pb-0.5">{mergedLabels[bi - 1] ?? ''}（合算）</div>
+        )}
+        {bd.sets.map((s) => (
+          <div key={s.label} className="space-y-0.5">
+            <div className="flex justify-between">
+              <span className="text-gold/90">{s.label} <span className="text-gray-500 text-xs">セット料金</span></span>
+              <span className="tabular-nums">¥{s.setFee.toLocaleString()}</span>
+            </div>
+            {s.honShimeiFee > 0 && (
+              <div className="flex justify-between text-xs text-gray-400 pl-3"><span>本指名料 x{s.honShimeiCount}</span><span className="tabular-nums">¥{s.honShimeiFee.toLocaleString()}</span></div>
+            )}
+            {s.banaiFee > 0 && (
+              <div className="flex justify-between text-xs text-gray-400 pl-3"><span>場内指名料 x{s.banaiCount}</span><span className="tabular-nums">¥{s.banaiFee.toLocaleString()}</span></div>
+            )}
+            {s.douhanFee > 0 && (
+              <div className="flex justify-between text-xs text-gray-400 pl-3"><span>同伴料 x{s.douhanCount}</span><span className="tabular-nums">¥{s.douhanFee.toLocaleString()}</span></div>
+            )}
+            {s.orderLines.map((o, oi) => (
+              <div key={oi} className="flex justify-between text-xs text-gray-400 pl-3">
+                <span>{o.name}{o.castName ? ` ${o.castName}` : ''}{o.quantity > 1 ? ` x${o.quantity}` : ''}</span>
+                <span className="tabular-nums">{o.price === 0 ? 'セット内' : `¥${(o.price * o.quantity).toLocaleString()}`}</span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    ))
   const tax = Math.floor(subtotalAll * taxRate)  // 税サ20%外税
   const preCardTotal = subtotalAll + tax - discount
   // 消費税は内税として表示のみ (合計には影響しない)
@@ -711,17 +779,10 @@ export default function BillingPage() {
       .map((n) => casts.find((c) => c.name === n)?.id)
       .filter((id): id is number => typeof id === 'number')
     const nominatedCastId = nominatedCastIdsSnapshot[0]
-    // 均等按分（端数は最後のキャストに寄せる）。本指名なしのフリー卓は誰にも帰属しない。
-    const buildAttribution = (subtotal: number): Record<string, number> => {
-      if (nomNames.length === 0) return {}
-      const each = Math.floor(subtotal / nomNames.length)
-      const acc: Record<string, number> = {}
-      nomNames.forEach((n, i) => {
-        acc[n] = i === nomNames.length - 1 ? subtotal - each * (nomNames.length - 1) : each
-      })
-      return acc
-    }
-    const salesAttributionByCast = buildAttribution(subtotalAll)
+    // 売上帰属は **代表卓分のみ**（mainBreakdown.subtotalBeforeTax）を按分する。
+    // 旧実装は合算全体の subtotalAll を代表卓キャストに乗せており、合算対象卓の
+    // shadow レコードとで二重/誤帰属になっていた（給与・キャスト別売上が過大）。
+    const salesAttributionByCast = buildSalesAttribution(mainBreakdown.subtotalBeforeTax, nomNames)
 
     const receiptNumberForRecord = getNextReceiptNumber()
 
@@ -796,25 +857,17 @@ export default function BillingPage() {
     for (const mid of mergeTableIds) {
       const mt = tables.find((t) => t.id === mid)
       if (!mt || !mt.startTime) continue
-      const mSet = getSetPriceForTime(mt.startTime, setPrices)
-      const mDisc = mt.setDiscountPerSet ?? 0
-      const mSetTotal = Math.max(0, mSet - mDisc) * mt.guestCount * mt.setCount
-      const mDrink = mt.orders.reduce((s, o) => s + o.menuItem.price * o.quantity, 0)
-      const mSubtotal = mSetTotal + mDrink
+      // 代表卓と同じセット単位の新計算で shadow レコードを組む（延長料金・per-set 指名料を計上）。
+      const mBreakdown = calcVisitBreakdown(buildVisitBreakdownInput(mt, ratesFor(mt)))
+      const mSubtotal = mBreakdown.subtotalBeforeTax
       const mTax = Math.floor(mSubtotal * taxRate)
       const mTotal = mSubtotal + mTax
       const mNomNames = mt.mainNominationCastNames
       const mNomIds = mNomNames
         .map((n) => casts.find((c) => c.name === n)?.id)
         .filter((id): id is number => typeof id === 'number')
-      // shadow レコードも spec.md §5.5 に従い卓単位で salesAttributionByCast を計算
-      const mAttribution: Record<string, number> = {}
-      if (mNomNames.length > 0) {
-        const mEach = Math.floor(mSubtotal / mNomNames.length)
-        mNomNames.forEach((n, i) => {
-          mAttribution[n] = i === mNomNames.length - 1 ? mSubtotal - mEach * (mNomNames.length - 1) : mEach
-        })
-      }
+      // shadow レコードは合算対象卓分のみを按分（代表卓分は乗せない）。
+      const mAttribution = buildSalesAttribution(mSubtotal, mNomNames)
       addBillingRecord({
         id: String(currentTimeMs() + mid),
         tableNumber: mt.number,
@@ -1030,54 +1083,8 @@ export default function BillingPage() {
             </div>
             <h3 className="text-sm font-bold mb-3 text-gray-400">{table.number}卓 内訳</h3>
             <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span>セット料金 <span className="text-gray-600">({table.startTime ? getSetPriceLabel(table.startTime, setPrices) : '-'})</span></span>
-                <span className="tabular-nums">¥{setPriceTotal.toLocaleString()}</span>
-              </div>
-              <div className="text-xs text-gray-600 ml-2">
-                {discountPerSet > 0
-                  ? `¥${setPrice.toLocaleString()} - 値引¥${discountPerSet.toLocaleString()} = ¥${setPriceAfterDiscount.toLocaleString()} x ${table.guestCount}名 x ${table.setCount}セット`
-                  : `¥${setPrice.toLocaleString()} x ${table.guestCount}名 x ${table.setCount}セット`}
-              </div>
-              {table.orders.length > 0 && (
-                <>
-                  <div className="border-t border-white/5 pt-2 mt-2">
-                    <div className="text-xs text-gray-500 mb-1">注文</div>
-                  </div>
-                  {table.orders.map((o, idx) => (
-                    <div key={`${o.menuItem.id}-${idx}`} className="flex justify-between text-sm">
-                      <span className="text-gray-300">{displayOrderName(o)}{o.quantity > 1 && <span className="text-gray-500"> x{o.quantity}</span>}</span>
-                      <span className="tabular-nums">{o.menuItem.price === 0 ? 'セット内' : `¥${(o.menuItem.price * o.quantity).toLocaleString()}`}</span>
-                    </div>
-                  ))}
-                </>
-              )}
-              {/* Fix B: 指名料・同伴料・場内指名料 (table 属性から計算、orders に依存しない) */}
-              {((table.mainNominationCastNames?.length ?? 0) > 0 && honShimeiUnit > 0)
-               || (table.isDouhan && douhanUnit > 0 && table.assignedCasts.length > 0)
-               || (table.isBanaiShimei && banaiShimeiUnit > 0 && table.assignedCasts.length > 0) ? (
-                <div className="border-t border-white/5 pt-2 mt-2">
-                  <div className="text-xs text-gray-500 mb-1">指名・同伴料</div>
-                </div>
-              ) : null}
-              {(table.mainNominationCastNames?.length ?? 0) > 0 && honShimeiUnit > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-300">本指名料 <span className="text-gray-500 text-xs">x{table.mainNominationCastNames.length}名 ({table.mainNominationCastNames.join(', ')})</span></span>
-                  <span className="tabular-nums">¥{(table.mainNominationCastNames.length * honShimeiUnit).toLocaleString()}</span>
-                </div>
-              )}
-              {table.isDouhan && douhanUnit > 0 && table.assignedCasts.length > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-300">同伴料 <span className="text-gray-500 text-xs">x{table.assignedCasts.length}名</span></span>
-                  <span className="tabular-nums">¥{(table.assignedCasts.length * douhanUnit).toLocaleString()}</span>
-                </div>
-              )}
-              {table.isBanaiShimei && banaiShimeiUnit > 0 && table.assignedCasts.length > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-300">場内指名料 <span className="text-gray-500 text-xs">x{table.assignedCasts.length}名</span></span>
-                  <span className="tabular-nums">¥{(table.assignedCasts.length * banaiShimeiUnit).toLocaleString()}</span>
-                </div>
-              )}
+              {/* セット単位内訳（calcVisitBreakdown 由来。代表卓のみ表示） */}
+              {renderPerSetDetail([mainBreakdown], [])}
               <div className="border-t border-white/5 pt-2 mt-2 space-y-1.5">
                 <div className="flex justify-between text-sm"><span className="text-gray-500">注文小計(内税)</span><span className="tabular-nums">¥{subtotal.toLocaleString()}</span></div>
                 <div className="flex justify-between text-sm"><span className="text-gray-500">セット料金(内税)</span><span className="tabular-nums">¥{setFee.toLocaleString()}</span></div>
@@ -1133,50 +1140,27 @@ export default function BillingPage() {
               {/* LEFT column: 明細 / 現金 / 値引 */}
               <div className="space-y-4">
                 <div className="panel p-4">
-                  <h3 className="text-xs text-gray-400 tracking-wider mb-3">明細</h3>
-                  {/* QA 第3弾: 「1セット目はいくら / EX1 はいくら / EX2 はいくら」が分かるよう
-                      に、明細の上にセット別カード一覧を出す。EX3 以降は横スクロール。 */}
-                  <div className="mb-3">
-                    <SetBreakdownStrip table={table} setPrices={setPrices} />
-                  </div>
+                  <h3 className="text-xs text-gray-400 tracking-wider mb-3">明細（セット別）</h3>
                   <div className="space-y-1.5 text-sm">
-                    <div className="flex justify-between">
-                      <span>セット料金 <span className="text-gray-500 text-xs">({table.startTime ? getSetPriceLabel(table.startTime, setPrices) : '-'}) x{table.guestCount}名 x{table.setCount}</span>
-                        {discountPerSet > 0 && <span className="text-amber-300 text-xs"> (値引¥{discountPerSet.toLocaleString()}/セット)</span>}
-                      </span>
-                      <span className="tabular-nums">¥{setPriceTotal.toLocaleString()}</span>
-                    </div>
-                    {table.orders.map((o, idx) => (
-                      <div key={`${o.menuItem.id}-${idx}`} className="flex justify-between">
-                        <span className="text-gray-300">{displayOrderName(o)}{o.quantity > 1 && <span className="text-gray-500"> x{o.quantity}</span>}</span>
-                        <span className="tabular-nums">{o.menuItem.price === 0 ? 'セット内' : `¥${(o.menuItem.price * o.quantity).toLocaleString()}`}</span>
-                      </div>
-                    ))}
-                    {/* Fix B: 指名料・同伴料・場内指名料 (table 属性から計算、orders に依存しない) */}
-                    {(table.mainNominationCastNames?.length ?? 0) > 0 && honShimeiUnit > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-gray-300">本指名料 <span className="text-gray-500 text-xs">x{table.mainNominationCastNames.length}名 ({table.mainNominationCastNames.join(', ')})</span></span>
-                        <span className="tabular-nums">¥{(table.mainNominationCastNames.length * honShimeiUnit).toLocaleString()}</span>
-                      </div>
-                    )}
-                    {table.isDouhan && douhanUnit > 0 && table.assignedCasts.length > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-gray-300">同伴料 <span className="text-gray-500 text-xs">x{table.assignedCasts.length}名</span></span>
-                        <span className="tabular-nums">¥{(table.assignedCasts.length * douhanUnit).toLocaleString()}</span>
-                      </div>
-                    )}
-                    {table.isBanaiShimei && banaiShimeiUnit > 0 && table.assignedCasts.length > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-gray-300">場内指名料 <span className="text-gray-500 text-xs">x{table.assignedCasts.length}名</span></span>
-                        <span className="tabular-nums">¥{(table.assignedCasts.length * banaiShimeiUnit).toLocaleString()}</span>
-                      </div>
-                    )}
+                    {renderPerSetDetail(allBreakdowns, mergedTables.map((mt) => `${mt.number}卓`))}
                     <div className="border-t border-white/5 pt-2 mt-2 space-y-1">
-                      <div className="flex justify-between text-gray-500"><span>注文小計</span><span className="tabular-nums">¥{subtotal.toLocaleString()}</span></div>
-                      <div className="flex justify-between text-gray-500"><span>セット料金</span><span className="tabular-nums">¥{setFee.toLocaleString()}</span></div>
+                      <div className="flex justify-between text-gray-500"><span>注文・指名小計</span><span className="tabular-nums">¥{subtotal.toLocaleString()}</span></div>
+                      <div className="flex justify-between text-gray-500"><span>セット料金合計</span><span className="tabular-nums">¥{setFee.toLocaleString()}</span></div>
                       <div className="flex justify-between text-gray-500"><span>TAX ({(taxRate * 100).toFixed(0)}%)</span><span className="tabular-nums">¥{tax.toLocaleString()}</span></div>
                       <div className="flex justify-between text-xs text-gray-600"><span>※消費税内訳</span><span className="tabular-nums">¥{consumptionTax.toLocaleString()}</span></div>
                     </div>
+                    {/* 旧→新 差分（請求総額が動いた理由を可視化）。0EX なら 0。 */}
+                    {billingDelta !== 0 && (
+                      <div className="border-t border-amber-400/20 pt-2 mt-2 space-y-1 bg-amber-500/5 rounded p-2">
+                        <div className="flex justify-between text-xs"><span className="text-gray-400">旧計算 税前小計</span><span className="tabular-nums text-gray-400">¥{oldSubtotalAll.toLocaleString()}</span></div>
+                        <div className="flex justify-between text-xs"><span className="text-gray-300">新計算 税前小計</span><span className="tabular-nums">¥{subtotalAll.toLocaleString()}</span></div>
+                        <div className="flex justify-between text-xs font-bold"><span className="text-amber-300">差分</span><span className="tabular-nums text-amber-300">{billingDelta >= 0 ? '+' : ''}¥{billingDelta.toLocaleString()}</span></div>
+                        <div className="text-[10px] text-gray-500 leading-relaxed">
+                          内訳: 延長セット料金 {extensionFeeAdded >= 0 ? '+' : ''}¥{extensionFeeAdded.toLocaleString()} / 指名・商品差分 {nominationDelta >= 0 ? '+' : ''}¥{nominationDelta.toLocaleString()}
+                          <br />※ 未請求だった延長料金の計上＋EXごとの指名料を反映。0EX の卓は差分0。
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1387,11 +1371,9 @@ export default function BillingPage() {
                     <h3 className="text-xs text-gray-400 tracking-wider mb-2">合算会計</h3>
                     <div className="space-y-1.5">
                       {occupiedTables.filter((t) => t.id !== selectedTableId).map((t) => {
-                        const mSet = t.startTime ? getSetPriceForTime(t.startTime, setPrices) : 0
-                        const mDisc = t.setDiscountPerSet ?? 0
-                        const mSetTotal = Math.max(0, mSet - mDisc) * t.guestCount * t.setCount
-                        const mDrink = t.orders.reduce((s, o) => s + o.menuItem.price * o.quantity, 0)
-                        const mSub = mSetTotal + mDrink
+                        // 確定額とズレないよう、候補金額も会計と同じセット単位計算で出す
+                        // （延長料金・per-set 指名料込み、二重計上除外）。
+                        const mSub = calcVisitBreakdown(buildVisitBreakdownInput(t, ratesFor(t))).subtotalBeforeTax
                         return (
                           <label key={t.id} className="flex items-center justify-between gap-2 text-sm bg-white/5 px-3 py-2 rounded-lg cursor-pointer hover:bg-white/10">
                             <div className="flex items-center gap-2">
@@ -1417,7 +1399,7 @@ export default function BillingPage() {
                     {mergeTableIds.length > 0 && (
                       <div className="mt-2 text-xs text-gold flex justify-between">
                         <span>{mergeTableIds.length} 卓 合算中</span>
-                        <span className="tabular-nums">+¥{(mergedSetFee + mergedDrinkTotal).toLocaleString()}</span>
+                        <span className="tabular-nums">+¥{mergedBreakdowns.reduce((a, b) => a + b.subtotalBeforeTax, 0).toLocaleString()}</span>
                       </div>
                     )}
                   </div>
