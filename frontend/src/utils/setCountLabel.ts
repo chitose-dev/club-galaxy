@@ -86,6 +86,32 @@ export function getCurrentSetRange(t: {
   return { start: t.startTime, end: addMinutesToHHmm(t.startTime, SET_DURATION_MINUTES) }
 }
 
+/**
+ * 入店から各セット（1Set目 → EX1 → EX2 …）の時刻レンジを通しで返す。
+ * index は calcVisitBreakdown の sets と 1:1（0=1Set目, i=EX(i)）。
+ * 1Set目は setCount×60 分、各 EX は entry.minutes 分を直前セット終了に連結する。
+ * これを唯一の時刻ソースにすることで「現在セット」と「延長履歴」の時刻ズレを無くす。
+ */
+export function buildSetTimeRanges(t: {
+  startTime: string | null
+  setCount: number
+  extensionHistory?: ReadonlyArray<{ minutes: 30 | 60 }>
+}): ({ start: string; end: string } | null)[] {
+  const ex = t.extensionHistory ?? []
+  if (!t.startTime) return Array.from({ length: 1 + ex.length }, () => null)
+  const baseMinutes = Math.max(1, t.setCount || 1) * SET_DURATION_MINUTES
+  let cursor = t.startTime
+  let end = addMinutesToHHmm(cursor, baseMinutes)
+  const ranges: { start: string; end: string }[] = [{ start: cursor, end }]
+  cursor = end
+  for (const e of ex) {
+    end = addMinutesToHHmm(cursor, e.minutes)
+    ranges.push({ start: cursor, end })
+    cursor = end
+  }
+  return ranges
+}
+
 /** "12:00〜13:00まで" 形式。end が 0:00〜3:59 のとき先頭ゼロを落として "1:00まで"。 */
 export function formatTimeRange(start: string, end: string): string {
   const fmt = (hhmm: string) => {

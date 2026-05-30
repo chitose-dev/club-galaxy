@@ -258,6 +258,15 @@ export default function FloorPage() {
       setDiscountPerSet: 0,
       timeAdjustmentMinutes: 0,
       extensionHistory: [],
+      // 1Set目の指名状態を入店時点で焼き付ける。延長で table フラグが上書きされても
+      // set0 の指名料をセット別請求で算出できるようにする。
+      baseNominationSnapshot: {
+        mainNominationCastNames: [...ciMainNominations],
+        // 現行 billing 踏襲: isBanaiShimei 卓は assignedCasts 全員に場内料がかかる
+        // （本指名キャストも含む）。0EX の請求総額を変えないため count をこれに揃える。
+        banaiCastNames: ciIsBanaiShimei ? [...assignedNames] : [],
+        douhanCount: ciIsDouhan ? assignedNames.length : 0,
+      },
     }
     // Fix D: updateTable が backend 同期するので明示的な tablesApi.update は不要
     updateTable(selected.id, checkInPatch)

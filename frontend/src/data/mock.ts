@@ -34,6 +34,18 @@ export interface Table {
   timeAdjustmentMinutes?: number
   /** 延長履歴(延長取消のため) */
   extensionHistory?: ExtensionEntry[]
+  /**
+   * 1Set目(base)の指名スナップショット。入店時に焼き付け、延長で table の
+   * mainNominationCastNames / isBanaiShimei が上書きされても 1Set目の指名状態
+   * （入店時点の情報）を保持する。セット別請求で set0 の指名料を算出するのに使う。
+   * 未設定の旧データは会計時に現 table フラグへ fallback する。
+   */
+  baseNominationSnapshot?: {
+    mainNominationCastNames: string[]
+    banaiCastNames: string[]
+    /** 同伴対象人数（入店時 isDouhan ? assignedCasts.length : 0）。 */
+    douhanCount: number
+  }
 }
 
 export interface ExtensionEntry {
@@ -341,6 +353,10 @@ export interface BillingRecord {
   salesAttributionByCast?: Record<string, number>
   /** 会計履歴からの再印刷用スナップショット */
   receiptSnapshot?: ReceiptSnapshot
+  /** 合算会計の shadow レコード（代表卓に合算された対象卓の per-cast 帰属用）。
+   *  代表卓 record の total が合算総額を含むため、売上/利益/レジ締めの**総額集計から
+   *  除外**する（per-cast 売上帰属には引き続き使う）。 */
+  isMergedShadow?: boolean
   /** 未収（代金未収受）フラグ。誤開卓・トラブル等で代金回収できず退卓した場合に true */
   isUncollected?: boolean
   /** 未収ステータス（オーナーが管理画面で更新）。

@@ -20,6 +20,7 @@ import { advancesApi } from './api/advances'
 import { archiveApi } from './api/archive'
 import { ApiError } from './api/client'
 import { getJstTodayDateString } from './utils/businessDay'
+import { isMergedShadowRecord } from './utils/visitBreakdown'
 import {
   guestMenuItems as initialGuestMenu,
   castMenuItems as initialCastMenu,
@@ -486,6 +487,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               extensionHistory: [],
               setDiscountPerSet: 0,
               timeAdjustmentMinutes: 0,
+              baseNominationSnapshot: undefined,
             }
           : t,
       ),
@@ -691,8 +693,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const monthPrefix = todayStr.slice(0, 7)
     const dateOf = (r: typeof billingRecords[number]) => r.businessDate ?? r.date ?? todayStr
 
-    const todayBillings = billingRecords.filter((r) => dateOf(r) === todayStr)
-    const monthBillings = billingRecords.filter((r) => dateOf(r).startsWith(monthPrefix))
+    // 合算 shadow は代表卓 record に総額が含まれるため、売上総額集計から除外する。
+    const todayBillings = billingRecords.filter((r) => dateOf(r) === todayStr && !isMergedShadowRecord(r))
+    const monthBillings = billingRecords.filter((r) => dateOf(r).startsWith(monthPrefix) && !isMergedShadowRecord(r))
 
     const todaySales = todayBillings.reduce((s, r) => s + r.total, 0)
     const monthSales = monthBillings.reduce((s, r) => s + r.total, 0)
