@@ -168,6 +168,24 @@ export function calcVisitBreakdown(input: CalcVisitBreakdownInput): CalcVisitBre
   return { sets, setFeeTotal, nominationTotal, orderTotal, subtotalBeforeTax, discount, tax, total }
 }
 
+/**
+ * visit の TAX をセット小計按分でセットごとに割り当てる。
+ * Σ(per-set tax) === result.tax を保証（端数は最終セットが吸収）。
+ * 利用明細 / 延長確認のセット別「TAX・合計」表示でセット合計の総和が visit 合計と一致するために使う。
+ */
+export function allocatePerSetTax(result: CalcVisitBreakdownResult): number[] {
+  const { sets, tax, subtotalBeforeTax } = result
+  if (sets.length === 0) return []
+  if (subtotalBeforeTax <= 0) return sets.map(() => 0)
+  let allocated = 0
+  return sets.map((s, i) => {
+    if (i === sets.length - 1) return tax - allocated
+    const t = Math.floor((tax * s.subtotal) / subtotalBeforeTax)
+    allocated += t
+    return t
+  })
+}
+
 // ─────────────────────────────────────────────────────────────
 // Table -> calcVisitBreakdown 入力アダプタ
 // アプリ側（BillingPage 等）が解決済みの単価を rates で渡し、Table から per-set
