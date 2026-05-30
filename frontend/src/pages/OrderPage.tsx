@@ -212,11 +212,12 @@ export default function OrderPage() {
   // BillingPage は `mainNominationCastNames / isBanaiShimei / isDouhan` を真の truth として
   // 指名料を計算する設計。orders 側にも本指名 charge を積むと二重計上になるため、
   // 指名形態 (本指名/場内指名/同伴) は orders に「積まず」卓フラグだけを更新する。
-  // 同一セット内で同じ形態を 2 度追加できないよう、ボタン側で disabled 制御する。
+  // 本指名は複数対応なので追加で重ねられる（disabled にしない）。場内/同伴は卓単位の
+  // 単一フラグなので、同一セット内で 2 度追加できないようボタン側で disabled 制御する。
   const NOMINATION_IDS = new Set(['shimei', 'banai', 'douhan'])
   const isNominationAlreadyAppliedToTable = (chargeId: string): boolean => {
     if (!selectedTable) return false
-    if (chargeId === 'shimei') return selectedTable.mainNominationCastNames.length > 0
+    // 本指名は複数対応のため「適用済みで打ち切り」にはしない（常に追加可）。
     if (chargeId === 'banai') return !!selectedTable.isBanaiShimei
     if (chargeId === 'douhan') return !!selectedTable.isDouhan
     return false
@@ -225,24 +226,27 @@ export default function OrderPage() {
   const handleAddCharge = (charge: { id: string; label: string; price: number; cost: number }) => {
     if (!selectedTableId || !selectedTable) return
 
+    if (charge.id === 'shimei') {
+      // 本指名は複数対応。選択中のキャスト全員を既存の本指名にマージする（重複排除）。
+      // 既に本指名が 1 人以上いても追加できる。
+      if (selectedCastNames.length === 0) {
+        alert('本指名は対象キャストを選択してから追加してください')
+        return
+      }
+      const merged = Array.from(
+        new Set([...selectedTable.mainNominationCastNames, ...selectedCastNames]),
+      )
+      updateTable(selectedTableId, { mainNominationCastNames: merged })
+      return
+    }
+
     if (NOMINATION_IDS.has(charge.id)) {
-      // セット単位の重複ガード。1 セット内で本指名/場内/同伴 が複数件入らない。
+      // 場内 / 同伴 は卓単位の単一フラグ。重複ガードで 2 度追加を防ぐ。
       if (isNominationAlreadyAppliedToTable(charge.id)) {
         alert(`このセットには既に「${charge.label}」が設定されています`)
         return
       }
-      if (charge.id === 'shimei') {
-        // 本指名はキャスト指定が必要。1 セット 1 本指名仕様のため、複数選択中でも
-        // 先頭 1 名のみを採用 (UI 側は disabled 制御で複数選択時の戸惑いを抑制する)。
-        if (selectedCastNames.length === 0) {
-          alert('本指名は対象キャストを選択してから追加してください')
-          return
-        }
-        updateTable(selectedTableId, { mainNominationCastNames: [selectedCastNames[0]] })
-        return
-      }
-      // 場内 / 同伴 は卓単位フラグで会計は assignedCasts.length × 単価 で算出される。
-      // キャスト選択は使わない (= 卓全員に適用)。UI でも「卓全員」を明示する。
+      // 会計は assignedCasts.length × 単価 で算出（卓全員に適用）。
       if (charge.id === 'banai') {
         updateTable(selectedTableId, { isBanaiShimei: true })
       } else if (charge.id === 'douhan') {
@@ -307,17 +311,16 @@ export default function OrderPage() {
   }
 
 
-  // ─── 本指名 / 同伴 のトグル (task ③) ───
+  // ─── 本指名 のトグル ───
   // 指名料は BillingPage が `mainNominationCastNames` を真の truth として計算するため、
   // orders 側に同期書き込みは不要 (二重計上の原因になる)。卓フラグだけ更新する。
-  // 1 セット 1 本指名仕様: ON 時は当該キャスト 1 人に上書き (排他)、
-  // OFF 時は空にする。メニュー側ボタンの「mainNomination が空なら disabled」
-  // 制御と挙動を一致させ、複数追加経路を作らない。
+  // 本指名は複数対応 (mainNominationCastNames: string[])。排他上書きではなく、
+  // 押したキャストを配列へ add/remove する（既に他の本指名がいても追加可）。
   const toggleMainNomination = (castName: string) => {
     if (!selectedTable) return
     const current = selectedTable.mainNominationCastNames
     const isOn = current.includes(castName)
-    const next = isOn ? [] : [castName]
+    const next = isOn ? current.filter((n) => n !== castName) : [...current, castName]
     updateTable(selectedTable.id, { mainNominationCastNames: next })
   }
 
@@ -493,7 +496,7 @@ export default function OrderPage() {
                 // 「選択中キャストにだけ適用される」と誤解させないよう注記する。
                 const scopeNote =
                   c.id === 'banai' || c.id === 'douhan' ? '卓全員に適用'
-                  : c.id === 'shimei' ? '選択キャスト 1 名'
+                  : c.id === 'shimei' ? '選択キャスト全員（複数可）'
                   : undefined
                 return (
                   <button
