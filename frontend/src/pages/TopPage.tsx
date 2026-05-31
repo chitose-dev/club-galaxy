@@ -61,7 +61,7 @@ export default function TopPage() {
         )}
 
         {/* クイックアクション — role 別 */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full max-w-2xl mt-4">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 w-full max-w-3xl mt-4">
           {isCast ? (
             <QuickAction
               icon={Wallet}
@@ -90,6 +90,12 @@ export default function TopPage() {
                     label="利益"
                     hint={`本日 ¥${flMetrics.todayProfit.toLocaleString()}`}
                     onClick={() => navigate('/profit')}
+                  />
+                  <QuickAction
+                    icon={Wallet}
+                    label="給与"
+                    hint="給与明細・日払い"
+                    onClick={() => navigate('/salary')}
                   />
                   <QuickAction icon={Archive} label="レジ締め" onClick={() => navigate('/register')} />
                 </>
