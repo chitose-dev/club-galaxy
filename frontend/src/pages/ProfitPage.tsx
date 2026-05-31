@@ -828,11 +828,19 @@ function CastTrendView() {
 
       {/* 勤怠記録が無いのに売上 or 給与が出ている期間は、レビュー対象とすぐ分かるよう注記する。
           仕様上はバック (指名 / ドリンク / ボトル) のみで給与が立つケースもあるため、
-          自動補正ではなく説明文だけ出して、ユーザーが勤怠未登録 or デモデータかを判断する。 */}
+          自動補正ではなく説明文だけ出して、ユーザーが勤怠未登録 or デモデータかを判断する。
+          現場担当者向けに「何が起きていて」「なぜ発生するか」「何を確認すればいいか」を
+          噛み砕いた文言にする（旧の一行注記は意味が伝わらないとの指摘）。 */}
       {totals.hours === 0 && (totals.salary > 0 || totals.sales > 0) && (
-        <div className="text-[11px] text-amber-300/80 bg-amber-500/10 border border-amber-500/30 rounded px-3 py-2">
-          勤怠記録がないため、時給分は ¥0 として計算しています。
-          バック (¥{totals.back.toLocaleString()}) のみが給与に反映されています。
+        <div className="text-[11px] text-amber-300/80 bg-amber-500/10 border border-amber-500/30 rounded px-3 py-2 space-y-1">
+          <div>
+            この期間は <span className="font-bold">勤怠登録（出勤打刻）が無いため、時給分は ¥0</span> で計算しています。
+            バック（指名 / ドリンク / ボトル 等）の <span className="tabular-nums">¥{totals.back.toLocaleString()}</span> だけが給与に計上されています。
+          </div>
+          <div className="text-gray-400">
+            出勤登録漏れ、または出勤せず売上だけが本指名で帰属しているケース
+            （フリー卓の本指名外し / デモデータ等）で発生します。出勤登録を確認してください。
+          </div>
         </div>
       )}
 
