@@ -130,10 +130,15 @@ export default function UsageDetailPage() {
         </div>
 
         {/* セット別明細: 1Set目 / EX(1) / EX(2) … のカードを横並び表示する。
-            画面幅に収まらない場合は横スクロールで全セット参照可能。
-            各カードは固定幅 (w-80) で揃え、タブレット (横1080px) で 3枚並ぶ目安。
-            max-w-4xl mx-auto は上下のパネル（利用情報・合計）と同じコンテンツ幅基準で
-            横位置を揃えるため。これがないと伝票だけ左寄り、上下が中央寄りでズレて見える。 */}
+            外側は max-w-4xl mx-auto で上下のパネル（利用情報・合計）と同じ
+            コンテンツ幅基準に揃える。
+            各カードは flex-1 + min-w-72（最小288px）で可変幅:
+            - 1枚: コンテナ幅いっぱい
+            - 2枚: 等分（各 ~440px）
+            - 3枚: 等分（各 ~288px、min-w に貼り付く境界）
+            - 4枚以上: min-w を保って overflow-x で横スクロール
+            min-w を 320(w-80) ではなく 288(min-w-72) にして 3枚を 896px
+            コンテナにギリギリ収めている。 */}
         <div className="max-w-4xl mx-auto mt-4 overflow-x-auto">
           <div className="flex flex-row gap-4 pb-2">
             {visitBreakdown.sets.map((set, i) => {
@@ -144,7 +149,7 @@ export default function UsageDetailPage() {
               return (
                 <div
                   key={`${set.kind}-${i}`}
-                  className={`panel p-4 border-l-4 flex-shrink-0 w-80 ${isBase ? 'border-gold/50' : 'border-accent/50'}`}
+                  className={`panel p-4 border-l-4 flex-1 min-w-72 ${isBase ? 'border-gold/50' : 'border-accent/50'}`}
                 >
                 <div className="flex items-baseline justify-between mb-3">
                   <span className={`text-sm font-bold ${isBase ? 'text-gold' : 'text-accent'}`}>
