@@ -91,6 +91,12 @@ export default function TopPage() {
                     hint={`本日 ¥${flMetrics.todayProfit.toLocaleString()}`}
                     onClick={() => navigate('/profit')}
                   />
+                  <QuickAction
+                    icon={Wallet}
+                    label="給与"
+                    hint="給与明細・日払い"
+                    onClick={() => navigate('/salary')}
+                  />
                   <QuickAction icon={Archive} label="レジ締め" onClick={() => navigate('/register')} />
                 </>
               )}
