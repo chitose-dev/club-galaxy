@@ -131,8 +131,10 @@ export default function UsageDetailPage() {
 
         {/* セット別明細: 1Set目 / EX(1) / EX(2) … のカードを横並び表示する。
             画面幅に収まらない場合は横スクロールで全セット参照可能。
-            各カードは固定幅 (w-80) で揃え、タブレット (横1080px) で 3枚並ぶ目安。 */}
-        <div className="mt-4 overflow-x-auto">
+            各カードは固定幅 (w-80) で揃え、タブレット (横1080px) で 3枚並ぶ目安。
+            max-w-4xl mx-auto は上下のパネル（利用情報・合計）と同じコンテンツ幅基準で
+            横位置を揃えるため。これがないと伝票だけ左寄り、上下が中央寄りでズレて見える。 */}
+        <div className="max-w-4xl mx-auto mt-4 overflow-x-auto">
           <div className="flex flex-row gap-4 pb-2">
             {visitBreakdown.sets.map((set, i) => {
               const range = timeRanges[i]
