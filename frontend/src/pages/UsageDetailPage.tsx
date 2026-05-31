@@ -98,7 +98,7 @@ export default function UsageDetailPage() {
 
       <div className="flex-1 overflow-y-auto p-4">
         {/* 来店情報 */}
-        <div className="max-w-4xl mx-auto panel p-4 space-y-2">
+        <div className="max-w-7xl mx-auto panel p-4 space-y-2">
           <div className="flex justify-between">
             <span className="text-sm text-gray-400">対応中</span>
             <span className="text-sm">{assignedCasts.join(', ') || 'フリー'}</span>
@@ -132,9 +132,9 @@ export default function UsageDetailPage() {
         {/* セット別明細: 1Set目 / EX(1) / EX(2) … のカードを横並び表示する。
             画面幅に収まらない場合は横スクロールで全セット参照可能。
             各カードは固定幅 (w-80) で揃え、タブレット (横1080px) で 3枚並ぶ目安。
-            max-w-4xl mx-auto は上下のパネル（利用情報・合計）と同じコンテンツ幅基準で
+            max-w-7xl mx-auto は上下のパネル（利用情報・合計）と同じコンテンツ幅基準で
             横位置を揃えるため。これがないと伝票だけ左寄り、上下が中央寄りでズレて見える。 */}
-        <div className="max-w-4xl mx-auto mt-4 overflow-x-auto">
+        <div className="max-w-7xl mx-auto mt-4 overflow-x-auto">
           <div className="flex flex-row gap-4 pb-2">
             {visitBreakdown.sets.map((set, i) => {
               const range = timeRanges[i]
@@ -244,7 +244,7 @@ export default function UsageDetailPage() {
         </div>
 
         {/* 全セット合算（会計対象の総額）。 */}
-        <div className="max-w-4xl mx-auto mt-4 panel p-4 space-y-1">
+        <div className="max-w-7xl mx-auto mt-4 panel p-4 space-y-1">
           <h3 className="text-xs text-gray-400 tracking-wider mb-2">合計（全セット）</h3>
           <div className="flex justify-between text-sm text-gray-400">
             <span>小計</span>
