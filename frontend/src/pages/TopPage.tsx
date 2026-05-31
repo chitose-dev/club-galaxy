@@ -61,7 +61,7 @@ export default function TopPage() {
         )}
 
         {/* クイックアクション — role 別 */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full max-w-2xl mt-4">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 w-full max-w-3xl mt-4">
           {isCast ? (
             <QuickAction
               icon={Wallet}
