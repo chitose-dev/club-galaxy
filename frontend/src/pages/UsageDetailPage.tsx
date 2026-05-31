@@ -129,19 +129,21 @@ export default function UsageDetailPage() {
           )}
         </div>
 
-        {/* セット別明細: 1Set目 / EX(1) / EX(2) … ごとに
-            セット料金・指名料・注文・小計・TAX・合計 を分けて表示する。 */}
-        <div className="max-w-4xl mx-auto mt-4 space-y-3">
-          {visitBreakdown.sets.map((set, i) => {
-            const range = timeRanges[i]
-            const tax = perSetTax[i] ?? 0
-            const total = set.subtotal + tax
-            const isBase = set.kind === 'base'
-            return (
-              <div
-                key={`${set.kind}-${i}`}
-                className={`panel p-4 border-l-4 ${isBase ? 'border-gold/50' : 'border-accent/50'}`}
-              >
+        {/* セット別明細: 1Set目 / EX(1) / EX(2) … のカードを横並び表示する。
+            画面幅に収まらない場合は横スクロールで全セット参照可能。
+            各カードは固定幅 (w-80) で揃え、タブレット (横1080px) で 3枚並ぶ目安。 */}
+        <div className="mt-4 overflow-x-auto">
+          <div className="flex flex-row gap-4 pb-2">
+            {visitBreakdown.sets.map((set, i) => {
+              const range = timeRanges[i]
+              const tax = perSetTax[i] ?? 0
+              const total = set.subtotal + tax
+              const isBase = set.kind === 'base'
+              return (
+                <div
+                  key={`${set.kind}-${i}`}
+                  className={`panel p-4 border-l-4 flex-shrink-0 w-80 ${isBase ? 'border-gold/50' : 'border-accent/50'}`}
+                >
                 <div className="flex items-baseline justify-between mb-3">
                   <span className={`text-sm font-bold ${isBase ? 'text-gold' : 'text-accent'}`}>
                     {set.label}
@@ -233,9 +235,10 @@ export default function UsageDetailPage() {
                     <span className="text-lg tabular-nums font-bold">¥{total.toLocaleString()}</span>
                   </div>
                 </div>
-              </div>
-            )
-          })}
+                </div>
+              )
+            })}
+          </div>
         </div>
 
         {/* 全セット合算（会計対象の総額）。 */}
