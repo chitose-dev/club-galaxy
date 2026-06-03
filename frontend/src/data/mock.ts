@@ -86,6 +86,14 @@ export interface GuestMenuItem {
    *  本指名ボトルバックの基準額計算 (`calcChampagneSplit`) のみで参照される。
    *  通常メニューでは未指定。 */
   bottleBackBasePerUnit?: number
+  /** ボトル系商品（シャンパン/ウイスキー/焼酎/ブランデー/ワイン）の
+   *  1 本あたりキャストバック金額（円）。3-state:
+   *    - `undefined` / `null`: 未設定 → キャスト給与設定のボトルバック率にフォールバック
+   *    - `0`: 明示的にバックなし
+   *    - 正数: 商品個別バック金額（給与設定の率より優先）
+   *  既存全商品はこのフィールド未所持なので自動的に「フォールバック対象」になる
+   *  (= 既存挙動温存)。ボトル系以外で設定されても無視される。 */
+  bottleBackPerUnit?: number | null
 }
 
 export interface CastMenuItem {
@@ -132,6 +140,37 @@ export interface MenuCategory {
   hidden?: boolean
   /** ユーザーが追加したカテゴリは true (削除可能の判定用) */
   custom?: boolean
+}
+
+/**
+ * 2026-06-03 先方確定: 固定 7 カテゴリ運用に対応する subcategory ホワイトリスト。
+ *
+ * これに含まれない subcategory（例: 旧 custom-* / food / おつまみ など）は
+ * 「legacy データ」として扱い、UI（注文画面・管理画面の一覧）から非表示にする。
+ * DB レコードは残置するため（B 方針）、過去会計の参照・集計には影響しない。
+ */
+export const ALLOWED_GUEST_SUBCATEGORIES: ReadonlySet<string> = new Set([
+  // ゲストドリンク（ショット / ピッチャー / ビール / 割物 はゲストドリンク配下扱い）
+  'shot', 'pitcher', 'beer', 'warimono',
+  // ボトル系 5 種
+  'champagne', 'whisky', 'shochu', 'brandy', 'wine',
+])
+
+export const ALLOWED_CAST_SUBCATEGORIES: ReadonlySet<string> = new Set([
+  // キャストドリンク（F / 本 各種、既存の細分化は表示対象として温存）
+  'fdrink', 'hondrink', 'fkaku', 'honkaku', 'honkakuW',
+  'fshot', 'honshot', 'fpitcher', 'honpitcher', 'fbeer', 'honbeer',
+])
+
+/** 商品のカテゴリ + subcategory が固定 7 カテゴリ運用の対象内か判定。
+ *  legacy データ（custom カテゴリ / 旧 food 等）は false を返す。 */
+export function isAllowedSubcategory(
+  category: 'guest' | 'cast',
+  subcategory: string | undefined,
+): boolean {
+  if (!subcategory) return false
+  if (category === 'guest') return ALLOWED_GUEST_SUBCATEGORIES.has(subcategory)
+  return ALLOWED_CAST_SUBCATEGORIES.has(subcategory)
 }
 
 export const initialMenuCategories: MenuCategory[] = [
@@ -411,6 +450,9 @@ export interface ReceiptSnapshot {
       backType?: BackType
       /** ボトルバック計算用の単価上書き（0円ボトル用、G PR で使用）。 */
       bottleBackBasePerUnit?: number
+      /** ボトル系商品の 1 本あたりキャストバック金額（円）。3-state:
+       *  null/undefined = フォールバック対象、0 = 明示的バックなし、正数 = 個別。 */
+      bottleBackPerUnit?: number | null
     }
     quantity: number
     castName?: string

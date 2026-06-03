@@ -839,6 +839,11 @@ export default function BillingPage() {
             subcategory: o.menuItem.subcategory,
             backType: o.menuItem.category === 'cast' ? o.menuItem.backType : undefined,
             bottleBackBasePerUnit: o.menuItem.category === 'guest' ? o.menuItem.bottleBackBasePerUnit : undefined,
+            // ボトル系商品個別バック金額（円）。3-state を null/undefined/正数 で温存
+            // するため、明示的に存在する場合のみコピー（既存ボトルは undefined で
+            // 「未設定 → 給与設定フォールバック」のままになる）。
+            bottleBackPerUnit:
+              o.menuItem.category === 'guest' ? o.menuItem.bottleBackPerUnit : undefined,
           },
           quantity: o.quantity,
           castName: o.castName,

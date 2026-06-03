@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../store'
 import type { MenuItem, CastMenuItem, OrderItem } from '../data/mock'
-import { displayOrderName, chargeItems } from '../data/mock'
+import { displayOrderName, chargeItems, isAllowedSubcategory } from '../data/mock'
 import { Minus, Plus, Trash2, CreditCard, Gift, UserMinus, Check } from 'lucide-react'
 import ContextualHeader from '../components/ContextualHeader'
 import BottomActionBar from '../components/BottomActionBar'
@@ -12,22 +12,6 @@ import { Input, Field as FormField } from '../components/Input'
 import { GoldButton, DangerButton, GhostButton } from '../components/Buttons'
 import { formatTimeRange, getCurrentSetRange, getSetLabel } from '../utils/setCountLabel'
 import { getTodayBusinessDay } from '../utils/businessDay'
-
-// ビデオレビュー N6 (注1 15:50): ヘルプの再定義
-//   - 待機キャストが場内指名なしで入った状態
-//   - 価格 ¥4,000 (店舗売上として全額計上)
-//   - キャストバック 0 (誰にもバックなし)
-//   - キャストの個人売上には載せない (= castName を紐付けない)
-//   - category: 'guest' で扱い (キャストドリンクではない)
-const HELP_GUEST_ITEM = {
-  id: 999,
-  name: 'ヘルプ',
-  price: 4000,
-  cost: 0,
-  castBack: 0,
-  category: 'guest' as const,
-  subcategory: 'warimono' as const,
-}
 
 // ISSUE-009: 'bottle' カテゴリ廃止（ボトルキープ管理ページに集約）
 type CategoryKey =
@@ -128,24 +112,28 @@ export default function OrderPage() {
   }
 
   const menuItems: MenuItem[] = useMemo(() => {
-    const all = [...guestMenu, ...castMenu]
+    // B 方針: 固定 7 カテゴリ運用の対象外 subcategory (legacy / custom) は
+    // 注文導線から完全に外す。DB レコードは残置しているため過去会計には影響しない。
+    const allowedGuest = guestMenu.filter((i) => isAllowedSubcategory('guest', i.subcategory))
+    const allowedCast = castMenu.filter((i) => isAllowedSubcategory('cast', i.subcategory))
+    const allAllowed = [...allowedGuest, ...allowedCast]
     switch (activeCategory) {
       case 'all':
-        return all
+        return allAllowed
       case 'cast-drink':
-        return castMenu
+        return allowedCast
       case 'shot-pitcher':
-        return guestMenu.filter((i) => ['shot', 'pitcher', 'beer', 'warimono'].includes(i.subcategory))
+        return allowedGuest.filter((i) => ['shot', 'pitcher', 'beer', 'warimono'].includes(i.subcategory))
       case 'champagne':
-        return guestMenu.filter((i) => i.subcategory === 'champagne')
+        return allowedGuest.filter((i) => i.subcategory === 'champagne')
       case 'whisky':
-        return guestMenu.filter((i) => i.subcategory === 'whisky')
+        return allowedGuest.filter((i) => i.subcategory === 'whisky')
       case 'shochu':
-        return guestMenu.filter((i) => i.subcategory === 'shochu')
+        return allowedGuest.filter((i) => i.subcategory === 'shochu')
       case 'brandy':
-        return guestMenu.filter((i) => i.subcategory === 'brandy')
+        return allowedGuest.filter((i) => i.subcategory === 'brandy')
       case 'wine':
-        return guestMenu.filter((i) => i.subcategory === 'wine')
+        return allowedGuest.filter((i) => i.subcategory === 'wine')
       default:
         return []
     }
@@ -276,12 +264,6 @@ export default function OrderPage() {
       }
       addCurrentSetOrder(order)
     })
-  }
-
-  const handleAddHelp = () => {
-    if (!selectedTableId) return
-    // ビデオレビュー N6: ヘルプはキャスト紐付けなし、全額店舗売上
-    addCurrentSetOrder({ menuItem: HELP_GUEST_ITEM, quantity: 1 })
   }
 
   // ISSUE-003: 選択中のキャスト全員を一括で待機に戻す
@@ -516,10 +498,6 @@ export default function OrderPage() {
                   </button>
                 )
               })}
-              <button onClick={handleAddHelp} className="btn-dark text-left p-3 block border border-gold/40">
-                <div className="text-sm font-bold">ヘルプ</div>
-                <div className="text-xs text-gray-400 mt-1">バック記録のみ</div>
-              </button>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-2 content-start">

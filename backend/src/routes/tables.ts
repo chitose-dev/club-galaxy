@@ -256,6 +256,13 @@ tablesRouter.post('/:id/orders', async (req, res) => {
           category: mi.category as 'guest' | 'cast',
           subcategory: mi.subcategory as string,
           ...(typeof mi.backType === 'string' ? { backType: mi.backType as OrderEmbedded['menuItem']['backType'] } : {}),
+          // ボトル系計算用フィールドを order snapshot に保存（receiptSnapshot 生成時に
+          // 参照する。bottleBackPerUnit は 3-state: null は明示的に保持、undefined は
+          // 属性自体を持たせない＝未設定扱い）。
+          ...(typeof mi.bottleBackBasePerUnit === 'number' ? { bottleBackBasePerUnit: mi.bottleBackBasePerUnit as number } : {}),
+          ...(typeof mi.bottleBackPerUnit === 'number' || mi.bottleBackPerUnit === null
+            ? { bottleBackPerUnit: mi.bottleBackPerUnit as number | null }
+            : {}),
         },
         quantity: body.quantity as number,
         ...(typeof body.castName === 'string' ? { castName: body.castName as string } : {}),

@@ -17,7 +17,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { useStore } from '../store'
 import { castsApi } from '../api/casts'
 import { dailyReportsApi } from '../api/dailyReports'
-import { isPercentBackType, inferStartHour } from '../data/mock'
+import { isPercentBackType, inferStartHour, isAllowedSubcategory } from '../data/mock'
 import { computeDailyWork } from '../utils/dailyWork'
 import { calcHourlyPay } from '../utils/payroll'
 import { computeDailyPayBreakdown, buildBottleBackRateByCast, type DailyPayBreakdownResult } from '../utils/dailyPayBreakdown'
@@ -67,7 +67,6 @@ export default function AdminPage() {
     advancePayments, addAdvancePayment,
     archivedData, archiveOldData,
     deductions, addDailyPayRequest,
-    menuCategories, setMenuCategories,
     updateBillingRecord,
     dailyReports, setDailyReports,
   } = useStore()
@@ -110,7 +109,7 @@ export default function AdminPage() {
         <Tabs<AdminTab> value={activeTab} onChange={setActiveTab} items={tabs} scrollable />
       </div>
 
-      {activeTab === 'menu' && <MenuManager guestMenu={guestMenu} castMenu={castMenu} setGuestMenu={setGuestMenu} setCastMenu={setCastMenu} menuCategories={menuCategories} setMenuCategories={setMenuCategories} />}
+      {activeTab === 'menu' && <MenuManager guestMenu={guestMenu} castMenu={castMenu} setGuestMenu={setGuestMenu} setCastMenu={setCastMenu} />}
       {activeTab === 'cast' && <CastManager casts={casts} setCasts={setCasts} addUser={addUser} />}
       {activeTab === 'price' && <PriceManager setPrices={setPrices} chargeItems={chargeItems} setSetPrices={setSetPrices} setChargeItems={setChargeItems} />}
       {activeTab === 'tables' && <TableManager tables={tables} setTables={setTables} reorderTables={reorderTables} />}
@@ -130,62 +129,98 @@ export default function AdminPage() {
   )
 }
 
-// ISSUE-008: ハードコードの subcategory 配列・ラベルマップは廃止
-// → メニュー登録フォームの select は menuCategories（store 管理）から動的生成。
-//    カテゴリ追加が即時反映される。
+// 2026-06-03 先方確定: 設定→メニュー画面のカテゴリは固定 7 種だけ。
+// 旧 ISSUE-008 のカスタムカテゴリ自由作成は廃止。menuCategories prop は legacy
+// データ判別用に残置（将来削除）。新規追加導線は下記 FIXED_CATEGORIES のみ。
+//
+// 既存データ（shot/pitcher/beer/warimono/カクテル/ショット等）は B 方針で
+// DB 残置・新規導線から非表示。listing 側は既存 item を表示し続ける。
+type FixedCategoryId =
+  | 'cast-drink'    // ← キャストドリンク (内部 subcategory は F/本 でさらに分岐)
+  | 'guest-drink'   // ← ゲストドリンク (内部 subcategory='shot')
+  | 'champagne'
+  | 'whisky'
+  | 'shochu'
+  | 'brandy'
+  | 'wine'
 
-function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCategories, setMenuCategories }: {
+interface FixedCategoryDef {
+  id: FixedCategoryId
+  label: string
+  kind: 'guest' | 'cast'
+  /** ボトル系か（bottleBackPerUnit 入力欄を出す対象）。 */
+  isBottle: boolean
+  /** 新規追加時の デフォルト subcategory（DB 保存値）。
+   *  キャストドリンクは F/本 サブ選択で fdrink/hondrink に分岐するため null。 */
+  defaultSubcategory: string | null
+}
+
+const FIXED_CATEGORIES: FixedCategoryDef[] = [
+  { id: 'cast-drink',  label: 'キャストドリンク', kind: 'cast',  isBottle: false, defaultSubcategory: null },
+  { id: 'guest-drink', label: 'ゲストドリンク',   kind: 'guest', isBottle: false, defaultSubcategory: 'shot' },
+  { id: 'champagne',   label: 'シャンパン',       kind: 'guest', isBottle: true,  defaultSubcategory: 'champagne' },
+  { id: 'whisky',      label: 'ウイスキー',       kind: 'guest', isBottle: true,  defaultSubcategory: 'whisky' },
+  { id: 'shochu',      label: '焼酎',             kind: 'guest', isBottle: true,  defaultSubcategory: 'shochu' },
+  { id: 'brandy',      label: 'ブランデー',       kind: 'guest', isBottle: true,  defaultSubcategory: 'brandy' },
+  { id: 'wine',        label: 'ワイン',           kind: 'guest', isBottle: true,  defaultSubcategory: 'wine' },
+]
+
+function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu }: {
   guestMenu: GuestMenuItem[]; castMenu: CastMenuItem[]
   setGuestMenu: React.Dispatch<React.SetStateAction<GuestMenuItem[]>>
   setCastMenu: React.Dispatch<React.SetStateAction<CastMenuItem[]>>
-  menuCategories: import('../data/mock').MenuCategory[]
-  setMenuCategories: React.Dispatch<React.SetStateAction<import('../data/mock').MenuCategory[]>>
 }) {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editPrice, setEditPrice] = useState('')
   const [editCost, setEditCost] = useState('')
   const [editCastBack, setEditCastBack] = useState('')
-  // PDF G: ゼロ円ボトルメニュー用。bottleBackBasePerUnit を編集できるようにする。
+  // ゼロ円ボトルメニュー用の「バック計算用基準額（円）」編集値。
   const [editBottleBackBase, setEditBottleBackBase] = useState('')
+  // ボトル系商品の個別バック金額（円）編集値。3-state を文字列で持つ:
+  //   '' = 未設定 (null), '0' = 明示バックなし, '正数' = 個別バック金額
+  const [editBottleBackPerUnit, setEditBottleBackPerUnit] = useState('')
   const [confirmTarget, setConfirmTarget] = useState<{ kind: 'guest' | 'cast'; id: number; name: string } | null>(null)
 
-  // ─── 新規追加フォーム (追補02 R5-1) ───
-  const [addKind, setAddKind] = useState<'guest' | 'cast' | null>(null)
+  // ─── 新規追加フォーム（固定 7 カテゴリ専用） ───
+  const [addCategoryId, setAddCategoryId] = useState<FixedCategoryId | null>(null)
   const [addName, setAddName] = useState('')
   const [addPrice, setAddPrice] = useState(0)
   const [addCost, setAddCost] = useState(0)
   const [addCastBack, setAddCastBack] = useState(0)
-  const [addGuestSub, setAddGuestSub] = useState<GuestMenuItem['subcategory']>('shot')
-  // PDF G: 0 円ボトル用バック基準額。空文字なら未指定 (= price を使う)。
+  // キャストドリンクのとき、F (フリー) / 本 (本指名) を選ばせて subcategory を決める。
+  const [addCastNominationType, setAddCastNominationType] = useState<'F' | '本'>('F')
+  // 0 円ボトル用バック基準額。空文字なら未指定 (= price を使う)。
   const [addBottleBackBase, setAddBottleBackBase] = useState('')
-  const [addCastSub, setAddCastSub] = useState<CastMenuItem['subcategory']>('fdrink')
-  const [addBackType, setAddBackType] = useState<BackType>('FD')
-  // ISSUE-001: 商品名の prefix で指名種別 (F / 本) を自動判定。
-  //   不一致時はユーザーに二択を促すヒントを表示。
-  const [nominationHint, setNominationHint] = useState<'free' | 'honshimei' | 'unknown' | null>(null)
+  // ボトル系個別バック金額（円）。3-state を文字列で表現:
+  //   '' = 未設定 (null) → 給与設定率にフォールバック
+  //   '0' = 明示的にバックなし
+  //   正数 = 商品個別バック金額
+  const [addBottleBackPerUnit, setAddBottleBackPerUnit] = useState('')
+
+  const selectedCategory = addCategoryId
+    ? FIXED_CATEGORIES.find((c) => c.id === addCategoryId) ?? null
+    : null
 
   const resetAddForm = () => {
-    setAddKind(null)
+    setAddCategoryId(null)
     setAddName('')
     setAddPrice(0)
     setAddCost(0)
     setAddCastBack(0)
-    setAddGuestSub('shot')
-    setAddCastSub('fdrink')
-    setAddBackType('FD')
-    setNominationHint(null)
+    setAddCastNominationType('F')
     setAddBottleBackBase('')
+    setAddBottleBackPerUnit('')
   }
 
-  // PDF G: ゼロ円ボトル系。subcategory が bottle 系（champagne / whisky /
-  // shochu / brandy / wine）のとき、bottleBackBasePerUnit を入力できる。
-  const isBottleSubcategory = (sub: GuestMenuItem['subcategory']): boolean =>
+  // 既存商品のサブカテゴリがボトル系（champagne / whisky / shochu / brandy / wine）
+  // かどうか。bottleBackBasePerUnit / bottleBackPerUnit の入力欄表示判定に使う。
+  const isBottleSubcategory = (sub: string | undefined): boolean =>
     sub === 'champagne' || sub === 'whisky' || sub === 'shochu' || sub === 'brandy' || sub === 'wine'
 
-  /** PDF G: bottleBackBasePerUnit 入力文字列をデータ保存値に正規化する。
+  /** バック計算用基準額（円）入力文字列を保存値に正規化する。
    *  - 空欄 → undefined（保存時にフィールド自体を持たせない=未設定扱い）
    *  - NaN / 非数 → undefined（誤入力で 0 やゴミ値を保存させない）
-   *  - 負値 → 0 に丸め（input min=0 で通常入らないが防御的に）
+   *  - 負値 → 0 に丸め
    *  - 小数 → 整数に切り捨て */
   const parseBottleBackBase = (value: string): number | undefined => {
     if (value.trim() === '') return undefined
@@ -194,57 +229,26 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
     return Math.max(0, Math.floor(n))
   }
 
-  /**
-   * ISSUE-001: 商品名 prefix から指名種別 (free/honshimei) を自動判定し、
-   *  cast メニュー登録時の subcategory + backType をデフォルトセット。
-   *
-   *  - 'F' 始まり → free（subcategory='fdrink' / backType='FD'）
-   *  - '本' 始まり → honshimei（subcategory='hondrink' / backType='本D'）
-   *  - それ以外 → unknown（手動選択を促す）
-   */
-  const handleAddNameChange = (name: string) => {
-    setAddName(name)
-    if (addKind !== 'cast' || name.length === 0) {
-      setNominationHint(null)
-      return
-    }
-    if (name.startsWith('F')) {
-      setAddCastSub('fdrink')
-      setAddBackType('FD')
-      setNominationHint('free')
-    } else if (name.startsWith('本')) {
-      setAddCastSub('hondrink')
-      setAddBackType('本D')
-      setNominationHint('honshimei')
-    } else {
-      setNominationHint('unknown')
-    }
+  /** ボトル系個別バック金額（円）入力文字列を保存値に正規化する。3-state:
+   *  - 空欄 → null (= 未設定、給与設定フォールバック)
+   *  - "0" → 0 (= 明示的にバックなし、フォールバックさせない)
+   *  - 正数 → 正数 (= 商品個別バック金額)
+   *  - NaN / 非数 → null（誤入力で 0 を保存させない、空欄と同等扱い） */
+  const parseBottleBackPerUnit = (value: string): number | null => {
+    if (value.trim() === '') return null
+    const n = Number(value)
+    if (!Number.isFinite(n)) return null
+    return Math.max(0, Math.floor(n))
   }
 
   const handleConfirmAdd = () => {
-    if (!addName.trim()) return
+    if (!addName.trim() || !selectedCategory) return
     const existingIds = [...guestMenu.map((m) => m.id), ...castMenu.map((m) => m.id)]
     const nextId = Math.max(...existingIds, 0) + 1
-    if (addKind === 'guest') {
-      // PDF G: bottle 系のサブカテゴリでのみ bottleBackBasePerUnit を保存。
-      // 入力文字列は parseBottleBackBase で NaN / 空欄を吸収する。
-      const bottleBase = isBottleSubcategory(addGuestSub)
-        ? parseBottleBackBase(addBottleBackBase)
-        : undefined
-      setGuestMenu((prev) => [
-        ...prev,
-        {
-          id: nextId,
-          name: addName.trim(),
-          price: addPrice,
-          cost: addCost,
-          castBack: 0, // ゲスト用はバックなし
-          category: 'guest',
-          subcategory: addGuestSub,
-          ...(bottleBase !== undefined ? { bottleBackBasePerUnit: bottleBase } : {}),
-        },
-      ])
-    } else if (addKind === 'cast') {
+    if (selectedCategory.kind === 'cast') {
+      // キャストドリンク: F/本 でサブカテゴリと backType を分岐
+      const subcategory = addCastNominationType === 'F' ? 'fdrink' : 'hondrink'
+      const backType: BackType = addCastNominationType === 'F' ? 'FD' : '本D'
       setCastMenu((prev) => [
         ...prev,
         {
@@ -254,8 +258,34 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
           cost: addCost,
           castBack: addCastBack,
           category: 'cast',
-          subcategory: addCastSub,
-          backType: addBackType,
+          subcategory,
+          backType,
+        },
+      ])
+    } else {
+      // ゲスト系（ゲストドリンク / ボトル 5 種）
+      const subcategory = selectedCategory.defaultSubcategory ?? 'shot'
+      const bottleBase = selectedCategory.isBottle
+        ? parseBottleBackBase(addBottleBackBase)
+        : undefined
+      const bottleBackPerUnitValue = selectedCategory.isBottle
+        ? parseBottleBackPerUnit(addBottleBackPerUnit)
+        : null
+      setGuestMenu((prev) => [
+        ...prev,
+        {
+          id: nextId,
+          name: addName.trim(),
+          price: addPrice,
+          cost: addCost,
+          castBack: 0, // ゲスト商品自体のキャストバック（ボトル系は bottleBackPerUnit で別管理）
+          category: 'guest',
+          subcategory: subcategory as GuestMenuItem['subcategory'],
+          ...(bottleBase !== undefined ? { bottleBackBasePerUnit: bottleBase } : {}),
+          // bottleBackPerUnit は明示的に「空欄＝未設定」を JSON 上も区別したい
+          // ケースで使うが、新規追加時に未設定なら属性自体を付けない
+          // （既存挙動と同様、フィールド未所持＝null 扱いになる）。
+          ...(bottleBackPerUnitValue !== null ? { bottleBackPerUnit: bottleBackPerUnitValue } : {}),
         },
       ])
     }
@@ -272,45 +302,6 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
     setConfirmTarget(null)
   }
 
-  // ─── 追補02 R5-2/R5-3: カテゴリ管理 ───
-  const [showAddCategory, setShowAddCategory] = useState(false)
-  const [newCatLabel, setNewCatLabel] = useState('')
-  const [newCatKind, setNewCatKind] = useState<'guest' | 'cast'>('guest')
-
-  const handleAddCategory = () => {
-    if (!newCatLabel.trim()) return
-    const id = 'custom-' + Date.now()
-    const maxOrder = Math.max(...menuCategories.map((c) => c.order), 0)
-    setMenuCategories((prev) => [
-      ...prev,
-      { kind: newCatKind, id, label: newCatLabel.trim(), order: maxOrder + 1, custom: true },
-    ])
-    setNewCatLabel('')
-    setShowAddCategory(false)
-  }
-
-  const moveCategory = (id: string, delta: number) => {
-    setMenuCategories((prev) => {
-      const sorted = [...prev].sort((a, b) => a.order - b.order)
-      const i = sorted.findIndex((c) => c.id === id)
-      if (i < 0) return prev
-      const j = i + delta
-      if (j < 0 || j >= sorted.length) return prev
-      const tmp = sorted[i].order
-      sorted[i].order = sorted[j].order
-      sorted[j].order = tmp
-      return [...sorted]
-    })
-  }
-
-  const toggleCategoryHidden = (id: string) => {
-    setMenuCategories((prev) => prev.map((c) => (c.id === id ? { ...c, hidden: !c.hidden } : c)))
-  }
-
-  const deleteCategory = (id: string) => {
-    setMenuCategories((prev) => prev.filter((c) => c.id !== id))
-  }
-
   return (
     <div className="space-y-6">
       <ConfirmDialog
@@ -321,139 +312,55 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
         onCancel={() => setConfirmTarget(null)}
       />
 
-      {/* ─── 追補02 R5-2/R5-3: カテゴリ管理 ─── */}
-      <div className="panel p-3 border border-gold/30">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-bold text-gold">カテゴリ管理</h3>
-          {showAddCategory ? (
-            <button onClick={() => { setShowAddCategory(false); setNewCatLabel('') }} className="text-xs text-gray-400">キャンセル</button>
-          ) : (
-            <button onClick={() => setShowAddCategory(true)} className="btn-ghost text-xs flex items-center gap-1"><Plus size={12}/>カテゴリ追加</button>
-          )}
-        </div>
-        {showAddCategory && (
-          <div className="grid grid-cols-3 gap-2 mb-2">
-            <select value={newCatKind} onChange={(e) => setNewCatKind(e.target.value as 'guest' | 'cast')} className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm">
-              <option value="guest">ゲスト用</option>
-              <option value="cast">キャスト用</option>
-            </select>
-            <input value={newCatLabel} onChange={(e) => setNewCatLabel(e.target.value)} placeholder="例: ノンアルコール" className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm col-span-2" />
-            <button onClick={handleAddCategory} disabled={!newCatLabel.trim()} className="btn-gold text-xs px-3 py-1 col-span-3 disabled:opacity-40">追加</button>
-          </div>
-        )}
-        <div className="space-y-1 max-h-72 overflow-y-auto">
-          {[...menuCategories].sort((a, b) => a.order - b.order).map((c) => (
-            <div key={c.id} className={`flex items-center gap-2 text-xs bg-white/5 px-2 py-1.5 rounded ${c.hidden ? 'opacity-40' : ''}`}>
-              <span className="text-[10px] text-gray-500 w-12">{c.kind === 'guest' ? 'ゲスト' : 'キャスト'}</span>
-              <span className="flex-1 truncate">{c.label}</span>
-              {c.custom && <span className="text-[9px] text-gold/70 bg-gold/10 px-1.5 py-0.5 rounded">カスタム</span>}
-              <button onClick={() => moveCategory(c.id, -1)} className="text-gray-400 hover:text-white" title="上に移動">
-                <ChevronUp size={12} />
-              </button>
-              <button onClick={() => moveCategory(c.id, +1)} className="text-gray-400 hover:text-white" title="下に移動">
-                <ChevronDown size={12} />
-              </button>
-              <button onClick={() => toggleCategoryHidden(c.id)} className={`text-xs px-2 py-0.5 rounded ${c.hidden ? 'bg-white/10 text-gray-400' : 'bg-emerald-500/20 text-emerald-300'}`}>
-                {c.hidden ? '非表示' : '表示中'}
-              </button>
-              {c.custom && (
-                <button onClick={() => deleteCategory(c.id)} aria-label={`${c.label ?? c.id} を削除`} title="削除" className="text-red-400 hover:bg-red-500/20 p-0.5 rounded">
-                  <Trash2 size={12} />
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-        <div className="text-[10px] text-gray-600 mt-2">
-          ※ カスタムカテゴリは削除可能。既定カテゴリは非表示にして並び替えできます。
-          OrderPage の表示順・表示/非表示はこの設定が反映されます。
-        </div>
-      </div>
-
-      {/* ─── 新規メニュー追加 (追補02 R5-1) ─── */}
+      {/* ─── 新規メニュー追加（固定 7 カテゴリ） ─── */}
       <div className="panel p-3 border border-gold/30">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-sm font-bold text-gold">新規メニュー追加</h3>
-          {addKind === null ? (
-            <div className="flex gap-2">
-              <button onClick={() => setAddKind('guest')} className="btn-ghost text-xs flex items-center gap-1"><Plus size={12}/>ゲスト用</button>
-              <button onClick={() => setAddKind('cast')} className="btn-ghost text-xs flex items-center gap-1"><Plus size={12}/>キャスト用</button>
-            </div>
-          ) : (
+          {addCategoryId !== null && (
             <button onClick={resetAddForm} className="text-xs text-gray-400 hover:text-white">キャンセル</button>
           )}
         </div>
-        {addKind && (
+        {addCategoryId === null ? (
+          <div className="grid grid-cols-2 gap-2">
+            {FIXED_CATEGORIES.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => setAddCategoryId(c.id)}
+                className="btn-ghost text-xs flex items-center gap-1 justify-start"
+              >
+                <Plus size={12} /> {c.label}
+              </button>
+            ))}
+          </div>
+        ) : (
           <div className="space-y-2">
+            <div className="text-xs text-gold">
+              選択中: <span className="font-bold">{selectedCategory?.label}</span>
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-xs text-gray-500 block mb-1">商品名</label>
-                <input value={addName} onChange={(e) => handleAddNameChange(e.target.value)} placeholder="例: 山崎18年" className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm" />
-                {/* ISSUE-001: prefix 自動判定の結果ヒント（cast のみ） */}
-                {addKind === 'cast' && nominationHint === 'free' && (
-                  <div className="text-[11px] text-blue-300 mt-1">
-                    自動判定: F（フリー）系として subcategory / backType を設定しました
-                  </div>
-                )}
-                {addKind === 'cast' && nominationHint === 'honshimei' && (
-                  <div className="text-[11px] text-amber-300 mt-1">
-                    自動判定: 本（本指名）系として subcategory / backType を設定しました
-                  </div>
-                )}
-                {addKind === 'cast' && nominationHint === 'unknown' && (
-                  <div className="text-[11px] text-amber-400 mt-1 space-y-1">
-                    <div>※ 商品名が F または 本 で始まらないため、指名種別を選択してください</div>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAddCastSub('fdrink')
-                          setAddBackType('FD')
-                          setNominationHint('free')
-                        }}
-                        className="px-2 py-0.5 rounded border border-blue-400/40 text-blue-300 text-[11px] hover:bg-blue-400/10"
-                      >
-                        F（フリー）として登録
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAddCastSub('hondrink')
-                          setAddBackType('本D')
-                          setNominationHint('honshimei')
-                        }}
-                        className="px-2 py-0.5 rounded border border-amber-400/40 text-amber-300 text-[11px] hover:bg-amber-400/10"
-                      >
-                        本（本指名）として登録
-                      </button>
-                    </div>
-                  </div>
-                )}
+                <input
+                  value={addName}
+                  onChange={(e) => setAddName(e.target.value)}
+                  placeholder={selectedCategory?.isBottle ? '例: 山崎18年' : '例: Lドリンク (FD)'}
+                  className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm"
+                />
               </div>
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">カテゴリ</label>
-                {addKind === 'guest' ? (
-                  // ISSUE-008: ハードコード配列ではなく menuCategories から動的生成
-                  // → カテゴリ追加が即時反映される（リロード不要）
-                  <select value={addGuestSub} onChange={(e) => setAddGuestSub(e.target.value as GuestMenuItem['subcategory'])} className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm">
-                    {menuCategories
-                      .filter((c) => c.kind === 'guest' && !c.hidden)
-                      .sort((a, b) => a.order - b.order)
-                      .map((c) => (
-                        <option key={c.id} value={c.id}>{c.label}</option>
-                      ))}
+              {/* キャストドリンク選択時のみ、F/本 サブセレクタを出して subcategory + backType を決める */}
+              {selectedCategory?.kind === 'cast' && (
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">指名種別</label>
+                  <select
+                    value={addCastNominationType}
+                    onChange={(e) => setAddCastNominationType(e.target.value as 'F' | '本')}
+                    className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm"
+                  >
+                    <option value="F">F（フリー）</option>
+                    <option value="本">本（本指名）</option>
                   </select>
-                ) : (
-                  <select value={addCastSub} onChange={(e) => setAddCastSub(e.target.value as CastMenuItem['subcategory'])} className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm">
-                    {menuCategories
-                      .filter((c) => c.kind === 'cast' && !c.hidden)
-                      .sort((a, b) => a.order - b.order)
-                      .map((c) => (
-                        <option key={c.id} value={c.id}>{c.label}</option>
-                      ))}
-                  </select>
-                )}
-              </div>
+                </div>
+              )}
             </div>
             <div className="grid grid-cols-3 gap-2">
               <div>
@@ -464,45 +371,56 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
                 <label className="text-xs text-gray-500 block mb-1">原価 (円)</label>
                 <NumberInput value={addCost} onChange={setAddCost} step={100} min={0} />
               </div>
-              {addKind === 'cast' && (
+              {selectedCategory?.kind === 'cast' && (
                 <div>
                   <label className="text-xs text-gray-500 block mb-1">キャストバック (円)</label>
                   <NumberInput value={addCastBack} onChange={setAddCastBack} step={100} min={0} />
                 </div>
               )}
             </div>
-            {addKind === 'cast' && (
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">バック種別</label>
-                <select value={addBackType} onChange={(e) => setAddBackType(e.target.value as BackType)} className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm">
-                  {backTypes.map((bt) => <option key={bt} value={bt}>{bt}</option>)}
-                </select>
-              </div>
-            )}
-            {/* PDF G: bottle 系サブカテゴリのとき、ボトルバック計算用の基準額を
-                任意入力できる。販売価格0円のキャストプレゼント用ボトルでも
-                バック金額を発生させたいケースで使う（未入力なら price を使う）。 */}
-            {addKind === 'guest' && isBottleSubcategory(addGuestSub) && (
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">
-                  ボトルバック計算用 基準額 (円、任意)
-                </label>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  step={500}
-                  value={addBottleBackBase}
-                  onChange={(e) => setAddBottleBackBase(e.target.value)}
-                  placeholder={addPrice === 0 ? '例: 5000（0円ボトル用）' : '空欄なら価格を使用'}
-                  className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm"
-                />
-                <div className="text-[10px] text-gray-500 mt-1">
-                  0円ボトル（キャストプレゼント）に「想定単価」を持たせると、
-                  本指名キャストのボトルバック計算で {`{基準額}÷本指名人数×個別率`} が
-                  発生する。一般メニューは空欄でOK。
+            {/* ボトル系のみ: 商品個別バック金額 (3-state) と バック計算用基準額 */}
+            {selectedCategory?.isBottle && (
+              <>
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">
+                    商品バック金額（円 / 1 本あたり、任意）
+                  </label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    step={500}
+                    value={addBottleBackPerUnit}
+                    onChange={(e) => setAddBottleBackPerUnit(e.target.value)}
+                    placeholder="空欄＝給与設定の率で計算 / 0＝バックなし"
+                    className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm"
+                  />
+                  <div className="text-[10px] text-gray-500 mt-1">
+                    空欄 = キャスト給与設定のボトルバック率にフォールバック。
+                    0 を入力すると「明示的にバックなし」（フォールバックさせない）。
+                    正数を入れると、キャスト給与設定の率より優先される。
+                  </div>
                 </div>
-              </div>
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">
+                    バック計算用 基準額 (円、任意)
+                  </label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    step={500}
+                    value={addBottleBackBase}
+                    onChange={(e) => setAddBottleBackBase(e.target.value)}
+                    placeholder={addPrice === 0 ? '例: 5000（0円ボトル用）' : '空欄なら価格を使用'}
+                    className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm"
+                  />
+                  <div className="text-[10px] text-gray-500 mt-1">
+                    0 円ボトル（キャストプレゼント）に「想定単価」を持たせると、
+                    率フォールバック時の基準額として使われる。一般メニューは空欄で OK。
+                  </div>
+                </div>
+              </>
             )}
             <div className="flex justify-end gap-2 pt-1">
               <button onClick={handleConfirmAdd} disabled={!addName.trim()} className="btn-gold text-xs px-4 py-1.5 disabled:opacity-40">追加する</button>
@@ -513,7 +431,9 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
       <div>
         <h3 className="text-sm font-bold text-gray-400 mb-2">ゲスト用ドリンク</h3>
         <div className="divide-y divide-white/5">
-          {guestMenu.map((item) => {
+          {/* B 方針: 7 種以外の legacy / custom 商品は管理画面の一覧からも非表示。
+              DB レコードは残置しているため過去会計の参照は壊さない。 */}
+          {guestMenu.filter((i) => isAllowedSubcategory('guest', i.subcategory)).map((item) => {
             const editable = editingId === item.id
             const bottleSub = isBottleSubcategory(item.subcategory)
             return (
@@ -530,6 +450,18 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
                       バック基準 ¥{item.bottleBackBasePerUnit.toLocaleString()}
                     </span>
                   )}
+                  {/* 商品個別バック金額: null/undefined（フォールバック）は表示せず、
+                      0（明示なし）/ 正数 のときだけバッジを出す。3-state を視認可能に。 */}
+                  {item.bottleBackPerUnit === 0 && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-500/20 border border-gray-500/30 text-gray-300">
+                      バックなし(明示)
+                    </span>
+                  )}
+                  {typeof item.bottleBackPerUnit === 'number' && item.bottleBackPerUnit > 0 && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-pink-500/15 border border-pink-500/30 text-pink-300 tabular-nums">
+                      商品バック ¥{item.bottleBackPerUnit.toLocaleString()}/本
+                    </span>
+                  )}
                 </div>
                 {editable ? (
                   <div className="flex items-center gap-2">
@@ -543,22 +475,35 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
                         <input type="number" value={editCost} onChange={(e) => setEditCost(e.target.value)} className="w-20 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm text-right" />
                       </div>
                       {bottleSub && (
-                        <div className="flex items-center gap-1">
-                          <span className="text-xs text-gray-500 w-12">バック基準</span>
-                          <input
-                            type="number"
-                            value={editBottleBackBase}
-                            onChange={(e) => setEditBottleBackBase(e.target.value)}
-                            placeholder="空=価格"
-                            className="w-20 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm text-right"
-                          />
-                        </div>
+                        <>
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs text-gray-500 w-12">商品バック</span>
+                            <input
+                              type="number"
+                              value={editBottleBackPerUnit}
+                              onChange={(e) => setEditBottleBackPerUnit(e.target.value)}
+                              placeholder="空=率"
+                              className="w-20 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm text-right"
+                              title="1 本あたりキャストバック金額（円）。空欄=給与設定率にフォールバック、0=明示的にバックなし、正数=個別バック金額"
+                            />
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs text-gray-500 w-12">バック基準</span>
+                            <input
+                              type="number"
+                              value={editBottleBackBase}
+                              onChange={(e) => setEditBottleBackBase(e.target.value)}
+                              placeholder="空=価格"
+                              className="w-20 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm text-right"
+                            />
+                          </div>
+                        </>
                       )}
                     </div>
                     <button
                       onClick={() => {
-                        // PDF G: 編集側も parseBottleBackBase で NaN / 空欄を吸収。
                         const newBase = parseBottleBackBase(editBottleBackBase)
+                        const newPerUnit = parseBottleBackPerUnit(editBottleBackPerUnit)
                         setGuestMenu((prev) => prev.map((m) => {
                           if (m.id !== item.id) return m
                           const next: GuestMenuItem = { ...m, price: Number(editPrice), cost: Number(editCost) }
@@ -567,6 +512,15 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
                               next.bottleBackBasePerUnit = newBase
                             } else {
                               delete next.bottleBackBasePerUnit
+                            }
+                            // bottleBackPerUnit は 3-state: null/undefined を区別するため
+                            //   newPerUnit === null (空欄) → 削除 (= 未設定)
+                            //   newPerUnit === 0 → 明示的バックなし、フィールド保持
+                            //   newPerUnit > 0 → 個別バック金額、フィールド保持
+                            if (newPerUnit === null) {
+                              delete next.bottleBackPerUnit
+                            } else {
+                              next.bottleBackPerUnit = newPerUnit
                             }
                           }
                           return next
@@ -590,6 +544,12 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
                         setEditPrice(String(item.price))
                         setEditCost(String(item.cost))
                         setEditBottleBackBase(item.bottleBackBasePerUnit !== undefined ? String(item.bottleBackBasePerUnit) : '')
+                        // 3-state: null/undefined → 空欄、 0 → '0'、正数 → '<数値>'
+                        setEditBottleBackPerUnit(
+                          item.bottleBackPerUnit === null || item.bottleBackPerUnit === undefined
+                            ? ''
+                            : String(item.bottleBackPerUnit),
+                        )
                       }}
                       aria-label={`${item.name} を編集`}
                       title="編集"
@@ -612,7 +572,7 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu, menuCateg
       <div>
         <h3 className="text-sm font-bold text-gray-400 mb-2">キャスト用ドリンク</h3>
         <div className="divide-y divide-white/5">
-          {castMenu.map((item) => (
+          {castMenu.filter((i) => isAllowedSubcategory('cast', i.subcategory)).map((item) => (
             <div key={item.id} className="py-2.5">
               <div className="flex items-center justify-between">
                 <div>
