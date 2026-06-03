@@ -13,22 +13,6 @@ import { GoldButton, DangerButton, GhostButton } from '../components/Buttons'
 import { formatTimeRange, getCurrentSetRange, getSetLabel } from '../utils/setCountLabel'
 import { getTodayBusinessDay } from '../utils/businessDay'
 
-// ビデオレビュー N6 (注1 15:50): ヘルプの再定義
-//   - 待機キャストが場内指名なしで入った状態
-//   - 価格 ¥4,000 (店舗売上として全額計上)
-//   - キャストバック 0 (誰にもバックなし)
-//   - キャストの個人売上には載せない (= castName を紐付けない)
-//   - category: 'guest' で扱い (キャストドリンクではない)
-const HELP_GUEST_ITEM = {
-  id: 999,
-  name: 'ヘルプ',
-  price: 4000,
-  cost: 0,
-  castBack: 0,
-  category: 'guest' as const,
-  subcategory: 'warimono' as const,
-}
-
 // ISSUE-009: 'bottle' カテゴリ廃止（ボトルキープ管理ページに集約）
 type CategoryKey =
   | 'all'
@@ -278,12 +262,6 @@ export default function OrderPage() {
     })
   }
 
-  const handleAddHelp = () => {
-    if (!selectedTableId) return
-    // ビデオレビュー N6: ヘルプはキャスト紐付けなし、全額店舗売上
-    addCurrentSetOrder({ menuItem: HELP_GUEST_ITEM, quantity: 1 })
-  }
-
   // ISSUE-003: 選択中のキャスト全員を一括で待機に戻す
   const handleSendSelectedToWaiting = () => {
     if (selectedCastNames.length === 0) return
@@ -516,10 +494,6 @@ export default function OrderPage() {
                   </button>
                 )
               })}
-              <button onClick={handleAddHelp} className="btn-dark text-left p-3 block border border-gold/40">
-                <div className="text-sm font-bold">ヘルプ</div>
-                <div className="text-xs text-gray-400 mt-1">バック記録のみ</div>
-              </button>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-2 content-start">

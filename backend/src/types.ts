@@ -126,6 +126,10 @@ export interface OrderEmbedded {
     category: 'guest' | 'cast'
     subcategory: string
     backType?: BackType
+    /** ボトルバック計算用の単価上書き（0円ボトル用）。 */
+    bottleBackBasePerUnit?: number
+    /** ボトル系個別バック金額（3-state）。詳細は GuestMenuItem.bottleBackPerUnit。 */
+    bottleBackPerUnit?: number | null
   }
   quantity: number
   /** 売上帰属先キャスト */
@@ -226,6 +230,11 @@ export interface GuestMenuItem extends AuditFields {
    *  未指定なら price を基準にする。dailyWork.ts は
    *  `menuItem.bottleBackBasePerUnit ?? menuItem.price` を読む（A2 と整合）。 */
   bottleBackBasePerUnit?: number
+  /** ボトル系商品の 1 本あたりキャストバック金額（円）。3-state:
+   *    - undefined / null: 未設定 → 給与設定のボトルバック率にフォールバック
+   *    - 0: 明示的にバックなし
+   *    - 正数: 商品個別バック金額（給与設定より優先） */
+  bottleBackPerUnit?: number | null
 }
 
 export interface CastMenuItem extends AuditFields {
@@ -276,7 +285,16 @@ export interface ReceiptSnapshot {
   consumptionTax: number
   discount: number
   orders: {
-    menuItem: { id: number; name: string; price: number }
+    menuItem: {
+      id: number
+      name: string
+      price: number
+      subcategory?: string
+      backType?: BackType
+      bottleBackBasePerUnit?: number
+      /** ボトル系個別バック金額（3-state）。詳細は GuestMenuItem.bottleBackPerUnit 参照。 */
+      bottleBackPerUnit?: number | null
+    }
     quantity: number
     castName?: string
   }[]

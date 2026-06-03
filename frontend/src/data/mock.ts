@@ -86,6 +86,14 @@ export interface GuestMenuItem {
    *  本指名ボトルバックの基準額計算 (`calcChampagneSplit`) のみで参照される。
    *  通常メニューでは未指定。 */
   bottleBackBasePerUnit?: number
+  /** ボトル系商品（シャンパン/ウイスキー/焼酎/ブランデー/ワイン）の
+   *  1 本あたりキャストバック金額（円）。3-state:
+   *    - `undefined` / `null`: 未設定 → キャスト給与設定のボトルバック率にフォールバック
+   *    - `0`: 明示的にバックなし
+   *    - 正数: 商品個別バック金額（給与設定の率より優先）
+   *  既存全商品はこのフィールド未所持なので自動的に「フォールバック対象」になる
+   *  (= 既存挙動温存)。ボトル系以外で設定されても無視される。 */
+  bottleBackPerUnit?: number | null
 }
 
 export interface CastMenuItem {
@@ -411,6 +419,9 @@ export interface ReceiptSnapshot {
       backType?: BackType
       /** ボトルバック計算用の単価上書き（0円ボトル用、G PR で使用）。 */
       bottleBackBasePerUnit?: number
+      /** ボトル系商品の 1 本あたりキャストバック金額（円）。3-state:
+       *  null/undefined = フォールバック対象、0 = 明示的バックなし、正数 = 個別。 */
+      bottleBackPerUnit?: number | null
     }
     quantity: number
     castName?: string

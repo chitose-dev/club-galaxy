@@ -5,6 +5,7 @@ import type {
   BackType,
 } from '../data/mock'
 import { calcChampagneSplit, getBackTypeForCategory } from './champagneSplit'
+import { calcBottleBackPerOrder } from './bottleBack'
 
 /**
  * キャストの実データから DailyWork[] を日別に集計する。
@@ -147,47 +148,77 @@ export function computeDailyWork(
     dw.extensionBackAmount = (dw.extensionBackAmount ?? 0) + share
   }
 
-  // 本指名ボトルバック按分: receiptSnapshot.mainNominationCastNamesSnapshot に
-  // 当該キャストが含まれるレシートを抽出し、bottle 系 orders の小計に対して
-  // calcChampagneSplit を適用。当該キャストの取り分を bottleBackAmount に加算。
+  // ボトルバック計算（2026-06-03 先方確定: 商品個別バック金額 > 給与設定率 > なし）
+  //
+  // 帰属モデル:
+  //   - bottle order に `castName` が設定されていれば、その注文は当該キャストに
+  //     直接帰属する（新仕様: 注文時にバック対象キャストを選ぶ）。
+  //     金額は `calcBottleBackPerOrder` 純関数で priority 計算する
+  //     （bottleBackPerUnit の null/0/正数 を厳密に区別する）。
+  //   - `castName` が未設定の bottle order は legacy 互換で本指名キャストに
+  //     `calcChampagneSplit` で按分する（既存レシートを壊さない）。
+  //   - bottleBackPerUnit が未設定 (null/undefined) の場合は給与設定の
+  //     `Cast.backRates['ボトルバック']` (% 単位) にフォールバック。
+  //   - bottleBackPerUnit === 0 は「明示的にバックなし」として尊重。
+  //
+  // ※「同卓フリー/場内/ヘルプには付与しない」「集計の正本は bottleBackAmount」
+  //   の従来不変条件は維持する（dw.backs['ボトルバック'] には件数を加算しない）。
   for (const billing of billingRecords) {
     if (billing.voidedAt) continue
     const snap = billing.receiptSnapshot
     if (!snap?.orders) continue
-    const mainNoms = snap.mainNominationCastNamesSnapshot ?? []
-    if (mainNoms.length === 0) continue
-    if (!mainNoms.includes(castName)) continue
     const date =
       billing.date ??
       (billing.completedAt ? billing.completedAt.slice(0, 10) : null)
     if (!date) continue
-    // bottle 系の小計を集計（subcategory ベースの判定。古い snapshot で
-    // subcategory が無い orders はスキップ）。
-    let bottleSubtotal = 0
+    const mainNoms = snap.mainNominationCastNamesSnapshot ?? []
+
+    // 当該キャストへの直接帰属分（castName === castName のボトル order）
+    let directBack = 0
+    // 本指名 split 用、castName 未設定のボトル order の小計
+    let legacyBottleSubtotal = 0
+
     for (const order of snap.orders) {
       const mi = order.menuItem
       const sc = mi.subcategory
-      // bottle 判定: subcategory が getBackTypeForCategory で 'ボトルバック' を返す
-      // か、明示的に backType='ボトルバック' のいずれか（G PR の 0 円ボトルでも
-      // backType 経由で対象に入れられるようにしておく）。
       const isBottle = (sc && getBackTypeForCategory(sc) === 'ボトルバック')
         || mi.backType === 'ボトルバック'
       if (!isBottle) continue
-      // G PR の 0 円ボトル用 hook: bottleBackBasePerUnit が指定されていれば
-      // それを単価として使う（price=0 でも任意金額のバック対象にできる）。
-      const perUnit = mi.bottleBackBasePerUnit ?? mi.price
-      bottleSubtotal += perUnit * order.quantity
+      const basePerUnit = mi.bottleBackBasePerUnit ?? mi.price
+
+      if (order.castName) {
+        // 注文時にバック対象キャストが明示指定されているケース。
+        // 当該キャスト本人の order だけが当該キャストに加算される。
+        if (order.castName !== castName) continue
+        const { amount } = calcBottleBackPerOrder({
+          productBackPerUnit: mi.bottleBackPerUnit,
+          castBottleRatePercent: bottleBackRateByCast[castName],
+          basePerUnit,
+          quantity: order.quantity,
+        })
+        directBack += amount
+      } else {
+        // castName 未設定（= 旧仕様 / フリー帰属）。本指名 split の対象として
+        // 小計を貯める。レート優先順位は legacy: 給与設定のボトルバック率を
+        // 本指名キャスト数で按分（個別商品バック金額は適用しない、
+        // 該当 order が「誰のもの」か未確定のため）。
+        legacyBottleSubtotal += basePerUnit * order.quantity
+      }
     }
-    if (bottleSubtotal <= 0) continue
-    const split = calcChampagneSplit({
-      subtotal: bottleSubtotal,
-      nominationCastNames: mainNoms,
-      castBackRateMap: bottleBackRateByCast,
-    })
-    const share = split.perCastBackAmount[castName] ?? 0
-    if (share === 0) continue
+
+    let amount = directBack
+    if (legacyBottleSubtotal > 0 && mainNoms.length > 0 && mainNoms.includes(castName)) {
+      const split = calcChampagneSplit({
+        subtotal: legacyBottleSubtotal,
+        nominationCastNames: mainNoms,
+        castBackRateMap: bottleBackRateByCast,
+      })
+      amount += split.perCastBackAmount[castName] ?? 0
+    }
+
+    if (amount === 0) continue
     const dw = ensure(date)
-    dw.bottleBackAmount = (dw.bottleBackAmount ?? 0) + share
+    dw.bottleBackAmount = (dw.bottleBackAmount ?? 0) + amount
   }
 
   // date 昇順にソート
