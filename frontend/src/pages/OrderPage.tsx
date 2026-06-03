@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../store'
 import type { MenuItem, CastMenuItem, OrderItem } from '../data/mock'
-import { displayOrderName, chargeItems } from '../data/mock'
+import { displayOrderName, chargeItems, isAllowedSubcategory } from '../data/mock'
 import { Minus, Plus, Trash2, CreditCard, Gift, UserMinus, Check } from 'lucide-react'
 import ContextualHeader from '../components/ContextualHeader'
 import BottomActionBar from '../components/BottomActionBar'
@@ -112,24 +112,28 @@ export default function OrderPage() {
   }
 
   const menuItems: MenuItem[] = useMemo(() => {
-    const all = [...guestMenu, ...castMenu]
+    // B 方針: 固定 7 カテゴリ運用の対象外 subcategory (legacy / custom) は
+    // 注文導線から完全に外す。DB レコードは残置しているため過去会計には影響しない。
+    const allowedGuest = guestMenu.filter((i) => isAllowedSubcategory('guest', i.subcategory))
+    const allowedCast = castMenu.filter((i) => isAllowedSubcategory('cast', i.subcategory))
+    const allAllowed = [...allowedGuest, ...allowedCast]
     switch (activeCategory) {
       case 'all':
-        return all
+        return allAllowed
       case 'cast-drink':
-        return castMenu
+        return allowedCast
       case 'shot-pitcher':
-        return guestMenu.filter((i) => ['shot', 'pitcher', 'beer', 'warimono'].includes(i.subcategory))
+        return allowedGuest.filter((i) => ['shot', 'pitcher', 'beer', 'warimono'].includes(i.subcategory))
       case 'champagne':
-        return guestMenu.filter((i) => i.subcategory === 'champagne')
+        return allowedGuest.filter((i) => i.subcategory === 'champagne')
       case 'whisky':
-        return guestMenu.filter((i) => i.subcategory === 'whisky')
+        return allowedGuest.filter((i) => i.subcategory === 'whisky')
       case 'shochu':
-        return guestMenu.filter((i) => i.subcategory === 'shochu')
+        return allowedGuest.filter((i) => i.subcategory === 'shochu')
       case 'brandy':
-        return guestMenu.filter((i) => i.subcategory === 'brandy')
+        return allowedGuest.filter((i) => i.subcategory === 'brandy')
       case 'wine':
-        return guestMenu.filter((i) => i.subcategory === 'wine')
+        return allowedGuest.filter((i) => i.subcategory === 'wine')
       default:
         return []
     }

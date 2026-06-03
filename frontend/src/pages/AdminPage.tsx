@@ -17,7 +17,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { useStore } from '../store'
 import { castsApi } from '../api/casts'
 import { dailyReportsApi } from '../api/dailyReports'
-import { isPercentBackType, inferStartHour } from '../data/mock'
+import { isPercentBackType, inferStartHour, isAllowedSubcategory } from '../data/mock'
 import { computeDailyWork } from '../utils/dailyWork'
 import { calcHourlyPay } from '../utils/payroll'
 import { computeDailyPayBreakdown, buildBottleBackRateByCast, type DailyPayBreakdownResult } from '../utils/dailyPayBreakdown'
@@ -431,7 +431,9 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu }: {
       <div>
         <h3 className="text-sm font-bold text-gray-400 mb-2">ゲスト用ドリンク</h3>
         <div className="divide-y divide-white/5">
-          {guestMenu.map((item) => {
+          {/* B 方針: 7 種以外の legacy / custom 商品は管理画面の一覧からも非表示。
+              DB レコードは残置しているため過去会計の参照は壊さない。 */}
+          {guestMenu.filter((i) => isAllowedSubcategory('guest', i.subcategory)).map((item) => {
             const editable = editingId === item.id
             const bottleSub = isBottleSubcategory(item.subcategory)
             return (
@@ -570,7 +572,7 @@ function MenuManager({ guestMenu, castMenu, setGuestMenu, setCastMenu }: {
       <div>
         <h3 className="text-sm font-bold text-gray-400 mb-2">キャスト用ドリンク</h3>
         <div className="divide-y divide-white/5">
-          {castMenu.map((item) => (
+          {castMenu.filter((i) => isAllowedSubcategory('cast', i.subcategory)).map((item) => (
             <div key={item.id} className="py-2.5">
               <div className="flex items-center justify-between">
                 <div>
