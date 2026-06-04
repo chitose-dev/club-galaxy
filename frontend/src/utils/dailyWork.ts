@@ -150,17 +150,19 @@ export function computeDailyWork(
 
   // ボトルバック計算（2026-06-03 先方確定: 商品個別バック金額 > 給与設定率 > なし）
   //
-  // 帰属モデル:
-  //   - bottle order に `castName` が設定されていれば、その注文は当該キャストに
-  //     直接帰属する（新仕様: 注文時にバック対象キャストを選ぶ）。
-  //     金額は `calcBottleBackPerOrder` 純関数で priority 計算する
-  //     （bottleBackPerUnit の null/0/正数 を厳密に区別する）。
-  //   - `castName` が未設定の bottle order は legacy 互換で本指名キャストに
-  //     `calcChampagneSplit` で按分する（既存レシートを壊さない）。
-  //   - bottleBackPerUnit が未設定 (null/undefined) の場合は給与設定の
-  //     `Cast.backRates['ボトルバック']` (% 単位) にフォールバック。
-  //   - bottleBackPerUnit === 0 は「明示的にバックなし」として尊重。
+  // 帰属モデル（優先順位順に並べる）:
+  //   1. order.castName が設定されている → そのキャストに直接帰属し、
+  //      `calcBottleBackPerOrder` で priority 計算（null/0/正数 区別）。
+  //   2. order.castName 空 + 本指名 (mainNominationCastNamesSnapshot) あり →
+  //      本指名キャストで `calcChampagneSplit` 按分（既存レシート互換）。
+  //   3. order.castName 空 + 本指名なし + 担当キャスト (castNamesSnapshot) あり →
+  //      担当キャストで按分（PR #117 後の追加修正: 本指名なし運用でも
+  //      担当に紐付けば率フォールバックでバックを計上する）。
+  //   4. いずれにも該当しない → バック付与なし（フリー卓・担当未確定）。
   //
+  // ※ 2 と 3 のフォールバックは率のみ（productBackPerUnit は適用しない）。
+  //   理由: productBackPerUnit は「1 本あたりの円固定金額」で、N 名按分時の
+  //   分割ルールが未定義。明示帰属（castName 設定）の場合のみ尊重する。
   // ※「同卓フリー/場内/ヘルプには付与しない」「集計の正本は bottleBackAmount」
   //   の従来不変条件は維持する（dw.backs['ボトルバック'] には件数を加算しない）。
   for (const billing of billingRecords) {
@@ -172,11 +174,16 @@ export function computeDailyWork(
       (billing.completedAt ? billing.completedAt.slice(0, 10) : null)
     if (!date) continue
     const mainNoms = snap.mainNominationCastNamesSnapshot ?? []
+    // 担当キャストスナップショット（フリー卓では空、本指名 0 + 担当 N のときに使う）
+    const assignedCasts =
+      (billing as BillingRecord & { castNamesSnapshot?: string[] }).castNamesSnapshot ?? []
 
     // 当該キャストへの直接帰属分（castName === castName のボトル order）
     let directBack = 0
-    // 本指名 split 用、castName 未設定のボトル order の小計
-    let legacyBottleSubtotal = 0
+    // 本指名 split 用、castName 未設定 + 本指名あり のボトル order 小計
+    let mainNomBottleSubtotal = 0
+    // 担当 split 用、castName 未設定 + 本指名なし + 担当あり のボトル order 小計
+    let assignedBottleSubtotal = 0
 
     for (const order of snap.orders) {
       const mi = order.menuItem
@@ -187,8 +194,7 @@ export function computeDailyWork(
       const basePerUnit = mi.bottleBackBasePerUnit ?? mi.price
 
       if (order.castName) {
-        // 注文時にバック対象キャストが明示指定されているケース。
-        // 当該キャスト本人の order だけが当該キャストに加算される。
+        // 1. 明示帰属
         if (order.castName !== castName) continue
         const { amount } = calcBottleBackPerOrder({
           productBackPerUnit: mi.bottleBackPerUnit,
@@ -197,20 +203,31 @@ export function computeDailyWork(
           quantity: order.quantity,
         })
         directBack += amount
-      } else {
-        // castName 未設定（= 旧仕様 / フリー帰属）。本指名 split の対象として
-        // 小計を貯める。レート優先順位は legacy: 給与設定のボトルバック率を
-        // 本指名キャスト数で按分（個別商品バック金額は適用しない、
-        // 該当 order が「誰のもの」か未確定のため）。
-        legacyBottleSubtotal += basePerUnit * order.quantity
+      } else if (mainNoms.length > 0) {
+        // 2. 本指名按分（legacy 互換）
+        mainNomBottleSubtotal += basePerUnit * order.quantity
+      } else if (assignedCasts.length > 0) {
+        // 3. 担当キャスト按分（本指名なし運用のフォールバック）
+        assignedBottleSubtotal += basePerUnit * order.quantity
       }
+      // 4. else: 担当も未確定 → どこにも帰属させない
     }
 
     let amount = directBack
-    if (legacyBottleSubtotal > 0 && mainNoms.length > 0 && mainNoms.includes(castName)) {
+    if (mainNomBottleSubtotal > 0 && mainNoms.includes(castName)) {
       const split = calcChampagneSplit({
-        subtotal: legacyBottleSubtotal,
+        subtotal: mainNomBottleSubtotal,
         nominationCastNames: mainNoms,
+        castBackRateMap: bottleBackRateByCast,
+      })
+      amount += split.perCastBackAmount[castName] ?? 0
+    }
+    if (assignedBottleSubtotal > 0 && assignedCasts.includes(castName)) {
+      // 担当 N 名で均等按分。calcChampagneSplit は引数名が「本指名」だが、
+      // 実体は「対象 N 名で割って各キャストの率を掛ける」純関数なので流用可。
+      const split = calcChampagneSplit({
+        subtotal: assignedBottleSubtotal,
+        nominationCastNames: assignedCasts,
         castBackRateMap: bottleBackRateByCast,
       })
       amount += split.perCastBackAmount[castName] ?? 0
