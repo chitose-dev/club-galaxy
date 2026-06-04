@@ -235,8 +235,10 @@ export function computeDailyWork(
       amount += split.perCastBackAmount[castName] ?? 0
     }
     if (assignedBottleSubtotal > 0 && assignedCasts.includes(castName)) {
-      // 担当 N 名で均等按分。calcChampagneSplit は引数名が「本指名」だが、
-      // 実体は「対象 N 名で割って各キャストの率を掛ける」純関数なので流用可。
+      // 担当 1 名 fallback の金額算出。集計ループ側で `assignedCasts.length === 1`
+      // を保証してから assignedBottleSubtotal を貯めているため、ここに来る時点で
+      // 対象は単一キャスト。calcChampagneSplit を流用するが「1 名で割る」=
+      // 当該キャストにそのまま率を掛ける挙動になる（2 名以上の按分は仕様外）。
       const split = calcChampagneSplit({
         subtotal: assignedBottleSubtotal,
         nominationCastNames: assignedCasts,
