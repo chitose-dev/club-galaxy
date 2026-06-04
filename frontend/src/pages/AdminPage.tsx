@@ -33,7 +33,7 @@ import { openPrintWindow } from '../utils/print'
 import ContextualHeader from '../components/ContextualHeader'
 import Tabs, { type TabItem } from '../components/Tabs'
 import NumberInput from '../components/NumberInput'
-import { getTodayBusinessDay, formatBusinessDay } from '../utils/businessDay'
+import { getTodayBusinessDay, formatBusinessDay, getJstTodayDateString } from '../utils/businessDay'
 // PDF E: 勤怠 UI 拡張用
 import PayslipPopup from '../components/PayslipPopup'
 import DailyPayDialog from '../components/DailyPayDialog'
@@ -1637,8 +1637,10 @@ function AttendanceManager({
 
   // 共通 DailyPayDialog 経由で日払いを記録するヘルパー。
   // date は YYYY-MM-DD 統一 (locale 表記との混在で履歴ソート破綻を防ぐ)。
+  // 営業日締めの判定は backend businessDate と揃える必要があるため
+  // getTodayBusinessDay(5) を使う（フロント既定 6 ではなく backend cutoff 5 に明示一致）。
   const submitDailyPayFromDialog = (req: import('../data/mock').DailyPayRequest) => {
-    const today = new Date().toISOString().slice(0, 10)
+    const today = getTodayBusinessDay(5)
     if (isBusinessDateClosed(today, dailyReports)) return
     addDailyPayRequest(req)
     setDailyPayTarget(null)
@@ -1647,11 +1649,20 @@ function AttendanceManager({
   // 追補02 R4: 事前予定登録フォーム用
   const [showSchedule, setShowSchedule] = useState(false)
   const [schCastId, setSchCastId] = useState<number>(casts[0]?.id ?? 0)
-  const [schDate, setSchDate] = useState<string>(() => new Date().toISOString().slice(0, 10))
+  // 予定の date は JST 暦日（自動打刻ループの nowDate と同単位で比較する）。
+  const [schDate, setSchDate] = useState<string>(() => getJstTodayDateString())
   const [schTime, setSchTime] = useState<string>('20:00')
 
-  const todayStr = new Date().toISOString().split('T')[0]
-  const todayRecords = attendanceRecords.filter((r) => r.date === todayStr)
+  // 新規 AttendanceRecord の `date` フィールド = JST 暦日。
+  // toBackendCreate は `${date}T${clockIn}:00+09:00` で ISO を組むため、
+  // 暦日でないと backend が getBusinessDate(iso) で出す businessDate が
+  // ±1 日ズレる事故になる（旧 UTC 暦日は JST 深夜〜朝に -1 日ズレていた）。
+  const recordDate = getJstTodayDateString()
+  // 表示・絞り込み用の営業日 = backend `businessDate` と一致する単位。
+  // fromBackend 経由で r.date には businessDate が入っているため、ここも
+  // 営業日（cutoff=5、backend と一致）で揃える。
+  const todayBusinessDay = getTodayBusinessDay(5)
+  const todayRecords = attendanceRecords.filter((r) => r.date === todayBusinessDay)
   const pendingSchedules = attendanceSchedules.filter((s) => !s.processed)
 
   // 追補02 R4-1: 1 分おきに予定時刻を監視 → 自動打刻
@@ -1659,7 +1670,8 @@ function AttendanceManager({
   React.useEffect(() => {
     const check = () => {
       const now = new Date()
-      const nowDate = now.toISOString().slice(0, 10)
+      // s.date と同単位の JST 暦日で比較（s.date は上の schDate 初期値と同じ getJstTodayDateString 由来）。
+      const nowDate = getJstTodayDateString()
       const nowTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
       for (const s of pendingSchedules) {
         if (s.date !== nowDate) continue
@@ -1717,12 +1729,14 @@ function AttendanceManager({
 
     try {
       // PDF E: 出勤時刻は 15 分単位で「切り上げ」
+      // date は JST 暦日 (recordDate)。toBackendCreate がこれと clockIn HH:MM を
+      // 組み合わせて ISO 8601 を作り、backend が businessDate を導出する。
       await addAttendance({
         id: Date.now(),
         staffId: effectiveStaffId,
         staffName: effectiveStaffName,
         staffType,
-        date: todayStr,
+        date: recordDate,
         clockIn: roundClockInHHMM(timeStr),
         clockOut: null,
         breakMinutes: 0,
@@ -1859,7 +1873,7 @@ function AttendanceManager({
         </div>
       </div>
 
-      <h3 className="text-sm font-bold text-gray-400 mb-2">本日の勤怠 ({todayStr})</h3>
+      <h3 className="text-sm font-bold text-gray-400 mb-2">本日の勤怠 ({todayBusinessDay})</h3>
 
       {todayRecords.length === 0 ? (
         <p className="text-sm text-gray-600">本日の出勤記録はありません</p>
@@ -1935,8 +1949,8 @@ function AttendanceManager({
                         )
                         setDailyPayTarget({ cast: castObj, calculatedAmount: breakdown.net, breakdown })
                       }}
-                      disabled={isBusinessDateClosed(todayStr, dailyReports)}
-                      title={isBusinessDateClosed(todayStr, dailyReports) ? LOCKED_TOOLTIP : undefined}
+                      disabled={isBusinessDateClosed(todayBusinessDay, dailyReports)}
+                      title={isBusinessDateClosed(todayBusinessDay, dailyReports) ? LOCKED_TOOLTIP : undefined}
                       className="bg-white/5 hover:bg-white/10 text-gray-200 px-3 py-1 rounded text-xs flex items-center gap-1 disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       <Wallet size={11} /> 日払い
@@ -2019,7 +2033,7 @@ function AttendanceManager({
         open={!!dailyPayTarget}
         cast={dailyPayTarget ? { id: dailyPayTarget.cast.id, name: dailyPayTarget.cast.name } : null}
         calculatedAmount={dailyPayTarget?.calculatedAmount ?? 0}
-        targetDate={todayStr}
+        targetDate={todayBusinessDay}
         operator={user?.displayName ?? user?.username}
         staffType="cast"
         breakdown={dailyPayTarget?.breakdown}
