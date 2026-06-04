@@ -29,6 +29,24 @@ export function calcPaidMinutes(workMinutes: number): number {
  * 失敗時は `Error` を throw する（HTTP 化はルートハンドラ側）。
  */
 /**
+ * ISO 8601 タイムスタンプを厳密に検証する純関数。
+ * `new Date(value).getTime()` が NaN なら不正。HH:MM のみのような部分文字列
+ * は受け付けない（POST が `clockIn: "21:30"` を通すと `getBusinessDate` が
+ * NaN-NaN-NaN を返して DB に毒データが書かれる入口バグの修正）。
+ * 失敗時は label をメッセージに含めた Error を throw。
+ */
+export function validateIsoTimestamp(value: unknown, label: string): string {
+  if (typeof value !== 'string') {
+    throw new Error(`${label} は ISO 8601 文字列で指定してください`)
+  }
+  const t = new Date(value).getTime()
+  if (!Number.isFinite(t)) {
+    throw new Error(`${label} が不正な ISO 8601 です`)
+  }
+  return value
+}
+
+/**
  * `breakMinutes` を入力検証する純関数。
  *   - 整数 (NaN / Infinity / 小数を弾く)
  *   - 0 以上 (負値は勤務時間を不正に増やす攻撃面)
@@ -67,14 +85,17 @@ export function buildPatchedAttendance(
     ? validateBreakMinutes(body.breakMinutes)
     : before.breakMinutes
 
+  // clockIn / clockOut の ISO 検証も共通純関数に集約。before 由来でも patch
+  // 由来でも同じ厳密性を適用する（before が将来 schema 変更で曖昧になっても
+  // ここで NaN を撒かない）。
+  validateIsoTimestamp(clockIn, 'clockIn')
   const clockInMs = new Date(clockIn).getTime()
-  if (Number.isNaN(clockInMs)) throw new Error('clockIn が不正な日時です')
 
   let workMinutes = 0
   let paidMinutes = 0
   if (clockOut !== null) {
+    validateIsoTimestamp(clockOut, 'clockOut')
     const clockOutMs = new Date(clockOut).getTime()
-    if (Number.isNaN(clockOutMs)) throw new Error('clockOut が不正な日時です')
     if (clockOutMs < clockInMs) throw new Error('clockOut は clockIn より後である必要があります')
     const diffMin = Math.floor((clockOutMs - clockInMs) / 60000)
     if (diffMin > MAX_SHIFT_MINUTES) throw new Error('勤務時間が 24 時間を超えています')
@@ -143,7 +164,24 @@ attendanceRouter.post('/', async (req, res) => {
     if (body.staffType !== 'cast' && body.staffType !== 'boy') {
       throwBadRequest('staffType は cast / boy のいずれか')
     }
-    if (typeof body.clockIn !== 'string') throwBadRequest('clockIn (ISO 8601) が必要です')
+    // ISO 8601 を厳密に検証（旧仕様は typeof === 'string' のみで "21:30" 等の
+    // HH:MM 文字列が通り、getBusinessDate(NaN) で businessDate に NaN-NaN-NaN
+    // が保存される入口バグがあった）。
+    let clockInIso: string
+    try {
+      clockInIso = validateIsoTimestamp(body.clockIn, 'clockIn')
+    } catch (err) {
+      throwBadRequest(err instanceof Error ? err.message : 'clockIn が不正です')
+    }
+    // scheduledClockIn も指定があれば同じ検証
+    let scheduledClockInIso: string | undefined
+    if (body.scheduledClockIn !== undefined && body.scheduledClockIn !== null) {
+      try {
+        scheduledClockInIso = validateIsoTimestamp(body.scheduledClockIn, 'scheduledClockIn')
+      } catch (err) {
+        throwBadRequest(err instanceof Error ? err.message : 'scheduledClockIn が不正です')
+      }
+    }
 
     // 同一 staffId の clockOut == null 未終了レコードを 409
     const openSnap = await col()
@@ -155,7 +193,7 @@ attendanceRouter.post('/', async (req, res) => {
     }
 
     const now = nowJstIso()
-    const businessDate = getBusinessDate(body.clockIn)
+    const businessDate = getBusinessDate(clockInIso)
     // breakMinutes は 0 デフォルト、明示指定があれば validate（負値・NaN・
     // Infinity・小数・24h 超を弾く）。POST 時点では clockOut 未確定なので
     // 「diffMin を超えないこと」は PATCH 時に再検査される。
@@ -173,9 +211,9 @@ attendanceRouter.post('/', async (req, res) => {
       staffName: body.staffName,
       staffType: body.staffType,
       businessDate,
-      clockIn: body.clockIn,
+      clockIn: clockInIso,
       clockOut: null,
-      ...(body.scheduledClockIn !== undefined ? { scheduledClockIn: body.scheduledClockIn } : {}),
+      ...(scheduledClockInIso !== undefined ? { scheduledClockIn: scheduledClockInIso } : {}),
       breakMinutes,
       // clockIn 時点では workMinutes 計算不可。PATCH (clockOut) 時に正しい値で上書きされる
       workMinutes: 0,

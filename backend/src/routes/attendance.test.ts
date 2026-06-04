@@ -16,7 +16,12 @@
  * 簡単な代替実行: vitest 等の外部 runner なしで動かすため、依存の少ない
  * `buildPatchedAttendance` を切り出してテストする方針。
  */
-import { buildPatchedAttendance, calcPaidMinutes, validateBreakMinutes } from './attendance'
+import {
+  buildPatchedAttendance,
+  calcPaidMinutes,
+  validateBreakMinutes,
+  validateIsoTimestamp,
+} from './attendance'
 import type { AttendanceRecord } from '../types'
 
 let failures = 0
@@ -283,6 +288,59 @@ check(
     const after = buildPatchedAttendance({ breakMinutes: 180 }, recWithOut)
     return after.workMinutes === 0 && after.breakMinutes === 180
   })(),
+)
+
+// ─── validateIsoTimestamp (POST 入口の clockIn / scheduledClockIn 検証) ───
+check(
+  'validateIsoTimestamp: 完全な ISO 8601 (JST tz) → OK',
+  validateIsoTimestamp('2026-06-04T19:30:00+09:00', 'clockIn') === '2026-06-04T19:30:00+09:00',
+)
+check(
+  'validateIsoTimestamp: UTC Z 付き ISO → OK',
+  validateIsoTimestamp('2026-06-04T10:30:00Z', 'clockIn') === '2026-06-04T10:30:00Z',
+)
+expectThrow(
+  'validateIsoTimestamp: HH:MM 文字列 → エラー (旧仕様で NaN-NaN-NaN 保存される入口バグ)',
+  () => validateIsoTimestamp('21:30', 'clockIn'),
+  '不正',
+)
+expectThrow(
+  'validateIsoTimestamp: 空文字 → エラー',
+  () => validateIsoTimestamp('', 'clockIn'),
+  '不正',
+)
+expectThrow(
+  'validateIsoTimestamp: garbage 文字列 → エラー',
+  () => validateIsoTimestamp('not-a-date', 'clockIn'),
+  '不正',
+)
+expectThrow(
+  'validateIsoTimestamp: 数値 → エラー (typeof !== string)',
+  () => validateIsoTimestamp(1717490000000, 'clockIn'),
+  '文字列',
+)
+expectThrow(
+  'validateIsoTimestamp: null → エラー',
+  () => validateIsoTimestamp(null, 'clockIn'),
+  '文字列',
+)
+// label がメッセージに含まれる
+expectThrow(
+  'validateIsoTimestamp: エラーメッセージに label が含まれる',
+  () => validateIsoTimestamp('21:30', 'scheduledClockIn'),
+  'scheduledClockIn',
+)
+
+// ─── PATCH 経路の ISO 検証統合 (validateIsoTimestamp を内部で呼ぶ) ───
+expectThrow(
+  'PATCH: clockIn が HH:MM → エラー (validateIsoTimestamp 経由)',
+  () => buildPatchedAttendance({ clockIn: '21:30' }, baseRecord),
+  '不正',
+)
+expectThrow(
+  'PATCH: clockOut が HH:MM → エラー',
+  () => buildPatchedAttendance({ clockOut: '03:30' }, baseRecord),
+  '不正',
 )
 
 if (failures > 0) {

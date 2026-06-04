@@ -1683,12 +1683,22 @@ function AttendanceManager({
         // markScheduleProcessed は addAttendance 成功後にのみ呼ぶ。
         // 失敗時に processed フラグを立てると次回サイクルで再試行されず
         // 出勤レコードが永久に作られない事故になる。
+        //
+        // ※ s.date と AttendanceRecord.date の意味分離（要 doc）:
+        //   - schedule.date = JST 暦日（カレンダー上の予定日、上の `s.date === nowDate`
+        //     比較もこの単位）
+        //   - AttendanceRecord.date = businessDate (cutoff=5)（toBackendCreate の
+        //     hhmmToIsoJst が逆 cutoff を適用して ISO 化する前提）
+        // 深夜帯 (HH < 5) に予定打刻が走るケース、例えば 06-05 02:30 の予定 (s.date='06-05')
+        // で `date: s.date` を渡すと、toBackendCreate が cutoff 補正で +1day して
+        // '2026-06-06T02:30' になり 1 日未来にズレる。実打刻時の businessDate
+        // (getTodayBusinessDay(5)) を使う方が正しい (この瞬間の業務日)。
         addAttendance({
           id: Date.now() + s.id,
           staffId: s.staffId,
           staffName: s.staffName,
           staffType: s.staffType,
-          date: s.date,
+          date: getTodayBusinessDay(5),
           clockIn: roundClockInHHMM(nowTime),
           clockOut: null,
           breakMinutes: 0,
