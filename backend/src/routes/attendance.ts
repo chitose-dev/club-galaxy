@@ -28,13 +28,31 @@ export function calcPaidMinutes(workMinutes: number): number {
  *
  * 失敗時は `Error` を throw する（HTTP 化はルートハンドラ側）。
  */
+/**
+ * `breakMinutes` を入力検証する純関数。
+ *   - 整数 (NaN / Infinity / 小数を弾く)
+ *   - 0 以上 (負値は勤務時間を不正に増やす攻撃面)
+ *   - シフト 24h 超を防ぐ意味でも MAX_SHIFT_MINUTES 以下
+ * 失敗時は Error を throw。
+ */
+export function validateBreakMinutes(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value)) {
+    throw new Error('breakMinutes は整数で指定してください')
+  }
+  if (value < 0) throw new Error('breakMinutes は 0 以上で指定してください')
+  if (value > MAX_SHIFT_MINUTES) {
+    throw new Error('breakMinutes が長すぎます（24 時間を超えています）')
+  }
+  return value
+}
+
 export function buildPatchedAttendance(
   body: Record<string, unknown>,
   before: AttendanceRecord,
 ): Omit<AttendanceRecord, 'updatedAt' | 'updatedBy'> {
   const hasClockIn = typeof body.clockIn === 'string'
   const hasClockOut = typeof body.clockOut === 'string'
-  const hasBreak = typeof body.breakMinutes === 'number'
+  const hasBreak = body.breakMinutes !== undefined
   if (!hasClockIn && !hasClockOut && !hasBreak) {
     throw new Error('clockIn / clockOut / breakMinutes のいずれかが必要です')
   }
@@ -43,8 +61,10 @@ export function buildPatchedAttendance(
   const clockOut: string | null = hasClockOut
     ? (body.clockOut as string)
     : before.clockOut
+  // breakMinutes は patch されたときだけ validate し、未指定なら before を継承
+  // （before は POST 時に validate 済みなので再検査不要）。
   const breakMinutes: number = hasBreak
-    ? (body.breakMinutes as number)
+    ? validateBreakMinutes(body.breakMinutes)
     : before.breakMinutes
 
   const clockInMs = new Date(clockIn).getTime()
@@ -58,6 +78,11 @@ export function buildPatchedAttendance(
     if (clockOutMs < clockInMs) throw new Error('clockOut は clockIn より後である必要があります')
     const diffMin = Math.floor((clockOutMs - clockInMs) / 60000)
     if (diffMin > MAX_SHIFT_MINUTES) throw new Error('勤務時間が 24 時間を超えています')
+    // breakMinutes が勤務全体より長いと workMinutes が負になり給与が変になるので、
+    // diffMin を超える break は拒否。0 ≤ break ≤ diffMin の整合制約。
+    if (breakMinutes > diffMin) {
+      throw new Error('breakMinutes が勤務時間 (clockOut - clockIn) を超えています')
+    }
     workMinutes = Math.max(0, diffMin - breakMinutes)
     paidMinutes = calcPaidMinutes(workMinutes)
   }
@@ -131,7 +156,17 @@ attendanceRouter.post('/', async (req, res) => {
 
     const now = nowJstIso()
     const businessDate = getBusinessDate(body.clockIn)
-    const breakMinutes = typeof body.breakMinutes === 'number' ? body.breakMinutes : 0
+    // breakMinutes は 0 デフォルト、明示指定があれば validate（負値・NaN・
+    // Infinity・小数・24h 超を弾く）。POST 時点では clockOut 未確定なので
+    // 「diffMin を超えないこと」は PATCH 時に再検査される。
+    let breakMinutes = 0
+    if (body.breakMinutes !== undefined) {
+      try {
+        breakMinutes = validateBreakMinutes(body.breakMinutes)
+      } catch (err) {
+        throwBadRequest(err instanceof Error ? err.message : 'breakMinutes が不正です')
+      }
+    }
     const record: AttendanceRecord = {
       id: body.id,
       staffId: body.staffId,

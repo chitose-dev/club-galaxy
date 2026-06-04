@@ -16,7 +16,7 @@
  * 簡単な代替実行: vitest 等の外部 runner なしで動かすため、依存の少ない
  * `buildPatchedAttendance` を切り出してテストする方針。
  */
-import { buildPatchedAttendance, calcPaidMinutes } from './attendance'
+import { buildPatchedAttendance, calcPaidMinutes, validateBreakMinutes } from './attendance'
 import type { AttendanceRecord } from '../types'
 
 let failures = 0
@@ -206,6 +206,83 @@ expectThrow(
     baseRecord,
   ),
   '勤務時間が 24 時間',
+)
+
+// ─── breakMinutes 入力検証 (validateBreakMinutes) ───
+expectThrow(
+  'breakMinutes: 負値 → エラー (workMinutes を不正に増やす攻撃面)',
+  () => validateBreakMinutes(-30),
+  '0 以上',
+)
+expectThrow(
+  'breakMinutes: NaN → エラー',
+  () => validateBreakMinutes(NaN),
+  '整数',
+)
+expectThrow(
+  'breakMinutes: Infinity → エラー',
+  () => validateBreakMinutes(Infinity),
+  '整数',
+)
+expectThrow(
+  'breakMinutes: 小数 → エラー',
+  () => validateBreakMinutes(30.5),
+  '整数',
+)
+expectThrow(
+  'breakMinutes: 文字列 → エラー',
+  () => validateBreakMinutes('30'),
+  '整数',
+)
+expectThrow(
+  'breakMinutes: 24h 超 → エラー',
+  () => validateBreakMinutes(24 * 60 + 1),
+  '24 時間',
+)
+check(
+  'breakMinutes: 0 → OK',
+  validateBreakMinutes(0) === 0,
+)
+check(
+  'breakMinutes: 30 → OK',
+  validateBreakMinutes(30) === 30,
+)
+check(
+  'breakMinutes: 24h 境界 (24*60) → OK',
+  validateBreakMinutes(24 * 60) === 24 * 60,
+)
+
+// ─── PATCH 経路で breakMinutes 統合検証 ───
+expectThrow(
+  'PATCH: breakMinutes 負値 → エラー (旧仕様で workMinutes が増えていた)',
+  () => buildPatchedAttendance({ breakMinutes: -30 }, baseRecord),
+  '0 以上',
+)
+expectThrow(
+  'PATCH: breakMinutes が diffMin 超 → エラー',
+  () => {
+    const recWithOut: AttendanceRecord = {
+      ...baseRecord,
+      clockOut: '2026-06-04T22:30:00+09:00',
+      workMinutes: 180,
+      paidMinutes: calcPaidMinutes(180),
+    }
+    return buildPatchedAttendance({ breakMinutes: 200 }, recWithOut)
+  },
+  '勤務時間',
+)
+check(
+  'PATCH: breakMinutes = diffMin ちょうど → workMinutes=0',
+  (() => {
+    const recWithOut: AttendanceRecord = {
+      ...baseRecord,
+      clockOut: '2026-06-04T22:30:00+09:00',
+      workMinutes: 180,
+      paidMinutes: calcPaidMinutes(180),
+    }
+    const after = buildPatchedAttendance({ breakMinutes: 180 }, recWithOut)
+    return after.workMinutes === 0 && after.breakMinutes === 180
+  })(),
 )
 
 if (failures > 0) {

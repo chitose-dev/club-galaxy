@@ -28,36 +28,84 @@ import type { AttendanceRecord } from '../data/mock'
 
 const JST_OFFSET_MIN = 9 * 60 // JST は UTC + 9 時間
 
+/** 営業日 cutoff 時刻（JST、5時）。これ以前の HH:MM は前営業日の続きとして
+ *  扱う = カレンダー日付は businessDate + 1 day になる。backend
+ *  `lib/businessDate.BUSINESS_DAY_CUTOFF_HOUR_DEFAULT` と同一値。 */
+const BUSINESS_DAY_CUTOFF_HOUR = 5
+
 function pad2(n: number): string {
   return String(n).padStart(2, '0')
 }
 
-/** `YYYY-MM-DD` + `HH:MM` → `YYYY-MM-DDTHH:MM:00+09:00` の ISO 8601 文字列。
- *  入力検証はゆるく（caller 側で正規化済みの前提）、空入力は空文字を返す。 */
-export function hhmmToIsoJst(date: string, hhmm: string): string {
-  if (!date || !hhmm) return ''
-  return `${date}T${hhmm}:00+09:00`
+/**
+ * 単一時刻 (clockIn / scheduledClockIn) の `HH:MM` を、businessDate と
+ * cutoff から実カレンダー日を導出して ISO 8601 (JST) に変換する。
+ *
+ * cutoff ロジック: HH:MM の時間部が `cutoffHour` 未満の場合、その時刻は
+ * 「businessDate の翌カレンダー日（深夜出勤）」とみなして +1 day した
+ * ISO を返す。例: businessDate=2026-06-04, hhmm=02:30, cutoff=5 →
+ * `2026-06-05T02:30:00+09:00`。
+ *
+ * 理由: backend は businessDate を `getBusinessDate(clockIn ISO)` で導出し、
+ * 5 時前は前営業日として返す仕様 (`backend/lib/businessDate.ts`)。フロント
+ * 内部では「`record.date` = businessDate」として保持するので、HH:MM を ISO
+ * に戻すときに同じ cutoff を逆適用しないとカレンダー日付が 1 日ズレて、
+ * backend で `clockOut < clockIn` の 400 や businessDate 誤計算が発生する。
+ *
+ * ※ clockOut は単純な cutoff では不十分（20:00→06:00 のような深夜越え
+ *   退勤で clockOut HH=06 が cutoff 上の "businessDate のまま" と判定され
+ *   clockIn より前になる）。clockOut は `clockOutHhmmToIsoJst` を使うこと。
+ *
+ * 空入力は空文字を返す（caller 側で正規化済みの前提）。
+ */
+export function hhmmToIsoJst(
+  businessDate: string,
+  hhmm: string,
+  cutoffHour: number = BUSINESS_DAY_CUTOFF_HOUR,
+): string {
+  if (!businessDate || !hhmm) return ''
+  const [hStr] = hhmm.split(':')
+  const hour = Number(hStr)
+  const calendarDate =
+    Number.isFinite(hour) && hour < cutoffHour
+      ? addDaysToDateString(businessDate, 1)
+      : businessDate
+  return `${calendarDate}T${hhmm}:00+09:00`
 }
 
-/** 退勤時刻専用: clockIn の ISO 8601 を参照し、新しい clockOut HH:MM が
- *  当日の clockIn 以降になる ISO 8601 を返す。clockOut が clockIn より前
- *  （= 日跨ぎ退勤、例: 23:30 出勤 → 01:30 退勤）なら 1 日加算する。 */
-export function clockOutHhmmToIsoJst(clockInIso: string, clockOutHhmm: string): string {
-  if (!clockInIso || !clockOutHhmm) return ''
-  const clockInDate = new Date(clockInIso)
-  if (Number.isNaN(clockInDate.getTime())) {
-    // clockIn が malformed ならフォールバック: clockOut の date 部を抽出できない
-    // ため、今日の calendar date を使う（古いレコード救済目的の経路）。
-    const today = isoToDateJst(new Date().toISOString())
-    return hhmmToIsoJst(today, clockOutHhmm)
-  }
-  const clockInDateStr = isoToDateJst(clockInIso)
-  const candidate = hhmmToIsoJst(clockInDateStr, clockOutHhmm)
-  const candidateMs = new Date(candidate).getTime()
-  if (candidateMs < clockInDate.getTime()) {
-    // 日跨ぎ: +1 day
-    const next = addDaysToDateString(clockInDateStr, 1)
-    return hhmmToIsoJst(next, clockOutHhmm)
+/**
+ * clockOut 専用の HH:MM → ISO 8601 (JST) 変換。clockIn を基準にした
+ * 「clockIn 以降の最初の HH:MM 出現」を返す。
+ *
+ * アルゴリズム:
+ *   1. clockIn ISO を `hhmmToIsoJst(businessDate, clockInHhmm, cutoff)` で導出
+ *   2. clockIn の カレンダー日（JST）に clockOut HH:MM を貼り付けて candidate を作る
+ *   3. candidate >= clockIn なら採用、< なら +1 day（深夜越え退勤）
+ *
+ * これにより以下を全て正しく ISO 化できる:
+ *   - 通常: 20:00 → 22:00 (同日)
+ *   - 深夜越え: 20:00 → 02:00 (翌日)
+ *   - 深夜越え＋朝退勤: 20:00 → 06:00 (翌日) ← cutoff 単独だと失敗するケース
+ *   - 深夜出勤＋朝退勤: 02:30 → 04:30 (clockIn と同じ翌カレンダー日)
+ *   - クロウ報告バグ: businessDate=06-04, clockIn=02:30, clockOut patch 04:30
+ *     → 06-05T04:30+09:00（clockIn が cutoff で 06-05 に上がるため）
+ *
+ * 空 clockInHhmm の場合は cutoff のみで clockOut を ISO 化（旧データ救済）。
+ */
+export function clockOutHhmmToIsoJst(
+  businessDate: string,
+  clockInHhmm: string,
+  clockOutHhmm: string,
+  cutoffHour: number = BUSINESS_DAY_CUTOFF_HOUR,
+): string {
+  if (!businessDate || !clockOutHhmm) return ''
+  if (!clockInHhmm) return hhmmToIsoJst(businessDate, clockOutHhmm, cutoffHour)
+  const clockInIso = hhmmToIsoJst(businessDate, clockInHhmm, cutoffHour)
+  const clockInMs = new Date(clockInIso).getTime()
+  const clockInCalendarDate = isoToDateJst(clockInIso)
+  const candidate = `${clockInCalendarDate}T${clockOutHhmm}:00+09:00`
+  if (new Date(candidate).getTime() < clockInMs) {
+    return `${addDaysToDateString(clockInCalendarDate, 1)}T${clockOutHhmm}:00+09:00`
   }
   return candidate
 }
@@ -146,14 +194,14 @@ export interface BackendPatchBody {
   breakMinutes?: number
 }
 
-/** フロントの patch + 元レコード（HH:MM ↔ ISO 8601 の変換基準日として使う）
- *  → バック PATCH body に変換する。
+/** フロントの patch + 元レコード（businessDate 取得用）→ バック PATCH body。
  *
- *  clockIn と clockOut はどちらも HH:MM をフロントが保持し、boundary でこの
- *  関数が ISO 8601 (JST) に変換する。clockOut は clockIn を基準に「日跨ぎ
- *  なら +1day」の補正を行うが、同じ patch に clockIn が含まれていれば
- *  **新 clockIn を基準** に補正する（旧 clockIn を使うと日跨ぎ判定が
- *  ずれて backend が clockOut < clockIn で 400 を返す事故がある）。
+ *  baseRecord.date は businessDate（fromBackend が backend businessDate を
+ *  そのままセットしている）。HH:MM を ISO 化する際は:
+ *    - clockIn / scheduledClockIn → `hhmmToIsoJst` の cutoff(5) を逆適用
+ *    - clockOut → `clockOutHhmmToIsoJst` で clockIn ISO 以降になるよう補正
+ *  これにより 20:00→06:00 のような深夜越え退勤や、深夜出勤 record の事後
+ *  PATCH も backend が期待する正しい ISO に変換される。
  *
  *  workHours は backend が再計算するため送らない（送っても無視される）。 */
 export function toBackendPatch(
@@ -162,23 +210,22 @@ export function toBackendPatch(
 ): BackendPatchBody {
   const body: BackendPatchBody = {}
 
-  // clockIn 単独 patch: baseRecord.date と組み合わせて ISO 化
   if (patch.clockIn !== undefined && patch.clockIn !== null) {
     body.clockIn = hhmmToIsoJst(baseRecord.date, patch.clockIn)
   }
 
   if (patch.clockOut !== undefined && patch.clockOut !== null) {
-    // clockOut の日跨ぎ判定の基準となる clockIn ISO を確定:
-    //   1. 同 patch に clockIn が含まれていれば新 clockIn の ISO
-    //   2. 含まれていなければ baseRecord.clockIn の ISO
-    //   3. baseRecord.clockIn が空なら空文字（clockOutHhmmToIsoJst が fallback）
-    const effectiveClockInIso =
+    // 同 patch に clockIn が含まれていれば「新 clockIn」を基準にする。
+    // 含まれていなければ baseRecord.clockIn (= 旧 clockIn HH:MM) を基準。
+    const effectiveClockInHhmm =
       patch.clockIn !== undefined && patch.clockIn !== null
-        ? hhmmToIsoJst(baseRecord.date, patch.clockIn)
-        : baseRecord.clockIn
-          ? hhmmToIsoJst(baseRecord.date, baseRecord.clockIn)
-          : ''
-    body.clockOut = clockOutHhmmToIsoJst(effectiveClockInIso, patch.clockOut)
+        ? patch.clockIn
+        : (baseRecord.clockIn ?? '')
+    body.clockOut = clockOutHhmmToIsoJst(
+      baseRecord.date,
+      effectiveClockInHhmm,
+      patch.clockOut,
+    )
   }
 
   if (patch.breakMinutes !== undefined) {

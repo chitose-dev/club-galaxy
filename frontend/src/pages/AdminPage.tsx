@@ -1602,7 +1602,7 @@ function AttendanceManager({
   // PDF E: 出勤時刻を修正。15 分単位で丸め + workHours 再計算 + 監査ログ。
   // PDF/Word 第2弾: 締め済み日のレコードはここで弾く（その営業日の DailyReport
   // が closedAt 付きで存在すれば修正不可。reopen 後は再開可能）。
-  const handleClockInEdit = (record: AttendanceRecord, rawClockIn: string) => {
+  const handleClockInEdit = async (record: AttendanceRecord, rawClockIn: string) => {
     if (isBusinessDateClosed(record.date, dailyReports)) return
     if (!rawClockIn || !/^\d{2}:\d{2}$/.test(rawClockIn)) return
     const newClockIn = roundClockInHHMM(rawClockIn)
@@ -1612,13 +1612,15 @@ function AttendanceManager({
     if (record.clockOut) {
       patch = { ...patch, workHours: calcWorkHours(newClockIn, record.clockOut, record.breakMinutes ?? 0) }
     }
-    updateAttendance(record.id, patch).catch((e) => {
+    try {
+      await updateAttendance(record.id, patch)
+    } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       alert(`出勤時刻の変更に失敗しました: ${msg}`)
-    })
+      return
+    }
+    // 監査ログは API 成功後に記録（失敗時に嘘ログが残らないように）。
     addAttendanceEditLog({
-      // クリックハンドラ内呼び出しのため pure 違反扱いではないが、ESLint plugin が
-      // render 側と区別できないので 1 行抑制。id は単調増加で衝突しなければよい用途。
       // eslint-disable-next-line react-hooks/purity
       id: Date.now(),
       recordId: record.id,
@@ -1653,14 +1655,14 @@ function AttendanceManager({
   const [schDate, setSchDate] = useState<string>(() => getJstTodayDateString())
   const [schTime, setSchTime] = useState<string>('20:00')
 
-  // 新規 AttendanceRecord の `date` フィールド = JST 暦日。
-  // toBackendCreate は `${date}T${clockIn}:00+09:00` で ISO を組むため、
-  // 暦日でないと backend が getBusinessDate(iso) で出す businessDate が
-  // ±1 日ズレる事故になる（旧 UTC 暦日は JST 深夜〜朝に -1 日ズレていた）。
-  const recordDate = getJstTodayDateString()
-  // 表示・絞り込み用の営業日 = backend `businessDate` と一致する単位。
-  // fromBackend 経由で r.date には businessDate が入っているため、ここも
-  // 営業日（cutoff=5、backend と一致）で揃える。
+  // 新規 AttendanceRecord の `date` フィールドも、表示・絞り込みも全て
+  // **businessDate (cutoff=5)** に統一する。
+  //   - fromBackend が r.date = backend businessDate にセットするため
+  //     一覧 filter `r.date === todayBusinessDay` は businessDate 比較になる
+  //   - toBackendCreate / toBackendPatch の `hhmmToIsoJst(date, hhmm, 5)` は
+  //     cutoff 逆適用で「HH < 5 なら businessDate+1day のカレンダーで ISO 化」
+  //     するため、`date` が businessDate であることが正解。深夜出勤 (02:30 等)
+  //     も自動的に翌カレンダー日の ISO に変換される。
   const todayBusinessDay = getTodayBusinessDay(5)
   const todayRecords = attendanceRecords.filter((r) => r.date === todayBusinessDay)
   const pendingSchedules = attendanceSchedules.filter((s) => !s.processed)
@@ -1678,6 +1680,9 @@ function AttendanceManager({
         if (s.scheduledClockIn > nowTime) continue
         // 実打刻 (R4-3: 実時刻を優先、scheduledClockIn は記録用に残す)
         // PDF E: clockIn は 15 分単位で「切り上げ」
+        // markScheduleProcessed は addAttendance 成功後にのみ呼ぶ。
+        // 失敗時に processed フラグを立てると次回サイクルで再試行されず
+        // 出勤レコードが永久に作られない事故になる。
         addAttendance({
           id: Date.now() + s.id,
           staffId: s.staffId,
@@ -1689,10 +1694,11 @@ function AttendanceManager({
           breakMinutes: 0,
           workHours: 0,
           scheduledClockIn: s.scheduledClockIn,
+        }).then(() => {
+          markScheduleProcessed(s.id)
         }).catch((e) => {
-          console.error('予定からの自動打刻に失敗:', e)
+          console.error('予定からの自動打刻に失敗 (次サイクルで再試行):', e)
         })
-        markScheduleProcessed(s.id)
       }
     }
     check()
@@ -1729,14 +1735,15 @@ function AttendanceManager({
 
     try {
       // PDF E: 出勤時刻は 15 分単位で「切り上げ」
-      // date は JST 暦日 (recordDate)。toBackendCreate がこれと clockIn HH:MM を
-      // 組み合わせて ISO 8601 を作り、backend が businessDate を導出する。
+      // date は businessDate (cutoff=5)。toBackendCreate の hhmmToIsoJst が
+      // 「HH < 5 なら businessDate+1day のカレンダー」に変換するため、深夜
+      // 出勤 (02:30 等) も正しい ISO になる。
       await addAttendance({
         id: Date.now(),
         staffId: effectiveStaffId,
         staffName: effectiveStaffName,
         staffType,
-        date: recordDate,
+        date: todayBusinessDay,
         clockIn: roundClockInHHMM(timeStr),
         clockOut: null,
         breakMinutes: 0,
@@ -1750,17 +1757,21 @@ function AttendanceManager({
     }
   }
 
-  const handleClockOut = (record: AttendanceRecord) => {
+  const handleClockOut = async (record: AttendanceRecord) => {
     const now = new Date()
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
     // PDF E: 退勤時刻は 15 分単位で「切り捨て」、workHours も丸め後で再計算
     const clockOut = roundClockOutHHMM(timeStr)
     const inHHMM = record.clockIn ?? clockOut
     const workHours = calcWorkHours(inHHMM, clockOut, record.breakMinutes ?? 0)
-    updateAttendance(record.id, { clockOut, workHours }).catch((e) => {
+    try {
+      await updateAttendance(record.id, { clockOut, workHours })
+    } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       alert(`退勤打刻の保存に失敗しました: ${msg}`)
-    })
+      return
+    }
+    // 監査ログは API 成功後に記録（失敗時に嘘ログが残らないように）。
     addAttendanceEditLog({
       id: Date.now(),
       recordId: record.id,
@@ -1774,20 +1785,23 @@ function AttendanceManager({
     })
   }
 
-  const handleBreakUpdate = (record: AttendanceRecord, minutes: number) => {
+  const handleBreakUpdate = async (record: AttendanceRecord, minutes: number) => {
     if (isBusinessDateClosed(record.date, dailyReports)) return
     const oldMin = record.breakMinutes
-    const onError = (e: unknown) => {
+    try {
+      if (record.clockOut && record.clockIn) {
+        // PDF E: workHours は丸め済み clockIn/Out で再計算
+        const workHours = calcWorkHours(record.clockIn, record.clockOut, minutes)
+        await updateAttendance(record.id, { breakMinutes: minutes, workHours })
+      } else {
+        await updateAttendance(record.id, { breakMinutes: minutes })
+      }
+    } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       alert(`休憩時間の保存に失敗しました: ${msg}`)
+      return
     }
-    if (record.clockOut && record.clockIn) {
-      // PDF E: workHours は丸め済み clockIn/Out で再計算
-      const workHours = calcWorkHours(record.clockIn, record.clockOut, minutes)
-      updateAttendance(record.id, { breakMinutes: minutes, workHours }).catch(onError)
-    } else {
-      updateAttendance(record.id, { breakMinutes: minutes }).catch(onError)
-    }
+    // 監査ログは API 成功後に記録（失敗時に嘘ログが残らないように）。
     if (oldMin !== minutes) {
       addAttendanceEditLog({
         id: Date.now(),

@@ -5,7 +5,7 @@
 // 抑制 / 多重発火する」リスクがある。意図的に手動 memoize を維持しているが、
 // React Compiler は object 依存の変化追跡を保証できないと判定して警告を出す。
 // 動作上は問題ないためファイル全体で抑制する。
-import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import { tablesApi } from './api/tables'
 import { castsApi } from './api/casts'
 import { billingApi } from './api/billing'
@@ -233,6 +233,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [storeSettings, setStoreSettingsRaw] = useState<StoreSettings>(cache.storeSettings ?? defaultStoreSettings)
   const [userAccounts, setUserAccounts] = useState<UserAccount[]>([])
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([])
+  // updateAttendance の pre 取得を state updater 内副作用に依存させず、
+  // latest snapshot をいつでも参照できるよう ref に同期する（Concurrent Mode
+  // で updater が複数回呼ばれた場合の未定義動作を防ぐ）。
+  const attendanceRecordsRef = useRef<AttendanceRecord[]>([])
+  useEffect(() => {
+    attendanceRecordsRef.current = attendanceRecords
+  }, [attendanceRecords])
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [advancePayments, setAdvancePayments] = useState<AdvancePayment[]>([])
   const [archivedData, setArchivedData] = useState<ArchivedData[]>([])
@@ -641,22 +648,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
    * 既存レコードを部分更新する。サーバーは ISO 8601 を要求するため、
    * 変更前の record を baseRecord として渡し、HH:MM → ISO 変換に使う。
    * 失敗時は楽観 patch を取り消し（pre 状態へ戻す）。
+   *
+   * React の state updater 関数内で外側変数 (`pre`) に副作用代入する旧実装は
+   * Concurrent / Strict Mode で updater が複数回呼ばれた場合に未定義動作に
+   * なる。先に ref から `pre` を取得 → setState の流れに統一する。
+   * `attendanceRecordsRef` で latest snapshot を読むので、useCallback の
+   * dependency に attendanceRecords を入れる必要がない（callback 同一性が保てる）。
    */
   const updateAttendance = useCallback(async (id: number, patch: Partial<AttendanceRecord>): Promise<AttendanceRecord | null> => {
-    let pre: AttendanceRecord | null = null
-    setAttendanceRecords((prev) => {
-      const found = prev.find((r) => r.id === id)
-      if (found) pre = { ...found }
-      return prev.map((r) => (r.id === id ? { ...r, ...patch } : r))
-    })
+    const pre = attendanceRecordsRef.current.find((r) => r.id === id) ?? null
     if (!pre) return null
+    const snapshot: AttendanceRecord = { ...pre }
+    setAttendanceRecords((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)))
     try {
-      const saved = await attendanceApi.update(id, patch, pre)
+      const saved = await attendanceApi.update(id, patch, snapshot)
       setAttendanceRecords((prev) => prev.map((r) => (r.id === id ? saved : r)))
       return saved
     } catch (e) {
       // ロールバック
-      setAttendanceRecords((prev) => prev.map((r) => (r.id === id && pre ? pre : r)))
+      setAttendanceRecords((prev) => prev.map((r) => (r.id === id ? snapshot : r)))
       throw e
     }
   }, [])
