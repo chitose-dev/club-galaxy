@@ -19,6 +19,7 @@ import { castsApi } from '../api/casts'
 import { dailyReportsApi } from '../api/dailyReports'
 import { isPercentBackType, inferStartHour, isAllowedSubcategory } from '../data/mock'
 import { computeDailyWork } from '../utils/dailyWork'
+import { boyStaffId } from '../utils/staffId'
 import { calcHourlyPay } from '../utils/payroll'
 import { computeDailyPayBreakdown, buildBottleBackRateByCast, type DailyPayBreakdownResult } from '../utils/dailyPayBreakdown'
 import type { Cast, BackType, GuestMenuItem, CastMenuItem, SetPrice, Table, StoreSettings, DailyWork, UserAccount, BillingRecord } from '../data/mock'
@@ -1553,8 +1554,8 @@ function AttendanceManager({
   billingRecords, dailyPayRequests,
 }: {
   attendanceRecords: AttendanceRecord[]
-  addAttendance: (record: AttendanceRecord) => void
-  updateAttendance: (id: number, patch: Partial<AttendanceRecord>) => void
+  addAttendance: (record: AttendanceRecord) => Promise<AttendanceRecord>
+  updateAttendance: (id: number, patch: Partial<AttendanceRecord>) => Promise<AttendanceRecord | null>
   casts: Cast[]
   attendanceSchedules: import('../data/mock').AttendanceSchedule[]
   addAttendanceSchedule: (s: import('../data/mock').AttendanceSchedule) => void
@@ -1566,6 +1567,8 @@ function AttendanceManager({
   const [showAdd, setShowAdd] = useState(false)
   const [staffId, setStaffId] = useState<number>(casts[0]?.id ?? 0)
   const [staffType, setStaffType] = useState<'cast' | 'boy'>('cast')
+  // ボーイ追加用に名前テキストを保持。空文字なら出勤打刻ボタンを無効化。
+  const [boyName, setBoyName] = useState<string>('')
   // PDF E: 給与明細ポップアップ / 日払い入力 / 15分リアルタイム再描画 / 監査ログ
   const [payslipCast, setPayslipCast] = useState<Cast | null>(null)
   // 共通 DailyPayDialog 経由で日払いを記録するため、対象 cast + 自動計算額 +
@@ -1583,6 +1586,19 @@ function AttendanceManager({
     return () => clearInterval(id)
   }, [])
 
+  // 2026-06-04 修正: フォーム開閉時 / casts list 変化時に staffId を有効な
+  // active cast に同期する。旧実装は `useState(casts[0]?.id)` で初期化のみで、
+  // 「active 一覧の先頭」と「staffId」がズレ、表示と submit 値が不一致になっていた。
+  React.useEffect(() => {
+    if (!showAdd) return
+    if (staffType !== 'cast') return
+    const activeCastIds = casts.filter((c) => c.active).map((c) => c.id)
+    if (activeCastIds.length === 0) return
+    if (!activeCastIds.includes(staffId)) {
+      setStaffId(activeCastIds[0])
+    }
+  }, [showAdd, staffType, casts, staffId])
+
   // PDF E: 出勤時刻を修正。15 分単位で丸め + workHours 再計算 + 監査ログ。
   // PDF/Word 第2弾: 締め済み日のレコードはここで弾く（その営業日の DailyReport
   // が closedAt 付きで存在すれば修正不可。reopen 後は再開可能）。
@@ -1596,7 +1612,10 @@ function AttendanceManager({
     if (record.clockOut) {
       patch = { ...patch, workHours: calcWorkHours(newClockIn, record.clockOut, record.breakMinutes ?? 0) }
     }
-    updateAttendance(record.id, patch)
+    updateAttendance(record.id, patch).catch((e) => {
+      const msg = e instanceof Error ? e.message : String(e)
+      alert(`出勤時刻の変更に失敗しました: ${msg}`)
+    })
     addAttendanceEditLog({
       // クリックハンドラ内呼び出しのため pure 違反扱いではないが、ESLint plugin が
       // render 側と区別できないので 1 行抑制。id は単調増加で衝突しなければよい用途。
@@ -1658,6 +1677,8 @@ function AttendanceManager({
           breakMinutes: 0,
           workHours: 0,
           scheduledClockIn: s.scheduledClockIn,
+        }).catch((e) => {
+          console.error('予定からの自動打刻に失敗:', e)
         })
         markScheduleProcessed(s.id)
       }
@@ -1667,23 +1688,52 @@ function AttendanceManager({
     return () => clearInterval(id)
   }, [pendingSchedules, addAttendance, markScheduleProcessed])
 
-  const handleClockIn = () => {
-    const cast = casts.find((c) => c.id === staffId)
+  const handleClockIn = async () => {
     const now = new Date()
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-    // PDF E: 出勤時刻は 15 分単位で「切り上げ」
-    addAttendance({
-      id: Date.now(),
-      staffId,
-      staffName: cast?.name ?? `ボーイ${staffId}`,
-      staffType,
-      date: todayStr,
-      clockIn: roundClockInHHMM(timeStr),
-      clockOut: null,
-      breakMinutes: 0,
-      workHours: 0,
-    })
-    setShowAdd(false)
+    // ボーイは入力テキストを正本とし、staffId は名前から安定ハッシュで生成
+    // （`SalaryPage` の `boyStaffId` と同一実装を `utils/staffId.ts` で共有）。
+    // 旧実装は `setStaffId(Date.now())` で打刻のたびに別 ID が振られ、
+    // 同一ボーイの履歴が分断される + 'ボーイ{Date.now()}' というゴミ名前で
+    // 保存されていたバグの修正。
+    let effectiveStaffId = staffId
+    let effectiveStaffName: string
+    if (staffType === 'cast') {
+      const cast = casts.find((c) => c.id === staffId)
+      if (!cast) {
+        alert('キャストが選択されていません')
+        return
+      }
+      effectiveStaffName = cast.name
+    } else {
+      const trimmed = boyName.trim()
+      if (!trimmed) {
+        alert('ボーイ名を入力してください')
+        return
+      }
+      effectiveStaffId = boyStaffId(trimmed)
+      effectiveStaffName = trimmed
+    }
+
+    try {
+      // PDF E: 出勤時刻は 15 分単位で「切り上げ」
+      await addAttendance({
+        id: Date.now(),
+        staffId: effectiveStaffId,
+        staffName: effectiveStaffName,
+        staffType,
+        date: todayStr,
+        clockIn: roundClockInHHMM(timeStr),
+        clockOut: null,
+        breakMinutes: 0,
+        workHours: 0,
+      })
+      setShowAdd(false)
+      setBoyName('')
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      alert(`出勤打刻の保存に失敗しました: ${msg}`)
+    }
   }
 
   const handleClockOut = (record: AttendanceRecord) => {
@@ -1693,7 +1743,10 @@ function AttendanceManager({
     const clockOut = roundClockOutHHMM(timeStr)
     const inHHMM = record.clockIn ?? clockOut
     const workHours = calcWorkHours(inHHMM, clockOut, record.breakMinutes ?? 0)
-    updateAttendance(record.id, { clockOut, workHours })
+    updateAttendance(record.id, { clockOut, workHours }).catch((e) => {
+      const msg = e instanceof Error ? e.message : String(e)
+      alert(`退勤打刻の保存に失敗しました: ${msg}`)
+    })
     addAttendanceEditLog({
       id: Date.now(),
       recordId: record.id,
@@ -1710,11 +1763,16 @@ function AttendanceManager({
   const handleBreakUpdate = (record: AttendanceRecord, minutes: number) => {
     if (isBusinessDateClosed(record.date, dailyReports)) return
     const oldMin = record.breakMinutes
-    updateAttendance(record.id, { breakMinutes: minutes })
+    const onError = (e: unknown) => {
+      const msg = e instanceof Error ? e.message : String(e)
+      alert(`休憩時間の保存に失敗しました: ${msg}`)
+    }
     if (record.clockOut && record.clockIn) {
       // PDF E: workHours は丸め済み clockIn/Out で再計算
       const workHours = calcWorkHours(record.clockIn, record.clockOut, minutes)
-      updateAttendance(record.id, { breakMinutes: minutes, workHours })
+      updateAttendance(record.id, { breakMinutes: minutes, workHours }).catch(onError)
+    } else {
+      updateAttendance(record.id, { breakMinutes: minutes }).catch(onError)
     }
     if (oldMin !== minutes) {
       addAttendanceEditLog({
@@ -1906,7 +1964,14 @@ function AttendanceManager({
               {casts.filter((c) => c.active).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           ) : (
-            <input type="text" placeholder="ボーイ名" className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" onChange={() => setStaffId(Date.now())} />
+            // ボーイ名を state に保持。submit 時に boyStaffId(name) で安定 ID を生成。
+            <input
+              type="text"
+              placeholder="ボーイ名"
+              value={boyName}
+              onChange={(e) => setBoyName(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm"
+            />
           )}
           <div className="flex gap-2">
             <button onClick={handleClockIn} className="flex-1 bg-emerald-600 text-white py-2 rounded-lg text-sm font-bold">出勤打刻</button>

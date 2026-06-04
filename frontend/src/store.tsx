@@ -142,8 +142,8 @@ interface Store {
   flMetrics: FLMetrics
   // 勤怠管理
   attendanceRecords: AttendanceRecord[]
-  addAttendance: (record: AttendanceRecord) => void
-  updateAttendance: (id: number, patch: Partial<AttendanceRecord>) => void
+  addAttendance: (record: AttendanceRecord) => Promise<AttendanceRecord>
+  updateAttendance: (id: number, patch: Partial<AttendanceRecord>) => Promise<AttendanceRecord | null>
   // 追補02 R4: 事前出勤予定
   attendanceSchedules: AttendanceSchedule[]
   addAttendanceSchedule: (s: AttendanceSchedule) => void
@@ -615,14 +615,50 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     authApi.deleteUser(username).catch(console.error)
   }, [])
 
-  const addAttendance = useCallback((record: AttendanceRecord) => {
+  /**
+   * 出勤レコードを追加する。楽観追加 + サーバー POST、失敗時は
+   * **必ずロールバック**してエラーを caller へ surface する。
+   * 旧実装は `.catch(console.error)` で握りつぶしていたため、API 失敗を
+   * UI から検知できず再読込で消える挙動になっていた（先方バグ報告対応）。
+   *
+   * 成功時はサーバーから返ってきた正規レコード（変換済み）で楽観 record を
+   * 置き換える（id 衝突や ISO 往復による微差を真の値に同期）。
+   */
+  const addAttendance = useCallback(async (record: AttendanceRecord): Promise<AttendanceRecord> => {
     setAttendanceRecords((prev) => [...prev, record])
-    attendanceApi.create(record).catch(console.error)
+    try {
+      const saved = await attendanceApi.create(record)
+      setAttendanceRecords((prev) => prev.map((r) => (r.id === record.id ? saved : r)))
+      return saved
+    } catch (e) {
+      // ロールバック: 楽観追加した record を取り消す
+      setAttendanceRecords((prev) => prev.filter((r) => r.id !== record.id))
+      throw e
+    }
   }, [])
 
-  const updateAttendance = useCallback((id: number, patch: Partial<AttendanceRecord>) => {
-    setAttendanceRecords((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)))
-    attendanceApi.update(id, patch).catch(console.error)
+  /**
+   * 既存レコードを部分更新する。サーバーは ISO 8601 を要求するため、
+   * 変更前の record を baseRecord として渡し、HH:MM → ISO 変換に使う。
+   * 失敗時は楽観 patch を取り消し（pre 状態へ戻す）。
+   */
+  const updateAttendance = useCallback(async (id: number, patch: Partial<AttendanceRecord>): Promise<AttendanceRecord | null> => {
+    let pre: AttendanceRecord | null = null
+    setAttendanceRecords((prev) => {
+      const found = prev.find((r) => r.id === id)
+      if (found) pre = { ...found }
+      return prev.map((r) => (r.id === id ? { ...r, ...patch } : r))
+    })
+    if (!pre) return null
+    try {
+      const saved = await attendanceApi.update(id, patch, pre)
+      setAttendanceRecords((prev) => prev.map((r) => (r.id === id ? saved : r)))
+      return saved
+    } catch (e) {
+      // ロールバック
+      setAttendanceRecords((prev) => prev.map((r) => (r.id === id && pre ? pre : r)))
+      throw e
+    }
   }, [])
 
   // 追補02 R4: 事前出勤予定
