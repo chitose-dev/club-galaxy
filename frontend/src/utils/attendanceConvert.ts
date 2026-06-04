@@ -137,30 +137,54 @@ export function toBackendCreate(front: AttendanceRecord): BackendCreateBody {
   }
 }
 
-/** バックエンド PATCH /api/attendance/:id のリクエスト body。 */
+/** バックエンド PATCH /api/attendance/:id のリクエスト body。
+ *  3 フィールドのいずれか 1 つ以上を含む partial body を送る。
+ *  全て省略すると backend は 400 を返す。 */
 export interface BackendPatchBody {
+  clockIn?: string // ISO 8601
   clockOut?: string // ISO 8601
   breakMinutes?: number
 }
 
-/** フロントの patch + 元レコード（clockIn の ISO 復元用）→ バック PATCH body。
- *  clockOut HH:MM を clockIn の ISO に基づいて日跨ぎ判定込みで ISO 化する。
+/** フロントの patch + 元レコード（HH:MM ↔ ISO 8601 の変換基準日として使う）
+ *  → バック PATCH body に変換する。
+ *
+ *  clockIn と clockOut はどちらも HH:MM をフロントが保持し、boundary でこの
+ *  関数が ISO 8601 (JST) に変換する。clockOut は clockIn を基準に「日跨ぎ
+ *  なら +1day」の補正を行うが、同じ patch に clockIn が含まれていれば
+ *  **新 clockIn を基準** に補正する（旧 clockIn を使うと日跨ぎ判定が
+ *  ずれて backend が clockOut < clockIn で 400 を返す事故がある）。
+ *
  *  workHours は backend が再計算するため送らない（送っても無視される）。 */
 export function toBackendPatch(
   patch: Partial<AttendanceRecord>,
   baseRecord: AttendanceRecord,
 ): BackendPatchBody {
   const body: BackendPatchBody = {}
-  if (patch.clockOut !== undefined && patch.clockOut !== null) {
-    // clockIn を ISO 8601 化（baseRecord は front 型なので date + HH:MM）
-    const clockInIso = baseRecord.clockIn
-      ? hhmmToIsoJst(baseRecord.date, baseRecord.clockIn)
-      : ''
-    body.clockOut = clockOutHhmmToIsoJst(clockInIso, patch.clockOut)
+
+  // clockIn 単独 patch: baseRecord.date と組み合わせて ISO 化
+  if (patch.clockIn !== undefined && patch.clockIn !== null) {
+    body.clockIn = hhmmToIsoJst(baseRecord.date, patch.clockIn)
   }
+
+  if (patch.clockOut !== undefined && patch.clockOut !== null) {
+    // clockOut の日跨ぎ判定の基準となる clockIn ISO を確定:
+    //   1. 同 patch に clockIn が含まれていれば新 clockIn の ISO
+    //   2. 含まれていなければ baseRecord.clockIn の ISO
+    //   3. baseRecord.clockIn が空なら空文字（clockOutHhmmToIsoJst が fallback）
+    const effectiveClockInIso =
+      patch.clockIn !== undefined && patch.clockIn !== null
+        ? hhmmToIsoJst(baseRecord.date, patch.clockIn)
+        : baseRecord.clockIn
+          ? hhmmToIsoJst(baseRecord.date, baseRecord.clockIn)
+          : ''
+    body.clockOut = clockOutHhmmToIsoJst(effectiveClockInIso, patch.clockOut)
+  }
+
   if (patch.breakMinutes !== undefined) {
     body.breakMinutes = patch.breakMinutes
   }
+
   return body
 }
 

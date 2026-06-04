@@ -13,12 +13,66 @@ const LOOSE_TIME_MINUTES = 15
 const PAY_UNIT_MINUTES = 15
 const MAX_SHIFT_MINUTES = 24 * 60
 
-function calcPaidMinutes(workMinutes: number): number {
+export function calcPaidMinutes(workMinutes: number): number {
   if (workMinutes <= 0) return 0
   // ルーズタイム 15 分（短時間切捨て） + 15 分単位切上
   const adjusted = workMinutes - LOOSE_TIME_MINUTES
   if (adjusted <= 0) return 0
   return Math.ceil(adjusted / PAY_UNIT_MINUTES) * PAY_UNIT_MINUTES
+}
+
+/**
+ * PATCH /api/attendance/:id の中核ロジックを純関数として切り出したもの。
+ * Firestore / Express / auth と無関係に、入力 (patch body + before record)
+ * から after record を算出する。テストはこの純関数を直接呼ぶ。
+ *
+ * 失敗時は `Error` を throw する（HTTP 化はルートハンドラ側）。
+ */
+export function buildPatchedAttendance(
+  body: Record<string, unknown>,
+  before: AttendanceRecord,
+): Omit<AttendanceRecord, 'updatedAt' | 'updatedBy'> {
+  const hasClockIn = typeof body.clockIn === 'string'
+  const hasClockOut = typeof body.clockOut === 'string'
+  const hasBreak = typeof body.breakMinutes === 'number'
+  if (!hasClockIn && !hasClockOut && !hasBreak) {
+    throw new Error('clockIn / clockOut / breakMinutes のいずれかが必要です')
+  }
+
+  const clockIn: string = hasClockIn ? (body.clockIn as string) : before.clockIn
+  const clockOut: string | null = hasClockOut
+    ? (body.clockOut as string)
+    : before.clockOut
+  const breakMinutes: number = hasBreak
+    ? (body.breakMinutes as number)
+    : before.breakMinutes
+
+  const clockInMs = new Date(clockIn).getTime()
+  if (Number.isNaN(clockInMs)) throw new Error('clockIn が不正な日時です')
+
+  let workMinutes = 0
+  let paidMinutes = 0
+  if (clockOut !== null) {
+    const clockOutMs = new Date(clockOut).getTime()
+    if (Number.isNaN(clockOutMs)) throw new Error('clockOut が不正な日時です')
+    if (clockOutMs < clockInMs) throw new Error('clockOut は clockIn より後である必要があります')
+    const diffMin = Math.floor((clockOutMs - clockInMs) / 60000)
+    if (diffMin > MAX_SHIFT_MINUTES) throw new Error('勤務時間が 24 時間を超えています')
+    workMinutes = Math.max(0, diffMin - breakMinutes)
+    paidMinutes = calcPaidMinutes(workMinutes)
+  }
+
+  const businessDate: string = hasClockIn ? getBusinessDate(clockIn) : before.businessDate
+
+  return {
+    ...before,
+    clockIn,
+    clockOut,
+    businessDate,
+    breakMinutes,
+    workMinutes,
+    paidMinutes,
+  }
 }
 
 // GET /api/attendance — カーソルページネーション
@@ -111,38 +165,33 @@ attendanceRouter.post('/', async (req, res) => {
   }
 })
 
-// PATCH /api/attendance/:id — 退勤打刻
+// PATCH /api/attendance/:id — 出勤レコードの部分更新
+// 受付フィールド: clockIn / clockOut / breakMinutes のいずれか 1 つ以上必須。
+// 旧仕様は clockOut 必須だったため、休憩時間の単独変更や出勤時刻の事後修正が
+// 400 で必ず弾かれていた（先方 PR #119 レビュー指摘）。
+// 入力検証 + 値再計算は `buildPatchedAttendance` 純関数に集約し、ここでは
+// Firestore I/O と audit log にだけ責務を持つ。
 attendanceRouter.patch('/:id', async (req, res) => {
   try {
     const user = getAuthedUser(req)
     const body = req.body ?? {}
-    if (typeof body.clockOut !== 'string') throwBadRequest('clockOut (ISO 8601) が必要です')
 
     const ref = col().doc(String(req.params.id))
     const snap = await ref.get()
     if (!snap.exists) throwNotFound('出勤レコードが見つかりません')
     const before = snap.data() as AttendanceRecord
 
-    const clockInMs = new Date(before.clockIn).getTime()
-    const clockOutMs = new Date(body.clockOut).getTime()
-    if (Number.isNaN(clockOutMs)) throwBadRequest('clockOut が不正な日時です')
-    if (clockOutMs < clockInMs) throwBadRequest('clockOut は clockIn より後である必要があります')
-    const diffMin = Math.floor((clockOutMs - clockInMs) / 60000)
-    if (diffMin > MAX_SHIFT_MINUTES) throwBadRequest('勤務時間が 24 時間を超えています')
-
-    const breakMinutes = typeof body.breakMinutes === 'number' ? body.breakMinutes : before.breakMinutes
-    const workMinutes = Math.max(0, diffMin - breakMinutes)
-    const paidMinutes = calcPaidMinutes(workMinutes)
-    const now = nowJstIso()
+    let computed: Omit<AttendanceRecord, 'updatedAt' | 'updatedBy'>
+    try {
+      computed = buildPatchedAttendance(body, before)
+    } catch (err) {
+      throwBadRequest(err instanceof Error ? err.message : 'PATCH 入力が不正です')
+    }
 
     const after: AttendanceRecord = {
-      ...before,
-      clockOut: body.clockOut,
-      breakMinutes,
-      workMinutes,
-      paidMinutes,
+      ...computed,
       updatedBy: user.username,
-      updatedAt: now,
+      updatedAt: nowJstIso(),
     }
     await ref.set(after)
     await append(

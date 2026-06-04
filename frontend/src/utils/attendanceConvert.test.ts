@@ -186,8 +186,99 @@ check(
   }
   const body = toBackendPatch({ breakMinutes: 45 }, base)
   check(
-    'toBackendPatch: breakMinutes のみ patch → clockOut は含まない',
-    body.breakMinutes === 45 && !('clockOut' in body),
+    'toBackendPatch: breakMinutes のみ patch → clockOut/clockIn は含まない',
+    body.breakMinutes === 45 && !('clockOut' in body) && !('clockIn' in body),
+    `got ${JSON.stringify(body)}`,
+  )
+}
+
+// 出勤時刻の事後修正: clockIn のみ patch → ISO 化、clockOut/breakMinutes は含まない
+{
+  const base: AttendanceRecord = {
+    id: 100, staffId: 1, staffName: 'みく', staffType: 'cast',
+    date: '2026-06-04', clockIn: '19:30', clockOut: null,
+    breakMinutes: 0, workHours: 0,
+  }
+  const body = toBackendPatch({ clockIn: '19:00' }, base)
+  check(
+    'toBackendPatch: clockIn のみ patch → clockIn を ISO 化、他フィールドは含まない',
+    body.clockIn === '2026-06-04T19:00:00+09:00' &&
+      !('clockOut' in body) && !('breakMinutes' in body),
+    `got ${JSON.stringify(body)}`,
+  )
+}
+
+// clockIn + clockOut 同時 patch: clockOut の日跨ぎ判定は新 clockIn が基準
+{
+  // 旧 clockIn=23:30 の record で「clockIn を 22:30 に下げて、clockOut 01:30」と patch。
+  // 新 clockIn (22:30) を基準にすれば 01:30 は日跨ぎ → 翌日 ISO。
+  // 旧 clockIn (23:30) を基準にすると 01:30 もやはり日跨ぎだが、
+  // テストとして「新 clockIn 基準」が効いていることを別ケースで確認する。
+  const base: AttendanceRecord = {
+    id: 100, staffId: 1, staffName: 'みく', staffType: 'cast',
+    date: '2026-06-04', clockIn: '23:30', clockOut: null,
+    breakMinutes: 0, workHours: 0,
+  }
+  const body = toBackendPatch({ clockIn: '22:30', clockOut: '01:30' }, base)
+  check(
+    'toBackendPatch: clockIn+clockOut 同時 patch → 新 clockIn 基準で日跨ぎ判定',
+    body.clockIn === '2026-06-04T22:30:00+09:00' &&
+      body.clockOut === '2026-06-05T01:30:00+09:00',
+    `got ${JSON.stringify(body)}`,
+  )
+}
+
+// 新 clockIn 基準が「同日」になるケース (旧 clockIn を使うと別の判定になる)
+{
+  // 旧 clockIn=23:30 (前日 record) → 新 clockIn=00:30 + clockOut 02:00
+  // 新 clockIn 基準: 同日 → clockOut も同日 ISO
+  // (もし旧 23:30 基準で判定すると clockOut 02:00 を「日跨ぎ」と誤判定して
+  //  翌日にしてしまうため、新 clockIn 基準で計算しなければならない)
+  const base: AttendanceRecord = {
+    id: 100, staffId: 1, staffName: 'みく', staffType: 'cast',
+    date: '2026-06-04', clockIn: '23:30', clockOut: null,
+    breakMinutes: 0, workHours: 0,
+  }
+  const body = toBackendPatch({ clockIn: '00:30', clockOut: '02:00' }, base)
+  check(
+    'toBackendPatch: 新 clockIn=00:30 基準、clockOut=02:00 は同日 ISO (旧 clockIn 基準だと誤判定)',
+    body.clockIn === '2026-06-04T00:30:00+09:00' &&
+      body.clockOut === '2026-06-04T02:00:00+09:00',
+    `got ${JSON.stringify(body)}`,
+  )
+}
+
+// 全 3 フィールド同時 patch
+{
+  const base: AttendanceRecord = {
+    id: 100, staffId: 1, staffName: 'みく', staffType: 'cast',
+    date: '2026-06-04', clockIn: '19:30', clockOut: null,
+    breakMinutes: 0, workHours: 0,
+  }
+  const body = toBackendPatch(
+    { clockIn: '19:00', clockOut: '22:30', breakMinutes: 30 },
+    base,
+  )
+  check(
+    'toBackendPatch: 全フィールド同時 patch → 全 ISO 化 + breakMinutes',
+    body.clockIn === '2026-06-04T19:00:00+09:00' &&
+      body.clockOut === '2026-06-04T22:30:00+09:00' &&
+      body.breakMinutes === 30,
+    `got ${JSON.stringify(body)}`,
+  )
+}
+
+// 空 patch (何も含まれない) → 空 body
+{
+  const base: AttendanceRecord = {
+    id: 100, staffId: 1, staffName: 'みく', staffType: 'cast',
+    date: '2026-06-04', clockIn: '19:30', clockOut: null,
+    breakMinutes: 0, workHours: 0,
+  }
+  const body = toBackendPatch({}, base)
+  check(
+    'toBackendPatch: 空 patch → 空 body (呼出側で no-op 判定)',
+    Object.keys(body).length === 0,
     `got ${JSON.stringify(body)}`,
   )
 }
