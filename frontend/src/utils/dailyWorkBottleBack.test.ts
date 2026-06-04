@@ -118,7 +118,9 @@ function makeBilling(opts: {
   )
 }
 
-// ─── 担当 2 名 + 本指名なし → 均等按分（各々の率を適用） ───
+// ─── 担当 2 名 + 本指名なし + castName なし → 自動付与しない（曖昧のため）───
+// 2026-06-04 先方確定: 「複数担当で本指名なしは曖昧なので自動付与しない」。
+// 担当 fallback は **assignedCasts.length === 1** のときだけ発火する。
 {
   const billing = makeBilling({
     id: 'b2',
@@ -129,17 +131,18 @@ function makeBilling(opts: {
       { name: 'モエ', subcategory: 'champagne', price: 20000, quantity: 1 },
     ],
   })
-  // 20000 / 2 = 10000 ベース、みく 25% → 2500、あいり 30% → 3000
   const dwMiku = computeDailyWork(1, 'みく', [], [billing], 0, { 'みく': 25, 'あいり': 30 })
   const dwAiri = computeDailyWork(2, 'あいり', [], [billing], 0, { 'みく': 25, 'あいり': 30 })
   check(
-    '担当 2 名 split: みく 10000 × 25% = 2500',
-    dwMiku.find((d) => d.date === '2026-06-04')?.bottleBackAmount === 2500,
+    '担当 2 名 + 本指名なし → みく自動付与なし (0)',
+    dwMiku.find((d) => d.date === '2026-06-04')?.bottleBackAmount === undefined ||
+      dwMiku.find((d) => d.date === '2026-06-04')?.bottleBackAmount === 0,
     `got ${JSON.stringify(dwMiku.find((d) => d.date === '2026-06-04'))}`,
   )
   check(
-    '担当 2 名 split: あいり 10000 × 30% = 3000',
-    dwAiri.find((d) => d.date === '2026-06-04')?.bottleBackAmount === 3000,
+    '担当 2 名 + 本指名なし → あいり自動付与なし (0)',
+    dwAiri.find((d) => d.date === '2026-06-04')?.bottleBackAmount === undefined ||
+      dwAiri.find((d) => d.date === '2026-06-04')?.bottleBackAmount === 0,
     `got ${JSON.stringify(dwAiri.find((d) => d.date === '2026-06-04'))}`,
   )
 }

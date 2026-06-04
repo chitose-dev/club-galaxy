@@ -119,6 +119,15 @@ export function computeDailyWork(
       // 「ボトルバック: 1件 (¥0)」のような不整合表示が出るのを防ぐ
       // （Word 仕様「本指名ではないキャストには付けない」と表示も整合）。
       if (bt === 'ボトルバック') continue
+      // 2026-06-04 先方確定: 通常バック (キャストドリンク / 指名同伴 等) は
+      // `order.castName` が設定されていれば**そのキャスト本人だけに加算**する
+      // （castNamesSnapshot 全員に加算すると同卓の他キャストにも同件数が
+      //  二重計上されるバグになる。例: みく castName=みく FD 6 件 →
+      //  あいり側にも FD 6 件分が入って 同額表示になる）。
+      // castName 空の order は legacy 互換で従来通り castNamesSnapshot 全員に
+      //  加算（キャストドリンク・指名同伴は OrderPage 側で castName 必須なため、
+      //  新規データでは実質発生しない経路）。
+      if (typeof order.castName === 'string' && order.castName !== castName) continue
       dw.backs[bt] = (dw.backs[bt] ?? 0) + (order.quantity ?? 1)
     }
   }
@@ -206,11 +215,14 @@ export function computeDailyWork(
       } else if (mainNoms.length > 0) {
         // 2. 本指名按分（legacy 互換）
         mainNomBottleSubtotal += basePerUnit * order.quantity
-      } else if (assignedCasts.length > 0) {
-        // 3. 担当キャスト按分（本指名なし運用のフォールバック）
+      } else if (assignedCasts.length === 1) {
+        // 3. 担当キャスト fallback（**1 名のときだけ**発火）。
+        //    本指名運用していない店舗でも、担当が 1 名に確定していれば率で計上。
+        //    2 名以上のときは「誰のバックか曖昧」なので自動付与しない（先方確定:
+        //    店舗運用未確定のため、明示帰属 or 本指名設定を促す）。
         assignedBottleSubtotal += basePerUnit * order.quantity
       }
-      // 4. else: 担当も未確定 → どこにも帰属させない
+      // 4. else: 担当 0 名 / 2 名以上 → どこにも帰属させない（自動付与しない）
     }
 
     let amount = directBack
