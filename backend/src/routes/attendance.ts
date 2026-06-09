@@ -13,12 +13,112 @@ const LOOSE_TIME_MINUTES = 15
 const PAY_UNIT_MINUTES = 15
 const MAX_SHIFT_MINUTES = 24 * 60
 
-function calcPaidMinutes(workMinutes: number): number {
+export function calcPaidMinutes(workMinutes: number): number {
   if (workMinutes <= 0) return 0
   // ルーズタイム 15 分（短時間切捨て） + 15 分単位切上
   const adjusted = workMinutes - LOOSE_TIME_MINUTES
   if (adjusted <= 0) return 0
   return Math.ceil(adjusted / PAY_UNIT_MINUTES) * PAY_UNIT_MINUTES
+}
+
+/**
+ * PATCH /api/attendance/:id の中核ロジックを純関数として切り出したもの。
+ * Firestore / Express / auth と無関係に、入力 (patch body + before record)
+ * から after record を算出する。テストはこの純関数を直接呼ぶ。
+ *
+ * 失敗時は `Error` を throw する（HTTP 化はルートハンドラ側）。
+ */
+/**
+ * ISO 8601 タイムスタンプを厳密に検証する純関数。
+ * `new Date(value).getTime()` が NaN なら不正。HH:MM のみのような部分文字列
+ * は受け付けない（POST が `clockIn: "21:30"` を通すと `getBusinessDate` が
+ * NaN-NaN-NaN を返して DB に毒データが書かれる入口バグの修正）。
+ * 失敗時は label をメッセージに含めた Error を throw。
+ */
+export function validateIsoTimestamp(value: unknown, label: string): string {
+  if (typeof value !== 'string') {
+    throw new Error(`${label} は ISO 8601 文字列で指定してください`)
+  }
+  const t = new Date(value).getTime()
+  if (!Number.isFinite(t)) {
+    throw new Error(`${label} が不正な ISO 8601 です`)
+  }
+  return value
+}
+
+/**
+ * `breakMinutes` を入力検証する純関数。
+ *   - 整数 (NaN / Infinity / 小数を弾く)
+ *   - 0 以上 (負値は勤務時間を不正に増やす攻撃面)
+ *   - シフト 24h 超を防ぐ意味でも MAX_SHIFT_MINUTES 以下
+ * 失敗時は Error を throw。
+ */
+export function validateBreakMinutes(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value)) {
+    throw new Error('breakMinutes は整数で指定してください')
+  }
+  if (value < 0) throw new Error('breakMinutes は 0 以上で指定してください')
+  if (value > MAX_SHIFT_MINUTES) {
+    throw new Error('breakMinutes が長すぎます（24 時間を超えています）')
+  }
+  return value
+}
+
+export function buildPatchedAttendance(
+  body: Record<string, unknown>,
+  before: AttendanceRecord,
+): Omit<AttendanceRecord, 'updatedAt' | 'updatedBy'> {
+  const hasClockIn = typeof body.clockIn === 'string'
+  const hasClockOut = typeof body.clockOut === 'string'
+  const hasBreak = body.breakMinutes !== undefined
+  if (!hasClockIn && !hasClockOut && !hasBreak) {
+    throw new Error('clockIn / clockOut / breakMinutes のいずれかが必要です')
+  }
+
+  const clockIn: string = hasClockIn ? (body.clockIn as string) : before.clockIn
+  const clockOut: string | null = hasClockOut
+    ? (body.clockOut as string)
+    : before.clockOut
+  // breakMinutes は patch されたときだけ validate し、未指定なら before を継承
+  // （before は POST 時に validate 済みなので再検査不要）。
+  const breakMinutes: number = hasBreak
+    ? validateBreakMinutes(body.breakMinutes)
+    : before.breakMinutes
+
+  // clockIn / clockOut の ISO 検証も共通純関数に集約。before 由来でも patch
+  // 由来でも同じ厳密性を適用する（before が将来 schema 変更で曖昧になっても
+  // ここで NaN を撒かない）。
+  validateIsoTimestamp(clockIn, 'clockIn')
+  const clockInMs = new Date(clockIn).getTime()
+
+  let workMinutes = 0
+  let paidMinutes = 0
+  if (clockOut !== null) {
+    validateIsoTimestamp(clockOut, 'clockOut')
+    const clockOutMs = new Date(clockOut).getTime()
+    if (clockOutMs < clockInMs) throw new Error('clockOut は clockIn より後である必要があります')
+    const diffMin = Math.floor((clockOutMs - clockInMs) / 60000)
+    if (diffMin > MAX_SHIFT_MINUTES) throw new Error('勤務時間が 24 時間を超えています')
+    // breakMinutes が勤務全体より長いと workMinutes が負になり給与が変になるので、
+    // diffMin を超える break は拒否。0 ≤ break ≤ diffMin の整合制約。
+    if (breakMinutes > diffMin) {
+      throw new Error('breakMinutes が勤務時間 (clockOut - clockIn) を超えています')
+    }
+    workMinutes = Math.max(0, diffMin - breakMinutes)
+    paidMinutes = calcPaidMinutes(workMinutes)
+  }
+
+  const businessDate: string = hasClockIn ? getBusinessDate(clockIn) : before.businessDate
+
+  return {
+    ...before,
+    clockIn,
+    clockOut,
+    businessDate,
+    breakMinutes,
+    workMinutes,
+    paidMinutes,
+  }
 }
 
 // GET /api/attendance — カーソルページネーション
@@ -64,7 +164,24 @@ attendanceRouter.post('/', async (req, res) => {
     if (body.staffType !== 'cast' && body.staffType !== 'boy') {
       throwBadRequest('staffType は cast / boy のいずれか')
     }
-    if (typeof body.clockIn !== 'string') throwBadRequest('clockIn (ISO 8601) が必要です')
+    // ISO 8601 を厳密に検証（旧仕様は typeof === 'string' のみで "21:30" 等の
+    // HH:MM 文字列が通り、getBusinessDate(NaN) で businessDate に NaN-NaN-NaN
+    // が保存される入口バグがあった）。
+    let clockInIso: string
+    try {
+      clockInIso = validateIsoTimestamp(body.clockIn, 'clockIn')
+    } catch (err) {
+      throwBadRequest(err instanceof Error ? err.message : 'clockIn が不正です')
+    }
+    // scheduledClockIn も指定があれば同じ検証
+    let scheduledClockInIso: string | undefined
+    if (body.scheduledClockIn !== undefined && body.scheduledClockIn !== null) {
+      try {
+        scheduledClockInIso = validateIsoTimestamp(body.scheduledClockIn, 'scheduledClockIn')
+      } catch (err) {
+        throwBadRequest(err instanceof Error ? err.message : 'scheduledClockIn が不正です')
+      }
+    }
 
     // 同一 staffId の clockOut == null 未終了レコードを 409
     const openSnap = await col()
@@ -76,17 +193,27 @@ attendanceRouter.post('/', async (req, res) => {
     }
 
     const now = nowJstIso()
-    const businessDate = getBusinessDate(body.clockIn)
-    const breakMinutes = typeof body.breakMinutes === 'number' ? body.breakMinutes : 0
+    const businessDate = getBusinessDate(clockInIso)
+    // breakMinutes は 0 デフォルト、明示指定があれば validate（負値・NaN・
+    // Infinity・小数・24h 超を弾く）。POST 時点では clockOut 未確定なので
+    // 「diffMin を超えないこと」は PATCH 時に再検査される。
+    let breakMinutes = 0
+    if (body.breakMinutes !== undefined) {
+      try {
+        breakMinutes = validateBreakMinutes(body.breakMinutes)
+      } catch (err) {
+        throwBadRequest(err instanceof Error ? err.message : 'breakMinutes が不正です')
+      }
+    }
     const record: AttendanceRecord = {
       id: body.id,
       staffId: body.staffId,
       staffName: body.staffName,
       staffType: body.staffType,
       businessDate,
-      clockIn: body.clockIn,
+      clockIn: clockInIso,
       clockOut: null,
-      ...(body.scheduledClockIn !== undefined ? { scheduledClockIn: body.scheduledClockIn } : {}),
+      ...(scheduledClockInIso !== undefined ? { scheduledClockIn: scheduledClockInIso } : {}),
       breakMinutes,
       // clockIn 時点では workMinutes 計算不可。PATCH (clockOut) 時に正しい値で上書きされる
       workMinutes: 0,
@@ -111,38 +238,33 @@ attendanceRouter.post('/', async (req, res) => {
   }
 })
 
-// PATCH /api/attendance/:id — 退勤打刻
+// PATCH /api/attendance/:id — 出勤レコードの部分更新
+// 受付フィールド: clockIn / clockOut / breakMinutes のいずれか 1 つ以上必須。
+// 旧仕様は clockOut 必須だったため、休憩時間の単独変更や出勤時刻の事後修正が
+// 400 で必ず弾かれていた（先方 PR #119 レビュー指摘）。
+// 入力検証 + 値再計算は `buildPatchedAttendance` 純関数に集約し、ここでは
+// Firestore I/O と audit log にだけ責務を持つ。
 attendanceRouter.patch('/:id', async (req, res) => {
   try {
     const user = getAuthedUser(req)
     const body = req.body ?? {}
-    if (typeof body.clockOut !== 'string') throwBadRequest('clockOut (ISO 8601) が必要です')
 
     const ref = col().doc(String(req.params.id))
     const snap = await ref.get()
     if (!snap.exists) throwNotFound('出勤レコードが見つかりません')
     const before = snap.data() as AttendanceRecord
 
-    const clockInMs = new Date(before.clockIn).getTime()
-    const clockOutMs = new Date(body.clockOut).getTime()
-    if (Number.isNaN(clockOutMs)) throwBadRequest('clockOut が不正な日時です')
-    if (clockOutMs < clockInMs) throwBadRequest('clockOut は clockIn より後である必要があります')
-    const diffMin = Math.floor((clockOutMs - clockInMs) / 60000)
-    if (diffMin > MAX_SHIFT_MINUTES) throwBadRequest('勤務時間が 24 時間を超えています')
-
-    const breakMinutes = typeof body.breakMinutes === 'number' ? body.breakMinutes : before.breakMinutes
-    const workMinutes = Math.max(0, diffMin - breakMinutes)
-    const paidMinutes = calcPaidMinutes(workMinutes)
-    const now = nowJstIso()
+    let computed: Omit<AttendanceRecord, 'updatedAt' | 'updatedBy'>
+    try {
+      computed = buildPatchedAttendance(body, before)
+    } catch (err) {
+      throwBadRequest(err instanceof Error ? err.message : 'PATCH 入力が不正です')
+    }
 
     const after: AttendanceRecord = {
-      ...before,
-      clockOut: body.clockOut,
-      breakMinutes,
-      workMinutes,
-      paidMinutes,
+      ...computed,
       updatedBy: user.username,
-      updatedAt: now,
+      updatedAt: nowJstIso(),
     }
     await ref.set(after)
     await append(

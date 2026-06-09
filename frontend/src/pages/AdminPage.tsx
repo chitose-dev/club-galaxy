@@ -19,6 +19,7 @@ import { castsApi } from '../api/casts'
 import { dailyReportsApi } from '../api/dailyReports'
 import { isPercentBackType, inferStartHour, isAllowedSubcategory } from '../data/mock'
 import { computeDailyWork } from '../utils/dailyWork'
+import { boyStaffId } from '../utils/staffId'
 import { calcHourlyPay } from '../utils/payroll'
 import { computeDailyPayBreakdown, buildBottleBackRateByCast, type DailyPayBreakdownResult } from '../utils/dailyPayBreakdown'
 import type { Cast, BackType, GuestMenuItem, CastMenuItem, SetPrice, Table, StoreSettings, DailyWork, UserAccount, BillingRecord } from '../data/mock'
@@ -32,7 +33,7 @@ import { openPrintWindow } from '../utils/print'
 import ContextualHeader from '../components/ContextualHeader'
 import Tabs, { type TabItem } from '../components/Tabs'
 import NumberInput from '../components/NumberInput'
-import { getTodayBusinessDay, formatBusinessDay } from '../utils/businessDay'
+import { getTodayBusinessDay, formatBusinessDay, getJstTodayDateString } from '../utils/businessDay'
 // PDF E: 勤怠 UI 拡張用
 import PayslipPopup from '../components/PayslipPopup'
 import DailyPayDialog from '../components/DailyPayDialog'
@@ -1553,8 +1554,8 @@ function AttendanceManager({
   billingRecords, dailyPayRequests,
 }: {
   attendanceRecords: AttendanceRecord[]
-  addAttendance: (record: AttendanceRecord) => void
-  updateAttendance: (id: number, patch: Partial<AttendanceRecord>) => void
+  addAttendance: (record: AttendanceRecord) => Promise<AttendanceRecord>
+  updateAttendance: (id: number, patch: Partial<AttendanceRecord>) => Promise<AttendanceRecord | null>
   casts: Cast[]
   attendanceSchedules: import('../data/mock').AttendanceSchedule[]
   addAttendanceSchedule: (s: import('../data/mock').AttendanceSchedule) => void
@@ -1566,6 +1567,8 @@ function AttendanceManager({
   const [showAdd, setShowAdd] = useState(false)
   const [staffId, setStaffId] = useState<number>(casts[0]?.id ?? 0)
   const [staffType, setStaffType] = useState<'cast' | 'boy'>('cast')
+  // ボーイ追加用に名前テキストを保持。空文字なら出勤打刻ボタンを無効化。
+  const [boyName, setBoyName] = useState<string>('')
   // PDF E: 給与明細ポップアップ / 日払い入力 / 15分リアルタイム再描画 / 監査ログ
   const [payslipCast, setPayslipCast] = useState<Cast | null>(null)
   // 共通 DailyPayDialog 経由で日払いを記録するため、対象 cast + 自動計算額 +
@@ -1583,10 +1586,23 @@ function AttendanceManager({
     return () => clearInterval(id)
   }, [])
 
+  // 2026-06-04 修正: フォーム開閉時 / casts list 変化時に staffId を有効な
+  // active cast に同期する。旧実装は `useState(casts[0]?.id)` で初期化のみで、
+  // 「active 一覧の先頭」と「staffId」がズレ、表示と submit 値が不一致になっていた。
+  React.useEffect(() => {
+    if (!showAdd) return
+    if (staffType !== 'cast') return
+    const activeCastIds = casts.filter((c) => c.active).map((c) => c.id)
+    if (activeCastIds.length === 0) return
+    if (!activeCastIds.includes(staffId)) {
+      setStaffId(activeCastIds[0])
+    }
+  }, [showAdd, staffType, casts, staffId])
+
   // PDF E: 出勤時刻を修正。15 分単位で丸め + workHours 再計算 + 監査ログ。
   // PDF/Word 第2弾: 締め済み日のレコードはここで弾く（その営業日の DailyReport
   // が closedAt 付きで存在すれば修正不可。reopen 後は再開可能）。
-  const handleClockInEdit = (record: AttendanceRecord, rawClockIn: string) => {
+  const handleClockInEdit = async (record: AttendanceRecord, rawClockIn: string) => {
     if (isBusinessDateClosed(record.date, dailyReports)) return
     if (!rawClockIn || !/^\d{2}:\d{2}$/.test(rawClockIn)) return
     const newClockIn = roundClockInHHMM(rawClockIn)
@@ -1596,10 +1612,15 @@ function AttendanceManager({
     if (record.clockOut) {
       patch = { ...patch, workHours: calcWorkHours(newClockIn, record.clockOut, record.breakMinutes ?? 0) }
     }
-    updateAttendance(record.id, patch)
+    try {
+      await updateAttendance(record.id, patch)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      alert(`出勤時刻の変更に失敗しました: ${msg}`)
+      return
+    }
+    // 監査ログは API 成功後に記録（失敗時に嘘ログが残らないように）。
     addAttendanceEditLog({
-      // クリックハンドラ内呼び出しのため pure 違反扱いではないが、ESLint plugin が
-      // render 側と区別できないので 1 行抑制。id は単調増加で衝突しなければよい用途。
       // eslint-disable-next-line react-hooks/purity
       id: Date.now(),
       recordId: record.id,
@@ -1618,8 +1639,10 @@ function AttendanceManager({
 
   // 共通 DailyPayDialog 経由で日払いを記録するヘルパー。
   // date は YYYY-MM-DD 統一 (locale 表記との混在で履歴ソート破綻を防ぐ)。
+  // 営業日締めの判定は backend businessDate と揃える必要があるため
+  // getTodayBusinessDay(5) を使う（フロント既定 6 ではなく backend cutoff 5 に明示一致）。
   const submitDailyPayFromDialog = (req: import('../data/mock').DailyPayRequest) => {
-    const today = new Date().toISOString().slice(0, 10)
+    const today = getTodayBusinessDay(5)
     if (isBusinessDateClosed(today, dailyReports)) return
     addDailyPayRequest(req)
     setDailyPayTarget(null)
@@ -1628,11 +1651,20 @@ function AttendanceManager({
   // 追補02 R4: 事前予定登録フォーム用
   const [showSchedule, setShowSchedule] = useState(false)
   const [schCastId, setSchCastId] = useState<number>(casts[0]?.id ?? 0)
-  const [schDate, setSchDate] = useState<string>(() => new Date().toISOString().slice(0, 10))
+  // 予定の date は JST 暦日（自動打刻ループの nowDate と同単位で比較する）。
+  const [schDate, setSchDate] = useState<string>(() => getJstTodayDateString())
   const [schTime, setSchTime] = useState<string>('20:00')
 
-  const todayStr = new Date().toISOString().split('T')[0]
-  const todayRecords = attendanceRecords.filter((r) => r.date === todayStr)
+  // 新規 AttendanceRecord の `date` フィールドも、表示・絞り込みも全て
+  // **businessDate (cutoff=5)** に統一する。
+  //   - fromBackend が r.date = backend businessDate にセットするため
+  //     一覧 filter `r.date === todayBusinessDay` は businessDate 比較になる
+  //   - toBackendCreate / toBackendPatch の `hhmmToIsoJst(date, hhmm, 5)` は
+  //     cutoff 逆適用で「HH < 5 なら businessDate+1day のカレンダーで ISO 化」
+  //     するため、`date` が businessDate であることが正解。深夜出勤 (02:30 等)
+  //     も自動的に翌カレンダー日の ISO に変換される。
+  const todayBusinessDay = getTodayBusinessDay(5)
+  const todayRecords = attendanceRecords.filter((r) => r.date === todayBusinessDay)
   const pendingSchedules = attendanceSchedules.filter((s) => !s.processed)
 
   // 追補02 R4-1: 1 分おきに予定時刻を監視 → 自動打刻
@@ -1640,26 +1672,43 @@ function AttendanceManager({
   React.useEffect(() => {
     const check = () => {
       const now = new Date()
-      const nowDate = now.toISOString().slice(0, 10)
+      // s.date と同単位の JST 暦日で比較（s.date は上の schDate 初期値と同じ getJstTodayDateString 由来）。
+      const nowDate = getJstTodayDateString()
       const nowTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
       for (const s of pendingSchedules) {
         if (s.date !== nowDate) continue
         if (s.scheduledClockIn > nowTime) continue
         // 実打刻 (R4-3: 実時刻を優先、scheduledClockIn は記録用に残す)
         // PDF E: clockIn は 15 分単位で「切り上げ」
+        // markScheduleProcessed は addAttendance 成功後にのみ呼ぶ。
+        // 失敗時に processed フラグを立てると次回サイクルで再試行されず
+        // 出勤レコードが永久に作られない事故になる。
+        //
+        // ※ s.date と AttendanceRecord.date の意味分離（要 doc）:
+        //   - schedule.date = JST 暦日（カレンダー上の予定日、上の `s.date === nowDate`
+        //     比較もこの単位）
+        //   - AttendanceRecord.date = businessDate (cutoff=5)（toBackendCreate の
+        //     hhmmToIsoJst が逆 cutoff を適用して ISO 化する前提）
+        // 深夜帯 (HH < 5) に予定打刻が走るケース、例えば 06-05 02:30 の予定 (s.date='06-05')
+        // で `date: s.date` を渡すと、toBackendCreate が cutoff 補正で +1day して
+        // '2026-06-06T02:30' になり 1 日未来にズレる。実打刻時の businessDate
+        // (getTodayBusinessDay(5)) を使う方が正しい (この瞬間の業務日)。
         addAttendance({
           id: Date.now() + s.id,
           staffId: s.staffId,
           staffName: s.staffName,
           staffType: s.staffType,
-          date: s.date,
+          date: getTodayBusinessDay(5),
           clockIn: roundClockInHHMM(nowTime),
           clockOut: null,
           breakMinutes: 0,
           workHours: 0,
           scheduledClockIn: s.scheduledClockIn,
+        }).then(() => {
+          markScheduleProcessed(s.id)
+        }).catch((e) => {
+          console.error('予定からの自動打刻に失敗 (次サイクルで再試行):', e)
         })
-        markScheduleProcessed(s.id)
       }
     }
     check()
@@ -1667,33 +1716,72 @@ function AttendanceManager({
     return () => clearInterval(id)
   }, [pendingSchedules, addAttendance, markScheduleProcessed])
 
-  const handleClockIn = () => {
-    const cast = casts.find((c) => c.id === staffId)
+  const handleClockIn = async () => {
     const now = new Date()
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-    // PDF E: 出勤時刻は 15 分単位で「切り上げ」
-    addAttendance({
-      id: Date.now(),
-      staffId,
-      staffName: cast?.name ?? `ボーイ${staffId}`,
-      staffType,
-      date: todayStr,
-      clockIn: roundClockInHHMM(timeStr),
-      clockOut: null,
-      breakMinutes: 0,
-      workHours: 0,
-    })
-    setShowAdd(false)
+    // ボーイは入力テキストを正本とし、staffId は名前から安定ハッシュで生成
+    // （`SalaryPage` の `boyStaffId` と同一実装を `utils/staffId.ts` で共有）。
+    // 旧実装は `setStaffId(Date.now())` で打刻のたびに別 ID が振られ、
+    // 同一ボーイの履歴が分断される + 'ボーイ{Date.now()}' というゴミ名前で
+    // 保存されていたバグの修正。
+    let effectiveStaffId = staffId
+    let effectiveStaffName: string
+    if (staffType === 'cast') {
+      const cast = casts.find((c) => c.id === staffId)
+      if (!cast) {
+        alert('キャストが選択されていません')
+        return
+      }
+      effectiveStaffName = cast.name
+    } else {
+      const trimmed = boyName.trim()
+      if (!trimmed) {
+        alert('ボーイ名を入力してください')
+        return
+      }
+      effectiveStaffId = boyStaffId(trimmed)
+      effectiveStaffName = trimmed
+    }
+
+    try {
+      // PDF E: 出勤時刻は 15 分単位で「切り上げ」
+      // date は businessDate (cutoff=5)。toBackendCreate の hhmmToIsoJst が
+      // 「HH < 5 なら businessDate+1day のカレンダー」に変換するため、深夜
+      // 出勤 (02:30 等) も正しい ISO になる。
+      await addAttendance({
+        id: Date.now(),
+        staffId: effectiveStaffId,
+        staffName: effectiveStaffName,
+        staffType,
+        date: todayBusinessDay,
+        clockIn: roundClockInHHMM(timeStr),
+        clockOut: null,
+        breakMinutes: 0,
+        workHours: 0,
+      })
+      setShowAdd(false)
+      setBoyName('')
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      alert(`出勤打刻の保存に失敗しました: ${msg}`)
+    }
   }
 
-  const handleClockOut = (record: AttendanceRecord) => {
+  const handleClockOut = async (record: AttendanceRecord) => {
     const now = new Date()
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
     // PDF E: 退勤時刻は 15 分単位で「切り捨て」、workHours も丸め後で再計算
     const clockOut = roundClockOutHHMM(timeStr)
     const inHHMM = record.clockIn ?? clockOut
     const workHours = calcWorkHours(inHHMM, clockOut, record.breakMinutes ?? 0)
-    updateAttendance(record.id, { clockOut, workHours })
+    try {
+      await updateAttendance(record.id, { clockOut, workHours })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      alert(`退勤打刻の保存に失敗しました: ${msg}`)
+      return
+    }
+    // 監査ログは API 成功後に記録（失敗時に嘘ログが残らないように）。
     addAttendanceEditLog({
       id: Date.now(),
       recordId: record.id,
@@ -1707,15 +1795,23 @@ function AttendanceManager({
     })
   }
 
-  const handleBreakUpdate = (record: AttendanceRecord, minutes: number) => {
+  const handleBreakUpdate = async (record: AttendanceRecord, minutes: number) => {
     if (isBusinessDateClosed(record.date, dailyReports)) return
     const oldMin = record.breakMinutes
-    updateAttendance(record.id, { breakMinutes: minutes })
-    if (record.clockOut && record.clockIn) {
-      // PDF E: workHours は丸め済み clockIn/Out で再計算
-      const workHours = calcWorkHours(record.clockIn, record.clockOut, minutes)
-      updateAttendance(record.id, { breakMinutes: minutes, workHours })
+    try {
+      if (record.clockOut && record.clockIn) {
+        // PDF E: workHours は丸め済み clockIn/Out で再計算
+        const workHours = calcWorkHours(record.clockIn, record.clockOut, minutes)
+        await updateAttendance(record.id, { breakMinutes: minutes, workHours })
+      } else {
+        await updateAttendance(record.id, { breakMinutes: minutes })
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      alert(`休憩時間の保存に失敗しました: ${msg}`)
+      return
     }
+    // 監査ログは API 成功後に記録（失敗時に嘘ログが残らないように）。
     if (oldMin !== minutes) {
       addAttendanceEditLog({
         id: Date.now(),
@@ -1801,7 +1897,7 @@ function AttendanceManager({
         </div>
       </div>
 
-      <h3 className="text-sm font-bold text-gray-400 mb-2">本日の勤怠 ({todayStr})</h3>
+      <h3 className="text-sm font-bold text-gray-400 mb-2">本日の勤怠 ({todayBusinessDay})</h3>
 
       {todayRecords.length === 0 ? (
         <p className="text-sm text-gray-600">本日の出勤記録はありません</p>
@@ -1877,8 +1973,8 @@ function AttendanceManager({
                         )
                         setDailyPayTarget({ cast: castObj, calculatedAmount: breakdown.net, breakdown })
                       }}
-                      disabled={isBusinessDateClosed(todayStr, dailyReports)}
-                      title={isBusinessDateClosed(todayStr, dailyReports) ? LOCKED_TOOLTIP : undefined}
+                      disabled={isBusinessDateClosed(todayBusinessDay, dailyReports)}
+                      title={isBusinessDateClosed(todayBusinessDay, dailyReports) ? LOCKED_TOOLTIP : undefined}
                       className="bg-white/5 hover:bg-white/10 text-gray-200 px-3 py-1 rounded text-xs flex items-center gap-1 disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       <Wallet size={11} /> 日払い
@@ -1906,7 +2002,14 @@ function AttendanceManager({
               {casts.filter((c) => c.active).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           ) : (
-            <input type="text" placeholder="ボーイ名" className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm" onChange={() => setStaffId(Date.now())} />
+            // ボーイ名を state に保持。submit 時に boyStaffId(name) で安定 ID を生成。
+            <input
+              type="text"
+              placeholder="ボーイ名"
+              value={boyName}
+              onChange={(e) => setBoyName(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm"
+            />
           )}
           <div className="flex gap-2">
             <button onClick={handleClockIn} className="flex-1 bg-emerald-600 text-white py-2 rounded-lg text-sm font-bold">出勤打刻</button>
@@ -1954,7 +2057,7 @@ function AttendanceManager({
         open={!!dailyPayTarget}
         cast={dailyPayTarget ? { id: dailyPayTarget.cast.id, name: dailyPayTarget.cast.name } : null}
         calculatedAmount={dailyPayTarget?.calculatedAmount ?? 0}
-        targetDate={todayStr}
+        targetDate={todayBusinessDay}
         operator={user?.displayName ?? user?.username}
         staffType="cast"
         breakdown={dailyPayTarget?.breakdown}

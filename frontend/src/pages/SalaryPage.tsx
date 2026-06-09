@@ -4,6 +4,7 @@ import { useAuth } from '../auth'
 import { type BackType, type DailyWork, type UserAccount, type AttendanceRecord } from '../data/mock'
 import { computeDailyWork } from '../utils/dailyWork'
 import { calcHourlyPay } from '../utils/payroll'
+import { boyStaffId } from '../utils/staffId'
 import { calcMonthlyGuaranteeShortfall } from '../utils/saleGuarantee'
 import { Plus, Trash2, FileText, FileDown } from 'lucide-react'
 import { buildMonthlyCastSalaryCsv, downloadCsv } from '../utils/taxCsv'
@@ -920,13 +921,8 @@ interface BoySalaryViewProps {
   dailyPayRequests: ReturnType<typeof useStore>['dailyPayRequests']
 }
 
-// ボーイごとに擬似的な負数IDを割り当てて、既存のdeductions/dailyPayRequestsストアを再利用する。
-// username から簡易ハッシュで安定した負数IDを生成。
-function boyStaffId(username: string): number {
-  let hash = 0
-  for (let i = 0; i < username.length; i++) hash = ((hash << 5) - hash + username.charCodeAt(i)) | 0
-  return -Math.abs(hash || 1)
-}
+// boyStaffId は frontend/src/utils/staffId.ts に集約済み（AdminPage 勤怠
+// フォームでも同じハッシュを使うため共通化）。SalaryPage は import で再利用する。
 
 function BoySalaryView({ period, setPeriod, staffType, setStaffType, userAccounts, attendanceRecords, deductions, setDeductions, dailyPayRequests }: BoySalaryViewProps) {
   const staffAccounts = userAccounts.filter((u) => u.role === 'staff')

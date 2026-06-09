@@ -5,7 +5,7 @@
 // 抑制 / 多重発火する」リスクがある。意図的に手動 memoize を維持しているが、
 // React Compiler は object 依存の変化追跡を保証できないと判定して警告を出す。
 // 動作上は問題ないためファイル全体で抑制する。
-import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import { tablesApi } from './api/tables'
 import { castsApi } from './api/casts'
 import { billingApi } from './api/billing'
@@ -142,8 +142,8 @@ interface Store {
   flMetrics: FLMetrics
   // 勤怠管理
   attendanceRecords: AttendanceRecord[]
-  addAttendance: (record: AttendanceRecord) => void
-  updateAttendance: (id: number, patch: Partial<AttendanceRecord>) => void
+  addAttendance: (record: AttendanceRecord) => Promise<AttendanceRecord>
+  updateAttendance: (id: number, patch: Partial<AttendanceRecord>) => Promise<AttendanceRecord | null>
   // 追補02 R4: 事前出勤予定
   attendanceSchedules: AttendanceSchedule[]
   addAttendanceSchedule: (s: AttendanceSchedule) => void
@@ -233,6 +233,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [storeSettings, setStoreSettingsRaw] = useState<StoreSettings>(cache.storeSettings ?? defaultStoreSettings)
   const [userAccounts, setUserAccounts] = useState<UserAccount[]>([])
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([])
+  // updateAttendance の pre 取得を state updater 内副作用に依存させず、
+  // latest snapshot をいつでも参照できるよう ref に同期する（Concurrent Mode
+  // で updater が複数回呼ばれた場合の未定義動作を防ぐ）。
+  const attendanceRecordsRef = useRef<AttendanceRecord[]>([])
+  useEffect(() => {
+    attendanceRecordsRef.current = attendanceRecords
+  }, [attendanceRecords])
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [advancePayments, setAdvancePayments] = useState<AdvancePayment[]>([])
   const [archivedData, setArchivedData] = useState<ArchivedData[]>([])
@@ -615,14 +622,53 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     authApi.deleteUser(username).catch(console.error)
   }, [])
 
-  const addAttendance = useCallback((record: AttendanceRecord) => {
+  /**
+   * 出勤レコードを追加する。楽観追加 + サーバー POST、失敗時は
+   * **必ずロールバック**してエラーを caller へ surface する。
+   * 旧実装は `.catch(console.error)` で握りつぶしていたため、API 失敗を
+   * UI から検知できず再読込で消える挙動になっていた（先方バグ報告対応）。
+   *
+   * 成功時はサーバーから返ってきた正規レコード（変換済み）で楽観 record を
+   * 置き換える（id 衝突や ISO 往復による微差を真の値に同期）。
+   */
+  const addAttendance = useCallback(async (record: AttendanceRecord): Promise<AttendanceRecord> => {
     setAttendanceRecords((prev) => [...prev, record])
-    attendanceApi.create(record).catch(console.error)
+    try {
+      const saved = await attendanceApi.create(record)
+      setAttendanceRecords((prev) => prev.map((r) => (r.id === record.id ? saved : r)))
+      return saved
+    } catch (e) {
+      // ロールバック: 楽観追加した record を取り消す
+      setAttendanceRecords((prev) => prev.filter((r) => r.id !== record.id))
+      throw e
+    }
   }, [])
 
-  const updateAttendance = useCallback((id: number, patch: Partial<AttendanceRecord>) => {
+  /**
+   * 既存レコードを部分更新する。サーバーは ISO 8601 を要求するため、
+   * 変更前の record を baseRecord として渡し、HH:MM → ISO 変換に使う。
+   * 失敗時は楽観 patch を取り消し（pre 状態へ戻す）。
+   *
+   * React の state updater 関数内で外側変数 (`pre`) に副作用代入する旧実装は
+   * Concurrent / Strict Mode で updater が複数回呼ばれた場合に未定義動作に
+   * なる。先に ref から `pre` を取得 → setState の流れに統一する。
+   * `attendanceRecordsRef` で latest snapshot を読むので、useCallback の
+   * dependency に attendanceRecords を入れる必要がない（callback 同一性が保てる）。
+   */
+  const updateAttendance = useCallback(async (id: number, patch: Partial<AttendanceRecord>): Promise<AttendanceRecord | null> => {
+    const pre = attendanceRecordsRef.current.find((r) => r.id === id) ?? null
+    if (!pre) return null
+    const snapshot: AttendanceRecord = { ...pre }
     setAttendanceRecords((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)))
-    attendanceApi.update(id, patch).catch(console.error)
+    try {
+      const saved = await attendanceApi.update(id, patch, snapshot)
+      setAttendanceRecords((prev) => prev.map((r) => (r.id === id ? saved : r)))
+      return saved
+    } catch (e) {
+      // ロールバック
+      setAttendanceRecords((prev) => prev.map((r) => (r.id === id ? snapshot : r)))
+      throw e
+    }
   }, [])
 
   // 追補02 R4: 事前出勤予定
