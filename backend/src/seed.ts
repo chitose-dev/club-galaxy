@@ -77,6 +77,9 @@ const castMenu: CastMenuItem[] = [
   { id: 201, name: 'レディースドリンク (FD)', price: 1000, cost: 0, castBack: 500, category: 'cast', subcategory: 'fd', backType: 'FD', ...audit() },
   { id: 202, name: 'レディースカクテル (本カク)', price: 1500, cost: 0, castBack: 800, category: 'cast', subcategory: 'honkaku', backType: '本カク', ...audit() },
   { id: 203, name: 'レディースショット (本D)', price: 2000, cost: 0, castBack: 1000, category: 'cast', subcategory: 'hond', backType: '本D', ...audit() },
+  // 本DW（本Dのダブル）。価格/バックは暫定値（価格=本Dの2倍・castBack=本D同額）。
+  // 正式値は店舗確認後に管理画面で変更可能。
+  { id: 204, name: 'レディースドリンク (本DW)', price: 4000, cost: 0, castBack: 1000, category: 'cast', subcategory: 'hondrinkW', backType: '本DW', ...audit() },
 ]
 
 // ── Set prices & charges ──

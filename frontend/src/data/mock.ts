@@ -108,7 +108,7 @@ export interface CastMenuItem {
    * F = フリー (バック安) / 本 = 本指名 (バック高) を 10 基本項目 + 個別銘柄 で表現
    */
   subcategory:
-    | 'fdrink' | 'hondrink'
+    | 'fdrink' | 'hondrink' | 'hondrinkW'
     | 'fkaku' | 'honkaku' | 'honkakuW'
     | 'fshot' | 'honshot'
     | 'fpitcher' | 'honpitcher'
@@ -158,7 +158,7 @@ export const ALLOWED_GUEST_SUBCATEGORIES: ReadonlySet<string> = new Set([
 
 export const ALLOWED_CAST_SUBCATEGORIES: ReadonlySet<string> = new Set([
   // キャストドリンク（F / 本 各種、既存の細分化は表示対象として温存）
-  'fdrink', 'hondrink', 'fkaku', 'honkaku', 'honkakuW',
+  'fdrink', 'hondrink', 'hondrinkW', 'fkaku', 'honkaku', 'honkakuW',
   'fshot', 'honshot', 'fpitcher', 'honpitcher', 'fbeer', 'honbeer',
 ])
 
@@ -187,15 +187,16 @@ export const initialMenuCategories: MenuCategory[] = [
   // キャスト
   { kind: 'cast', id: 'fdrink', label: 'Lドリンク(F)', order: 10 },
   { kind: 'cast', id: 'hondrink', label: 'Lドリンク(本)', order: 11 },
-  { kind: 'cast', id: 'fkaku', label: 'Lカクテル(F)', order: 12 },
-  { kind: 'cast', id: 'honkaku', label: 'Lカクテル(本)', order: 13 },
-  { kind: 'cast', id: 'honkakuW', label: 'Lカクテル(本W)', order: 14 },
-  { kind: 'cast', id: 'fshot', label: 'Lショット(F)', order: 15 },
-  { kind: 'cast', id: 'honshot', label: 'Lショット(本)', order: 16 },
-  { kind: 'cast', id: 'fpitcher', label: 'Lピッチャー(F)', order: 17 },
-  { kind: 'cast', id: 'honpitcher', label: 'Lピッチャー(本)', order: 18 },
-  { kind: 'cast', id: 'fbeer', label: 'Lビール(F)', order: 19 },
-  { kind: 'cast', id: 'honbeer', label: 'Lビール(本)', order: 20 },
+  { kind: 'cast', id: 'hondrinkW', label: 'Lドリンク(本W)', order: 12 },
+  { kind: 'cast', id: 'fkaku', label: 'Lカクテル(F)', order: 13 },
+  { kind: 'cast', id: 'honkaku', label: 'Lカクテル(本)', order: 14 },
+  { kind: 'cast', id: 'honkakuW', label: 'Lカクテル(本W)', order: 15 },
+  { kind: 'cast', id: 'fshot', label: 'Lショット(F)', order: 16 },
+  { kind: 'cast', id: 'honshot', label: 'Lショット(本)', order: 17 },
+  { kind: 'cast', id: 'fpitcher', label: 'Lピッチャー(F)', order: 18 },
+  { kind: 'cast', id: 'honpitcher', label: 'Lピッチャー(本)', order: 19 },
+  { kind: 'cast', id: 'fbeer', label: 'Lビール(F)', order: 20 },
+  { kind: 'cast', id: 'honbeer', label: 'Lビール(本)', order: 21 },
 ]
 
 /**
@@ -797,6 +798,10 @@ export const castMenuItems: CastMenuItem[] = [
   // ─── Lドリンク (レディースドリンク) ───
   { id: 201, name: 'Lドリンク (FD)', price: 1000, cost: 200, castBack: 200, category: 'cast', subcategory: 'fdrink', backType: 'FD' },
   { id: 211, name: 'Lドリンク (本D)', price: 2000, cost: 400, castBack: 500, category: 'cast', subcategory: 'hondrink', backType: '本D' },
+  // 本DW（本Dのダブル）。価格/原価/バックは暫定値: 価格・原価は本Dの2倍
+  // （W=2倍は backRates の本カクW=本カク×2 の前例に従う）、castBack は
+  // backRates['本DW'] の暫定（本D同額）と整合。正式値は店舗確認後に管理画面で変更可能。
+  { id: 221, name: 'Lドリンク (本DW)', price: 4000, cost: 800, castBack: 500, category: 'cast', subcategory: 'hondrinkW', backType: '本DW' },
 
   // ─── Lカクテル ───
   { id: 202, name: 'Lカクテル (Fカク)', price: 1200, cost: 250, castBack: 300, category: 'cast', subcategory: 'fkaku', backType: 'Fカク' },
