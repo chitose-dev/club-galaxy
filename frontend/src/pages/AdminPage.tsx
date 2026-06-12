@@ -1639,10 +1639,10 @@ function AttendanceManager({
 
   // 共通 DailyPayDialog 経由で日払いを記録するヘルパー。
   // date は YYYY-MM-DD 統一 (locale 表記との混在で履歴ソート破綻を防ぐ)。
-  // 営業日締めの判定は backend businessDate と揃える必要があるため
-  // getTodayBusinessDay(5) を使う（フロント既定 6 ではなく backend cutoff 5 に明示一致）。
+  // 営業日締めの判定は backend businessDate と揃える（既定が朝 5:00 境界で
+  // backend cutoff 5 と一致するため、boundaryHour の明示指定は不要）。
   const submitDailyPayFromDialog = (req: import('../data/mock').DailyPayRequest) => {
-    const today = getTodayBusinessDay(5)
+    const today = getTodayBusinessDay()
     if (isBusinessDateClosed(today, dailyReports)) return
     addDailyPayRequest(req)
     setDailyPayTarget(null)
@@ -1663,7 +1663,7 @@ function AttendanceManager({
   //     cutoff 逆適用で「HH < 5 なら businessDate+1day のカレンダーで ISO 化」
   //     するため、`date` が businessDate であることが正解。深夜出勤 (02:30 等)
   //     も自動的に翌カレンダー日の ISO に変換される。
-  const todayBusinessDay = getTodayBusinessDay(5)
+  const todayBusinessDay = getTodayBusinessDay()
   const todayRecords = attendanceRecords.filter((r) => r.date === todayBusinessDay)
   const pendingSchedules = attendanceSchedules.filter((s) => !s.processed)
 
@@ -1692,13 +1692,13 @@ function AttendanceManager({
         // 深夜帯 (HH < 5) に予定打刻が走るケース、例えば 06-05 02:30 の予定 (s.date='06-05')
         // で `date: s.date` を渡すと、toBackendCreate が cutoff 補正で +1day して
         // '2026-06-06T02:30' になり 1 日未来にズレる。実打刻時の businessDate
-        // (getTodayBusinessDay(5)) を使う方が正しい (この瞬間の業務日)。
+        // (getTodayBusinessDay) を使う方が正しい (この瞬間の業務日)。
         addAttendance({
           id: Date.now() + s.id,
           staffId: s.staffId,
           staffName: s.staffName,
           staffType: s.staffType,
-          date: getTodayBusinessDay(5),
+          date: getTodayBusinessDay(),
           clockIn: roundClockInHHMM(nowTime),
           clockOut: null,
           breakMinutes: 0,
@@ -2155,15 +2155,17 @@ function ExpenseManager({ expenses, addExpense, removeExpense }: {
     setShowAdd(true)
   }
 
-  // 期間フィルタ
+  // 期間フィルタ。e.date は businessDate（登録フォームの既定が
+  // getTodayBusinessDay）なので、「本日」「今月」の基準も UTC 暦日ではなく
+  // 朝 5:00 境界の営業日で揃える（深夜 0〜5 時に当日経費が消えない）。
   const filteredExpenses = useMemo(() => {
     const sorted = [...expenses].sort((a, b) => b.date.localeCompare(a.date))
-    const today = new Date()
-    const todayStr = today.toISOString().slice(0, 10)
+    const todayStr = getTodayBusinessDay()
     if (rangeKey === 'all') return sorted
     if (rangeKey === 'today') return sorted.filter((e) => e.date === todayStr)
     if (rangeKey === 'week') {
-      const d = new Date(today); d.setDate(d.getDate() - 7)
+      // 営業日基準の直近 7 日。date-only 文字列の純粋な日付演算なので TZ 影響なし。
+      const d = new Date(todayStr); d.setDate(d.getDate() - 7)
       const from = d.toISOString().slice(0, 10)
       return sorted.filter((e) => e.date >= from)
     }
@@ -2666,7 +2668,7 @@ function DailyPayManager({
 }) {
   const { dailyReports } = useStore()
   const { user } = useAuth()
-  // 追補02 R11-3: 営業日の定義 (朝 6:00 境界、開始日基準)
+  // 追補02 R11-3: 営業日の定義 (朝 5:00 境界、開始日基準)
   const [targetDate, setTargetDate] = useState<string>(() => getTodayBusinessDay())
   // PDF/Word 第2弾: 締め済み営業日の日払いは確定済給与の上書きになるため操作不可。
   const targetDateClosed = isBusinessDateClosed(targetDate, dailyReports)
@@ -2701,7 +2703,7 @@ function DailyPayManager({
       <div className="panel p-4">
         <h3 className="text-sm font-bold text-gold mb-2">日払い管理</h3>
         <p className="text-xs text-gray-500 mb-3">
-          営業日 (朝 6:00 境界、開始日基準) ごとに、その日に出勤したキャスト全員を表示します。
+          営業日 (朝 5:00 境界、開始日基準) ごとに、その日に出勤したキャスト全員を表示します。
         </p>
         <div className="flex items-center gap-2">
           <label className="text-xs text-gray-400">営業日</label>

@@ -4,16 +4,20 @@
  * 20:00 開始 → 翌 3:00 (あるいは朝境界時刻まで) に終了する営業を
  * 「開始日の営業日」として集計するためのユーティリティ。
  *
- * 境界時刻は `StoreSettings.businessDayBoundaryHour` (未実装時はデフォルト 6) を参照可能。
+ * 境界時刻の既定は朝 5:00。backend の BUSINESS_DAY_CUTOFF_HOUR_DEFAULT (=5)
+ * と一致させ、frontend/backend で同じ瞬間が別の営業日に割れないようにする。
+ * `StoreSettings.businessDayBoundaryHour` 導入時はそちらを渡して上書き可能。
  *
  * 例:
  *   2026-04-10 20:00 出勤 → 2026-04-11 03:00 退勤 → 営業日 2026-04-10
- *   2026-04-10 20:00 出勤 → 2026-04-11 06:01 退勤 → 営業日 2026-04-11 (境界超え)
+ *   2026-04-10 20:00 出勤 → 2026-04-11 05:01 退勤 → 営業日 2026-04-11 (境界超え)
  */
+
+export const BUSINESS_DAY_BOUNDARY_HOUR_DEFAULT = 5
 
 export function getBusinessDay(
   timestamp: Date | string,
-  boundaryHour = 6,
+  boundaryHour = BUSINESS_DAY_BOUNDARY_HOUR_DEFAULT,
 ): string {
   const d = typeof timestamp === 'string' ? new Date(timestamp) : timestamp
   const hour = d.getHours()
@@ -27,9 +31,11 @@ export function getBusinessDay(
 }
 
 /**
- * 今日の営業日を返す (= 現在時刻 vs 境界時刻で判定)
+ * 今日の営業日を返す (= 現在時刻 vs 境界時刻で判定。既定は朝 5:00 境界)
  */
-export function getTodayBusinessDay(boundaryHour = 6): string {
+export function getTodayBusinessDay(
+  boundaryHour = BUSINESS_DAY_BOUNDARY_HOUR_DEFAULT,
+): string {
   return getBusinessDay(new Date(), boundaryHour)
 }
 

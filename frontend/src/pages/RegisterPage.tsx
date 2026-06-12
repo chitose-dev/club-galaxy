@@ -367,10 +367,9 @@ function HistoryView() {
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
 
-  // 履歴フィルタも営業日基準。深夜帯に開いても「本日」が暦日切替で前ズレしない。
-  // `new Date()` は毎 render で別 object になり依存配列が安定しないので useMemo
-  // 化する。todayBusinessDate も同じ初回値で安定させる。
-  const today = useMemo(() => new Date(), [])
+  // 履歴フィルタも営業日基準（朝 5:00 境界）。深夜帯に開いても「本日」が
+  // 暦日切替で前ズレしない。`getTodayBusinessDay()` は毎 render で呼ぶと
+  // 依存配列が不安定になり得るので useMemo で初回値に固定する。
   const todayBusinessDate = useMemo(() => getTodayBusinessDay(), [])
 
   const filtered = useMemo(() => {
@@ -379,7 +378,8 @@ function HistoryView() {
     if (range === 'all') return sorted
     if (range === 'today') return sorted.filter((r) => reportKey(r) === todayBusinessDate)
     if (range === 'week') {
-      const d = new Date(today)
+      // 営業日基準の直近 7 日。date-only 文字列の純粋な日付演算なので TZ 影響なし。
+      const d = new Date(todayBusinessDate)
       d.setDate(d.getDate() - 7)
       const from = d.toISOString().slice(0, 10)
       return sorted.filter((r) => reportKey(r) >= from)
@@ -397,7 +397,7 @@ function HistoryView() {
       })
     }
     return sorted
-  }, [dailyReports, range, fromDate, toDate, todayBusinessDate, today])
+  }, [dailyReports, range, fromDate, toDate, todayBusinessDate])
 
   const summary = useMemo(() => {
     return filtered.reduce(

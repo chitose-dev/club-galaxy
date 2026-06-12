@@ -12,6 +12,7 @@ import PayslipPopup from '../components/PayslipPopup'
 import DailyPayDialog from '../components/DailyPayDialog'
 import { openPrintWindow, escapeHtml } from '../utils/print'
 import { getPaymentDate, formatPaymentDate } from '../utils/paymentDate'
+import { getTodayBusinessDay } from '../utils/businessDay'
 import { printCastLedger } from '../utils/castLedger'
 import ContextualHeader from '../components/ContextualHeader'
 import Tabs from '../components/Tabs'
@@ -830,12 +831,14 @@ export default function SalaryPage() {
         )}
       </div>
 
-      {/* DailyPayDialog: 口頭申請の手入力でも operator / paidAt / メモ / 理由を保存する */}
+      {/* DailyPayDialog: 口頭申請の手入力でも operator / paidAt / メモ / 理由を保存する。
+          targetDate（日払いの帰属日）は UTC 暦日ではなく朝 5:00 境界の営業日
+          （深夜帯の申請が翌日に割れない） */}
       <DailyPayDialog
         open={showDailyPayRecord && !!cast}
         cast={cast ? { id: cast.id, name: cast.name } : null}
         calculatedAmount={0}
-        targetDate={new Date().toISOString().slice(0, 10)}
+        targetDate={getTodayBusinessDay()}
         operator={user?.displayName ?? user?.username}
         staffType="cast"
         onSubmit={submitDailyPayFromDialog}

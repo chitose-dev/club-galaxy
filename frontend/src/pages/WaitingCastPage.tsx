@@ -23,6 +23,7 @@ import { Edit2, Trash2, MapPin, ArrowRightCircle, Pause, Play, GripVertical, Fil
 import type { Cast, Table } from '../data/mock'
 import { formatRealtimeWorkRange, roundClockInHHMM, roundClockOutHHMM, calcWorkHours } from '../utils/quarterHour'
 import { isBusinessDateClosed } from '../utils/closing'
+import { getTodayBusinessDay } from '../utils/businessDay'
 import PayslipPopup from '../components/PayslipPopup'
 import DailyPayDialog from '../components/DailyPayDialog'
 import TimeInput from '../components/TimeInput'
@@ -68,8 +69,10 @@ export default function WaitingCastPage() {
   const [editClockInCast, setEditClockInCast] = useState<Cast | null>(null)
   const [editClockInValue, setEditClockInValue] = useState('')
 
-  // 当日の出勤レコード（PDF E: 過去履歴一覧は作らない、当日のみ）
-  const todayStr = new Date().toISOString().slice(0, 10)
+  // 当日の出勤レコード（PDF E: 過去履歴一覧は作らない、当日のみ）。
+  // 「当日」は UTC 暦日ではなく朝 5:00 境界の営業日。深夜 0〜5 時の待機/勤怠/
+  // 日払いが翌日扱いに割れず、attendance の businessDate とも揃う。
+  const todayStr = getTodayBusinessDay()
   const todayAttendanceByCastId = useMemo(() => {
     const m = new Map<number, typeof attendanceRecords[number]>()
     for (const r of attendanceRecords) {
