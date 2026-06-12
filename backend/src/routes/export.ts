@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { storeCollection } from '../firebase'
 import { sendError, throwBadRequest } from '../lib/errors'
+import { getBackRate } from '../lib/backRate'
 import type { BackType, Cast, DailyWork, DailyPayment, Deduction } from '../types'
 
 export const exportRouter = Router()
@@ -135,6 +136,7 @@ type LedgerBackCol = {
 const LEDGER_BACK_COLUMNS: readonly LedgerBackCol[] = [
   { key: 'FD', label: 'Fドリンク', isDrink: true },
   { key: '本D', label: '本ドリンク', isDrink: true },
+  { key: '本DW', label: '本DW', isDrink: true },
   { key: 'Fカク', label: 'Fカク', isDrink: true },
   { key: '本カク', label: '本カク', isDrink: true },
   { key: '本カクW', label: '本カクW', isDrink: true },
@@ -184,7 +186,7 @@ exportRouter.get('/cast-ledger/:castId', async (req, res) => {
 
     const header = [
       '日', '時間', '日給',
-      ...LEDGER_BACK_COLUMNS.map((c) => backColumnHeader(c, backRates[c.key])),
+      ...LEDGER_BACK_COLUMNS.map((c) => backColumnHeader(c, getBackRate(backRates, c.key))),
       'P合計', '日給合計', 'ホステス税', '総支給額',
     ]
     const rows: (string | number | null | undefined)[][] = [header]
@@ -195,7 +197,7 @@ exportRouter.get('/cast-ledger/:castId', async (req, res) => {
       const hourlyPay = w.hourlyPay ?? 0
       const backs = w.backs ?? {}
       const backCells = LEDGER_BACK_COLUMNS.map((c) =>
-        backCellValue(c, backs[c.key] ?? 0, backRates[c.key]),
+        backCellValue(c, backs[c.key] ?? 0, getBackRate(backRates, c.key)),
       )
       const pTotal = w.backTotal ?? 0
       const grossDaily = hourlyPay + pTotal

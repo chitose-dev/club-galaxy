@@ -24,6 +24,7 @@ import {
   setPrices as initialSetPrices,
 } from '../data/mock'
 import { calcHourlyPay } from './payroll'
+import { getBackRate } from './backRate'
 import { computeDailyWork } from './dailyWork'
 import { calcMonthlyGuaranteeShortfall } from './saleGuarantee'
 import { computeVisitBreakdown, isMergedShadowRecord } from './visitBreakdown'
@@ -227,7 +228,7 @@ export function buildMonthlySalesDetailCsv(
  *  本指名 / 場内 / 同伴 / 各種ドリンク・カクテル系 / ボトルバック を 1 行に出す。 */
 const BACK_TYPE_COLS: readonly BackType[] = [
   '本指名', '場内指名', '同伴',
-  'FD', '本D',
+  'FD', '本D', '本DW',
   'Fカク', '本カク', '本カクW',
   'Fショ', '本ショ',
   'FP', '本P',
@@ -295,7 +296,7 @@ export function buildMonthlyCastSalaryCsv(
     for (const t of BACK_TYPE_COLS) {
       if (t === 'ボトルバック') continue // bottleBackAmount が正本
       const cnt = backCounts[t] ?? 0
-      const rate = cast.backRates[t] ?? 0
+      const rate = getBackRate(cast.backRates, t)
       backAmountTotal += cnt * rate
     }
     const extensionBackAmount = dailyWork.reduce(

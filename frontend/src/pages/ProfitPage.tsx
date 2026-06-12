@@ -4,6 +4,7 @@ import { useStore } from '../store'
 import { type BackType } from '../data/mock'
 import { computeDailyWork } from '../utils/dailyWork'
 import { getJstTodayDateString, getTodayBusinessDay } from '../utils/businessDay'
+import { getBackRate } from '../utils/backRate'
 import ContextualHeader from '../components/ContextualHeader'
 import { calcHourlyPay } from '../utils/payroll'
 import VisitBreakdownView from '../components/VisitBreakdownView'
@@ -732,7 +733,7 @@ function CastTrendView() {
       b.sales += w.sales
       b.hours += w.hours
       const backAmount = (Object.keys(w.backs) as BackType[]).reduce(
-        (sum, bt) => sum + (w.backs[bt] ?? 0) * (cast.backRates?.[bt] ?? 0),
+        (sum, bt) => sum + (w.backs[bt] ?? 0) * getBackRate(cast.backRates, bt),
         0,
       )
       b.back += backAmount

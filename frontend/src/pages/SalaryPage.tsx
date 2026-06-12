@@ -4,6 +4,7 @@ import { useAuth } from '../auth'
 import { type BackType, type DailyWork, type UserAccount, type AttendanceRecord } from '../data/mock'
 import { computeDailyWork } from '../utils/dailyWork'
 import { calcHourlyPay } from '../utils/payroll'
+import { getBackRate } from '../utils/backRate'
 import { boyStaffId } from '../utils/staffId'
 import { calcMonthlyGuaranteeShortfall } from '../utils/saleGuarantee'
 import { Plus, Trash2, FileText, FileDown } from 'lucide-react'
@@ -23,7 +24,7 @@ import { GoldButton, GhostButton } from '../components/Buttons'
 type Period = 'first' | 'second'
 type StaffType = 'cast' | 'boy'
 
-const backTypeOrder: BackType[] = ['FD', '本D', 'Fカク', '本カク', '本カクW', '同伴', '本指名', '場内指名', 'ボトルバック', 'ヘルプ', 'その他']
+const backTypeOrder: BackType[] = ['FD', '本D', '本DW', 'Fカク', '本カク', '本カクW', '同伴', '本指名', '場内指名', 'ボトルバック', 'ヘルプ', 'その他']
 
 export default function SalaryPage() {
   const { casts, dailyPayRequests, addDailyPayRequest, deductions, setDeductions, userAccounts, attendanceRecords, billingRecords, storeSettings } = useStore()
@@ -119,7 +120,7 @@ export default function SalaryPage() {
         // A2: 'ボトルバック' の金額は bottleBackAmount を正本として扱うため、
         // ここでの旧 `count × %値` 計算からは除外する（二重計上防止）。
         if (type === 'ボトルバック') continue
-        total += (cast.backRates[type] ?? 0) * count
+        total += getBackRate(cast.backRates, type) * count
       }
       // A2: 本指名ボトルバック（小計÷本指名人数×個別率）と延長指名バックを加算。
       total += w.bottleBackAmount ?? 0
@@ -192,7 +193,7 @@ export default function SalaryPage() {
     for (const [type, count] of Object.entries(w.backs) as [BackType, number][]) {
       // A2: 'ボトルバック' は bottleBackAmount を正本にするため除外。
       if (type === 'ボトルバック') continue
-      total += (cast.backRates[type] ?? 0) * count
+      total += getBackRate(cast.backRates, type) * count
     }
     total += w.bottleBackAmount ?? 0
     total += w.extensionBackAmount ?? 0
@@ -565,7 +566,7 @@ export default function SalaryPage() {
               {(Object.entries(backTotals) as [BackType, number][]).map(([type, count]) => {
                 // A2: 'ボトルバック' は backs から除外したのでここには出ない。
                 // 旧 `count × %値` 表示は誤算出のため使わず、専用チップで別表示。
-                const amount = (cast?.backRates[type] ?? 0) * count
+                const amount = getBackRate(cast?.backRates, type) * count
                 return (
                   <span key={type} className="bg-gold/10 border border-gold/30 text-gray-200 text-xs px-2 py-0.5 rounded tabular-nums">
                     {type}: {count}件 (¥{amount.toLocaleString()})

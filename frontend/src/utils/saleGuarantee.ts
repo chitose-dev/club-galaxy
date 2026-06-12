@@ -15,6 +15,7 @@
 
 import type { Cast, DailyWork, BackType } from '../data/mock'
 import { calcHourlyPay } from './payroll'
+import { getBackRate } from './backRate'
 
 export interface MonthlyGuaranteeBreakdown {
   /** 月通常給与 = sum(時給×時間 + 各種バック + 延長指名バック + 本指名ボトルバック) */
@@ -54,7 +55,7 @@ export function calcMonthlyGuaranteeShortfall(
     monthlyRegularSalary += calcHourlyPay(cast.hourlyRate, w.hours)
     for (const [type, count] of Object.entries(w.backs) as [BackType, number][]) {
       if (type === 'ボトルバック') continue
-      monthlyRegularSalary += (cast.backRates[type] ?? 0) * count
+      monthlyRegularSalary += getBackRate(cast.backRates, type) * count
     }
     monthlyRegularSalary += w.extensionBackAmount ?? 0
     monthlyRegularSalary += w.bottleBackAmount ?? 0
