@@ -6,7 +6,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "script:delete-dummy-users": "tsx scripts/delete-dummy-users.ts"
+    "script:delete-dummy-users": "tsx scripts/delete-dummy-users.ts",
+    "script:repair-attendance-businessdate": "tsx scripts/repair-attendance-businessdate.ts --dry-run"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
