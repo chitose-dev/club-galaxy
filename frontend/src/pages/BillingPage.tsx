@@ -12,7 +12,7 @@ import { computeVisitBreakdown } from '../utils/visitBreakdown'
 import { calcVisitBreakdown, buildVisitBreakdownInput, buildSalesAttribution } from '../utils/calcVisitBreakdown'
 import { isBusinessDateClosed, LOCKED_TOOLTIP } from '../utils/closing'
 import { isUncollectedActive } from '../utils/uncollected'
-import { getJstTodayDateString, currentTimeMs } from '../utils/businessDay'
+import { getJstTodayDateString, getTodayBusinessDay, currentTimeMs } from '../utils/businessDay'
 import BottomActionBar from '../components/BottomActionBar'
 import { DangerButton, DarkButton, GhostButton } from '../components/Buttons'
 import PrintMethodModal from '../components/PrintMethodModal'
@@ -1590,7 +1590,9 @@ function BillingHistoryView({
   // 行ごとに 1 つだけ開く（複数同時 expand すると履歴が縦に伸びすぎるため）。
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
-  const today = new Date().toISOString().slice(0, 10)
+  // date 欠落レコードの補完は businessDate の単位（朝 5:00 境界の営業日）で
+  // 揃える。UTC 暦日だと深夜帯に当日レコードと別日扱いになり並びが崩れる。
+  const today = getTodayBusinessDay()
   const sorted = [...records].sort((a, b) => {
     const ad = a.date ?? today
     const bd = b.date ?? today

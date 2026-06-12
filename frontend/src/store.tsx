@@ -19,7 +19,7 @@ import { expensesApi } from './api/expenses'
 import { advancesApi } from './api/advances'
 import { archiveApi } from './api/archive'
 import { ApiError } from './api/client'
-import { getJstTodayDateString } from './utils/businessDay'
+import { getJstTodayDateString, getTodayBusinessDay } from './utils/businessDay'
 import { isMergedShadowRecord } from './utils/visitBreakdown'
 import {
   guestMenuItems as initialGuestMenu,
@@ -709,7 +709,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       totalSales: toArchive.reduce((s, r) => s + r.total, 0),
     }
     setArchivedData((prev) => [...prev, archived])
-    setBillingRecords((prev) => prev.filter((r) => (r.date ?? new Date().toISOString().slice(0, 10)) >= beforeDate))
+    // date 欠落レコードの補完は businessDate と同じ朝 5:00 境界の営業日で行う
+    // （アーカイブ対象の判定が深夜帯に UTC 暦日へずれて当日分を巻き込まない）。
+    setBillingRecords((prev) => prev.filter((r) => (r.date ?? getTodayBusinessDay()) >= beforeDate))
     archiveApi.archive(beforeDate).catch(console.error)
   }, [billingRecords])
 

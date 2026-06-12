@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store'
 import { type BackType } from '../data/mock'
 import { computeDailyWork } from '../utils/dailyWork'
-import { getJstTodayDateString } from '../utils/businessDay'
+import { getJstTodayDateString, getTodayBusinessDay } from '../utils/businessDay'
 import ContextualHeader from '../components/ContextualHeader'
 import { calcHourlyPay } from '../utils/payroll'
 import VisitBreakdownView from '../components/VisitBreakdownView'
@@ -1018,7 +1018,8 @@ function CalendarView() {
             if (!ds) return <div key={`empty-${i}`} className="aspect-square" />
             const data = dayData.get(ds)
             const day = parseInt(ds.slice(-2), 10)
-            const isToday = ds === today.toISOString().slice(0, 10)
+            // セルのキーは businessDate なので「本日」も朝 5:00 境界の営業日で照合
+            const isToday = ds === getTodayBusinessDay()
             const isSelected = ds === selectedDay
             const hasData = data && data.sales > 0
             return (
