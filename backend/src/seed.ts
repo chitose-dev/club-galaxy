@@ -30,31 +30,32 @@ function audit() {
 }
 
 // ── Cast data ──
-
+// 本DW の単価は暫定で本D と同額。正式単価は店舗確認後に管理画面（キャスト
+// バック単価入力）で個別変更できる。
 const casts: Cast[] = [
   {
     id: 1, name: 'あいり', hourlyRate: 2500, guaranteeRate: 0.5, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, '本DW': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
     ...audit(),
   },
   {
     id: 2, name: 'みく', hourlyRate: 2000, guaranteeRate: 0.45, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, '本DW': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
     ...audit(),
   },
   {
     id: 3, name: 'れな', hourlyRate: 2500, guaranteeRate: 0.5, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, '本DW': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
     ...audit(),
   },
   {
     id: 4, name: 'ゆい', hourlyRate: 2000, guaranteeRate: 0.4, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, '本DW': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
     ...audit(),
   },
   {
     id: 5, name: 'りさ', hourlyRate: 3000, guaranteeRate: 0.55, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, '本DW': 500, 'Fカク': 300, '本カク': 500, '本カクW': 800, '同伴': 3000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 1000, 'ヘルプ': 4000 },
     ...audit(),
   },
 ]
@@ -76,6 +77,9 @@ const castMenu: CastMenuItem[] = [
   { id: 201, name: 'レディースドリンク (FD)', price: 1000, cost: 0, castBack: 500, category: 'cast', subcategory: 'fd', backType: 'FD', ...audit() },
   { id: 202, name: 'レディースカクテル (本カク)', price: 1500, cost: 0, castBack: 800, category: 'cast', subcategory: 'honkaku', backType: '本カク', ...audit() },
   { id: 203, name: 'レディースショット (本D)', price: 2000, cost: 0, castBack: 1000, category: 'cast', subcategory: 'hond', backType: '本D', ...audit() },
+  // 本DW（本Dのダブル）。価格/バックは暫定値（価格=本Dの2倍・castBack=本D同額）。
+  // 正式値は店舗確認後に管理画面で変更可能。
+  { id: 204, name: 'レディースドリンク (本DW)', price: 4000, cost: 0, castBack: 1000, category: 'cast', subcategory: 'hondrinkW', backType: '本DW', ...audit() },
 ]
 
 // ── Set prices & charges ──

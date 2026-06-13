@@ -18,6 +18,7 @@ import { useStore } from '../store'
 import { computeDailyWork } from '../utils/dailyWork'
 import { calcHourlyPay } from '../utils/payroll'
 import { calcMonthlyGuaranteeShortfall } from '../utils/saleGuarantee'
+import { getBackRate } from '../utils/backRate'
 import type { Cast, BackType, DailyWork } from '../data/mock'
 import Modal from './Modal'
 import { GhostButton, GoldButton } from './Buttons'
@@ -113,7 +114,7 @@ export default function PayslipPopup({
     for (const w of filteredWork) {
       for (const [type, count] of Object.entries(w.backs) as [BackType, number][]) {
         if (type === 'ボトルバック') continue
-        total += (cast.backRates[type] ?? 0) * count
+        total += getBackRate(cast.backRates, type) * count
       }
       total += w.bottleBackAmount ?? 0
       total += w.extensionBackAmount ?? 0
@@ -136,7 +137,7 @@ export default function PayslipPopup({
     if (!cast) return init
     for (const w of filteredWork) {
       for (const [type, count] of Object.entries(w.backs) as [BackType, number][]) {
-        const rate = cast.backRates[type] ?? 0
+        const rate = getBackRate(cast.backRates, type)
         switch (type) {
           case '本指名':   init.shimei.count += count; init.shimei.amount += count * rate; break
           case '場内指名': init.banai.count += count;  init.banai.amount  += count * rate; break

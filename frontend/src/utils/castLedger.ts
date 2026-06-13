@@ -11,10 +11,12 @@ import type { Cast, DailyWork, StoreSettings } from '../data/mock'
 import { openPrintWindow } from './print'
 import { calcHourlyPay } from './payroll'
 import { calcMonthlyGuaranteeShortfall } from './saleGuarantee'
+import { getBackRate } from './backRate'
 
 const BACK_COLUMNS: { key: keyof DailyWork['backs']; label: string }[] = [
   { key: 'FD', label: 'Fドリンク' },
   { key: '本D', label: '本ドリンク' },
+  { key: '本DW', label: '本DW' },
   { key: 'Fカク', label: 'Fカクテル' },
   { key: '本カク', label: '本カクテル' },
   { key: '本カクW', label: '本カクW' },
@@ -59,7 +61,7 @@ export function printCastLedger(params: CastLedgerParams): void {
       // 通常の backs[type] × rate 集計からは 'ボトルバック' を除外する
       // （旧 `count × %値` 計算は誤算出になるため）。
       const backTotal = (Object.keys(w.backs) as Array<keyof typeof w.backs>).reduce(
-        (sum, k) => k === 'ボトルバック' ? sum : sum + (w.backs[k] ?? 0) * (cast.backRates?.[k] ?? 0),
+        (sum, k) => k === 'ボトルバック' ? sum : sum + (w.backs[k] ?? 0) * getBackRate(cast.backRates, k),
         0,
       )
       // 延長指名バック按分（PR #63 で computeDailyWork が均等割りした金額）。
@@ -79,7 +81,7 @@ export function printCastLedger(params: CastLedgerParams): void {
           return bottleBack > 0 ? `¥${bottleBack.toLocaleString()}` : '-'
         }
         const count = w.backs[key] ?? 0
-        const unit = cast.backRates?.[key] ?? 0
+        const unit = getBackRate(cast.backRates, key)
         return count > 0 ? `${count}(¥${(count * unit).toLocaleString()})` : '-'
       }).join('</td><td>')
 
@@ -103,7 +105,7 @@ export function printCastLedger(params: CastLedgerParams): void {
     // A2: 月次集計でも 'ボトルバック' を旧路線（count × %）から除外し、
     // bottleBackAmount を直接加算する。
     const backTotal = (Object.keys(w.backs) as Array<keyof typeof w.backs>).reduce(
-      (sum, k) => k === 'ボトルバック' ? sum : sum + (w.backs[k] ?? 0) * (cast.backRates?.[k] ?? 0),
+      (sum, k) => k === 'ボトルバック' ? sum : sum + (w.backs[k] ?? 0) * getBackRate(cast.backRates, k),
       0,
     )
     // 月計にも延長指名バック + 本指名ボトルバックを加算（日次の pTotal と整合させる）。

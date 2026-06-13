@@ -6,6 +6,7 @@ import type {
 } from '../data/mock'
 import { calcHourlyPay } from './payroll'
 import { computeDailyWork } from './dailyWork'
+import { getBackRate } from './backRate'
 
 /**
  * DailyPayDialog の「本日の稼働実績 / 本日全額入力」用ヘルパ。
@@ -80,7 +81,7 @@ export function computeDailyPayBreakdown(
   const backsFromCount = dw
     ? (Object.keys(dw.backs) as Array<keyof typeof dw.backs>).reduce((sum, k) => {
         if (k === 'ボトルバック') return sum
-        return sum + (dw.backs[k] ?? 0) * (cast.backRates?.[k] ?? 0)
+        return sum + (dw.backs[k] ?? 0) * getBackRate(cast.backRates, k)
       }, 0)
     : 0
   const extensionBack = dw?.extensionBackAmount ?? 0

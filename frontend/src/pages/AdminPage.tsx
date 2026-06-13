@@ -47,7 +47,7 @@ type AdminTab =
   | 'dailypay' | 'prepay' | 'uncollected' | 'dailyreport'
 
 const backTypes: BackType[] = [
-  'FD', '本D',
+  'FD', '本D', '本DW',
   'Fカク', '本カク', '本カクW',
   'Fショ', '本ショ',
   'FP', '本P',

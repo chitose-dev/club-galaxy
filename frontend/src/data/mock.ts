@@ -108,7 +108,7 @@ export interface CastMenuItem {
    * F = フリー (バック安) / 本 = 本指名 (バック高) を 10 基本項目 + 個別銘柄 で表現
    */
   subcategory:
-    | 'fdrink' | 'hondrink'
+    | 'fdrink' | 'hondrink' | 'hondrinkW'
     | 'fkaku' | 'honkaku' | 'honkakuW'
     | 'fshot' | 'honshot'
     | 'fpitcher' | 'honpitcher'
@@ -158,7 +158,7 @@ export const ALLOWED_GUEST_SUBCATEGORIES: ReadonlySet<string> = new Set([
 
 export const ALLOWED_CAST_SUBCATEGORIES: ReadonlySet<string> = new Set([
   // キャストドリンク（F / 本 各種、既存の細分化は表示対象として温存）
-  'fdrink', 'hondrink', 'fkaku', 'honkaku', 'honkakuW',
+  'fdrink', 'hondrink', 'hondrinkW', 'fkaku', 'honkaku', 'honkakuW',
   'fshot', 'honshot', 'fpitcher', 'honpitcher', 'fbeer', 'honbeer',
 ])
 
@@ -187,15 +187,16 @@ export const initialMenuCategories: MenuCategory[] = [
   // キャスト
   { kind: 'cast', id: 'fdrink', label: 'Lドリンク(F)', order: 10 },
   { kind: 'cast', id: 'hondrink', label: 'Lドリンク(本)', order: 11 },
-  { kind: 'cast', id: 'fkaku', label: 'Lカクテル(F)', order: 12 },
-  { kind: 'cast', id: 'honkaku', label: 'Lカクテル(本)', order: 13 },
-  { kind: 'cast', id: 'honkakuW', label: 'Lカクテル(本W)', order: 14 },
-  { kind: 'cast', id: 'fshot', label: 'Lショット(F)', order: 15 },
-  { kind: 'cast', id: 'honshot', label: 'Lショット(本)', order: 16 },
-  { kind: 'cast', id: 'fpitcher', label: 'Lピッチャー(F)', order: 17 },
-  { kind: 'cast', id: 'honpitcher', label: 'Lピッチャー(本)', order: 18 },
-  { kind: 'cast', id: 'fbeer', label: 'Lビール(F)', order: 19 },
-  { kind: 'cast', id: 'honbeer', label: 'Lビール(本)', order: 20 },
+  { kind: 'cast', id: 'hondrinkW', label: 'Lドリンク(本W)', order: 12 },
+  { kind: 'cast', id: 'fkaku', label: 'Lカクテル(F)', order: 13 },
+  { kind: 'cast', id: 'honkaku', label: 'Lカクテル(本)', order: 14 },
+  { kind: 'cast', id: 'honkakuW', label: 'Lカクテル(本W)', order: 15 },
+  { kind: 'cast', id: 'fshot', label: 'Lショット(F)', order: 16 },
+  { kind: 'cast', id: 'honshot', label: 'Lショット(本)', order: 17 },
+  { kind: 'cast', id: 'fpitcher', label: 'Lピッチャー(F)', order: 18 },
+  { kind: 'cast', id: 'honpitcher', label: 'Lピッチャー(本)', order: 19 },
+  { kind: 'cast', id: 'fbeer', label: 'Lビール(F)', order: 20 },
+  { kind: 'cast', id: 'honbeer', label: 'Lビール(本)', order: 21 },
 ]
 
 /**
@@ -212,9 +213,12 @@ export function isPercentBackType(bt: string): boolean {
 /**
  * バック種別。追補02 の先方フィードバック (2026-04-23) で F/本 を全ドリンク系列で区別する仕様に拡張。
  * フリー (F*) はバック安、本指名 (本*) はバック高。
+ * 本DW は本D のダブル（ドリンク系・件数単位は「杯」・% 扱いしない）。本D とは
+ * 独立した種別で、単価未設定キャストは本D 単価にフォールバックする
+ * (utils/backRate.ts getBackRate)。
  */
 export type BackType =
-  | 'FD' | '本D'
+  | 'FD' | '本D' | '本DW'
   | 'Fカク' | '本カク' | '本カクW'
   | 'Fショ' | '本ショ'
   | 'FP' | '本P'
@@ -794,6 +798,10 @@ export const castMenuItems: CastMenuItem[] = [
   // ─── Lドリンク (レディースドリンク) ───
   { id: 201, name: 'Lドリンク (FD)', price: 1000, cost: 200, castBack: 200, category: 'cast', subcategory: 'fdrink', backType: 'FD' },
   { id: 211, name: 'Lドリンク (本D)', price: 2000, cost: 400, castBack: 500, category: 'cast', subcategory: 'hondrink', backType: '本D' },
+  // 本DW（本Dのダブル）。価格/原価/バックは暫定値: 価格・原価は本Dの2倍
+  // （W=2倍は backRates の本カクW=本カク×2 の前例に従う）、castBack は
+  // backRates['本DW'] の暫定（本D同額）と整合。正式値は店舗確認後に管理画面で変更可能。
+  { id: 221, name: 'Lドリンク (本DW)', price: 4000, cost: 800, castBack: 500, category: 'cast', subcategory: 'hondrinkW', backType: '本DW' },
 
   // ─── Lカクテル ───
   { id: 202, name: 'Lカクテル (Fカク)', price: 1200, cost: 250, castBack: 300, category: 'cast', subcategory: 'fkaku', backType: 'Fカク' },
@@ -816,39 +824,40 @@ export const castMenuItems: CastMenuItem[] = [
 export const allMenuItems: MenuItem[] = [...guestMenuItems, ...castMenuItems]
 
 // ─── キャスト一覧 ───
-
+// 本DW の単価は暫定で本D と同額。正式単価は店舗確認後に管理画面（キャスト
+// バック単価入力）で個別変更できる。
 export const casts: Cast[] = [
   {
     id: 1, name: 'あいり', hourlyRate: 2500, guaranteeRate: 0.5, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 10, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, '本DW': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 10, 'ヘルプ': 4000 },
   },
   {
     id: 2, name: 'みく', hourlyRate: 2000, guaranteeRate: 0.45, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 10, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, '本DW': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 10, 'ヘルプ': 4000 },
   },
   {
     id: 3, name: 'れな', hourlyRate: 2500, guaranteeRate: 0.5, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 10, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, '本DW': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 10, 'ヘルプ': 4000 },
   },
   {
     id: 4, name: 'ゆい', hourlyRate: 2000, guaranteeRate: 0.4, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 10, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, '本DW': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 10, 'ヘルプ': 4000 },
   },
   {
     id: 5, name: 'りさ', hourlyRate: 3000, guaranteeRate: 0.55, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 10, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, '本DW': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 10, 'ヘルプ': 4000 },
   },
   {
     id: 6, name: 'まな', hourlyRate: 2200, guaranteeRate: 0.45, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 10, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, '本DW': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 10, 'ヘルプ': 4000 },
   },
   {
     id: 7, name: 'ひな', hourlyRate: 2000, guaranteeRate: 0.4, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 10, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, '本DW': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 10, 'ヘルプ': 4000 },
   },
   {
     id: 8, name: 'ゆずき', hourlyRate: 2500, guaranteeRate: 0.5, active: true,
-    backRates: { FD: 200, '本D': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 10, 'ヘルプ': 4000 },
+    backRates: { FD: 200, '本D': 500, '本DW': 500, 'Fカク': 300, '本カク': 400, '本カクW': 800, 'Fショ': 300, '本ショ': 500, 'FP': 300, '本P': 500, 'FB': 300, '本B': 500, '同伴': 4000, '本指名': 1500, '場内指名': 500, 'ボトルバック': 10, 'ヘルプ': 4000 },
   },
 ]
 
