@@ -69,7 +69,9 @@ export function buildPatchedAttendance(
   before: AttendanceRecord,
 ): Omit<AttendanceRecord, 'updatedAt' | 'updatedBy'> {
   const hasClockIn = typeof body.clockIn === 'string'
-  const hasClockOut = typeof body.clockOut === 'string'
+  // clockOut は string(設定) と null(終了クリア=勤務中に戻す) の両方を更新扱いに
+  // する。キー自体が無い (undefined) ときだけ before を継承。
+  const hasClockOut = body.clockOut !== undefined
   const hasBreak = body.breakMinutes !== undefined
   if (!hasClockIn && !hasClockOut && !hasBreak) {
     throw new Error('clockIn / clockOut / breakMinutes のいずれかが必要です')
@@ -77,7 +79,7 @@ export function buildPatchedAttendance(
 
   const clockIn: string = hasClockIn ? (body.clockIn as string) : before.clockIn
   const clockOut: string | null = hasClockOut
-    ? (body.clockOut as string)
+    ? (body.clockOut as string | null)
     : before.clockOut
   // breakMinutes は patch されたときだけ validate し、未指定なら before を継承
   // （before は POST 時に validate 済みなので再検査不要）。

@@ -1795,6 +1795,37 @@ function AttendanceManager({
     })
   }
 
+  // 退勤（終了）時刻の後修正。打刻済みレコードの clockOut を直して勤務時間を
+  // 再計算する（夜職の「20:00〜04:00」日跨ぎも calcWorkHours が +24h で吸収）。
+  // 空指定はクリア（勤務中に戻す）= workHours 0。
+  const handleClockOutEdit = async (record: AttendanceRecord, v: string) => {
+    if (isBusinessDateClosed(record.date, dailyReports)) return
+    const before = record.clockOut ?? null
+    const clockOut = v && /^\d{2}:\d{2}$/.test(v) ? roundClockOutHHMM(v) : null
+    if (clockOut === before) return
+    const workHours = clockOut && record.clockIn
+      ? calcWorkHours(record.clockIn, clockOut, record.breakMinutes ?? 0)
+      : 0
+    try {
+      await updateAttendance(record.id, { clockOut, workHours })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      alert(`終了時刻の保存に失敗しました: ${msg}`)
+      return
+    }
+    addAttendanceEditLog({
+      id: Date.now(),
+      recordId: record.id,
+      castId: record.staffId,
+      castName: record.staffName,
+      field: 'clockOut',
+      before,
+      after: clockOut,
+      editedAt: new Date().toISOString(),
+      editedBy: user?.displayName ?? 'スタッフ',
+    })
+  }
+
   const handleBreakUpdate = async (record: AttendanceRecord, minutes: number) => {
     if (isBusinessDateClosed(record.date, dailyReports)) return
     const oldMin = record.breakMinutes
@@ -1898,6 +1929,10 @@ function AttendanceManager({
       </div>
 
       <h3 className="text-sm font-bold text-gray-400 mb-2">本日の勤怠 ({todayBusinessDay})</h3>
+      <p className="text-[11px] text-gray-500 mb-2 leading-relaxed">
+        この画面＝<span className="text-gray-400">給与計算に使う勤務時間を確定する場所</span>。
+        開始・終了・休憩を直すと勤務時間が再計算されます（終了の入力で確定）。
+      </p>
 
       {todayRecords.length === 0 ? (
         <p className="text-sm text-gray-600">本日の出勤記録はありません</p>
@@ -1931,12 +1966,32 @@ function AttendanceManager({
                     title="出勤時刻を修正"
                   />
                   <span className="text-gray-600">〜</span>
-                  <span className="text-sm tabular-nums">{r.clockOut ?? '--:--'}</span>
+                  {/* 終了時刻も後修正可能に（夜職の 20:00〜04:00 日跨ぎ対応）。 */}
+                  <TimeInput
+                    value={r.clockOut ?? ''}
+                    onChange={(v) => handleClockOutEdit(r, v)}
+                    title="終了(退勤)時刻を修正"
+                  />
+                  {/* 終了クリア（勤務中に戻す）。TimeInput の空選択に頼らず明示ボタン。 */}
+                  {r.clockOut && (
+                    <button
+                      type="button"
+                      onClick={() => handleClockOutEdit(r, '')}
+                      className="text-[10px] text-gray-400 underline px-1"
+                      title="終了時刻をクリアして勤務中に戻す"
+                    >
+                      終了クリア
+                    </button>
+                  )}
                 </div>
               </div>
-              {/* PDF E: 15 分単位リアルタイム勤務枠 */}
+              {/* リアルタイムの現在枠（15分目安）。確定した勤務時間ではないと分かる
+                  ラベルにして「終了時刻」との誤読を防ぐ。 */}
               {realtimeRange && (
-                <div className="text-xs text-gold tabular-nums mb-1">勤務枠: {realtimeRange}</div>
+                <div className="text-xs text-gold/80 tabular-nums mb-1">
+                  現在枠(目安): {realtimeRange}
+                  <span className="text-gray-500">（確定時間ではありません）</span>
+                </div>
               )}
               <div className="flex items-center gap-3 text-xs flex-wrap">
                 <div className="flex items-center gap-1">

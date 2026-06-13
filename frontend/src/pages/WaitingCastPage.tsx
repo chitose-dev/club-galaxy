@@ -66,8 +66,12 @@ export default function WaitingCastPage() {
     | { cast: Cast; calculatedAmount: number; breakdown: DailyPayBreakdownResult }
     | null
   >(null)
+  // 勤務時間の編集（開始/終了/休憩をまとめて確定）。clockIn だけでなく
+  // clockOut・休憩も直せるようにし、保存時に workHours を即再計算する。
   const [editClockInCast, setEditClockInCast] = useState<Cast | null>(null)
   const [editClockInValue, setEditClockInValue] = useState('')
+  const [editClockOutValue, setEditClockOutValue] = useState('')
+  const [editBreakValue, setEditBreakValue] = useState(0)
 
   // 当日の出勤レコード（PDF E: 過去履歴一覧は作らない、当日のみ）。
   // 「当日」は UTC 暦日ではなく朝 5:00 境界の営業日。深夜 0〜5 時の待機/勤怠/
@@ -97,38 +101,79 @@ export default function WaitingCastPage() {
     setDailyPayTarget(null)
   }
 
-  const handleClockInEditSave = () => {
+  const openAttendanceEdit = (cast: Cast) => {
+    const rec = todayAttendanceByCastId.get(cast.id)
+    setEditClockInCast(cast)
+    setEditClockInValue(rec?.clockIn ?? '')
+    setEditClockOutValue(rec?.clockOut ?? '')
+    setEditBreakValue(rec?.breakMinutes ?? 0)
+  }
+
+  const closeAttendanceEdit = () => {
+    setEditClockInCast(null)
+    setEditClockInValue('')
+    setEditClockOutValue('')
+    setEditBreakValue(0)
+  }
+
+  // 編集ダイアログでの丸め後 (開始=切り上げ / 終了=切り捨て) の値。
+  // 終了未入力なら null（勤務中）。
+  const editRoundedIn = /^\d{2}:\d{2}$/.test(editClockInValue)
+    ? roundClockInHHMM(editClockInValue) : null
+  const editRoundedOut = /^\d{2}:\d{2}$/.test(editClockOutValue)
+    ? roundClockOutHHMM(editClockOutValue) : null
+  // プレビュー用の勤務時間（終了未確定なら null）。深夜跨ぎは calcWorkHours が
+  // +24h で吸収するので 20:00→04:00 等もそのまま正しく出る。
+  const editPreviewHours = editRoundedIn && editRoundedOut
+    ? calcWorkHours(editRoundedIn, editRoundedOut, editBreakValue)
+    : null
+
+  const handleAttendanceEditSave = async () => {
     if (!editClockInCast) return
     const rec = todayAttendanceByCastId.get(editClockInCast.id)
     if (!rec) return
     // PDF/Word 第2弾: 締め済み営業日の勤怠は修正不可（reopen 後に再開）。
     if (isBusinessDateClosed(rec.date, dailyReports)) return
-    const raw = editClockInValue
-    if (!raw || !/^\d{2}:\d{2}$/.test(raw)) return
-    // PDF E: 修正値も 15 分単位で「切り上げ」に丸める（出勤側）
-    const newClockIn = roundClockInHHMM(raw)
-    const oldClockIn = rec.clockIn ?? null
-    // clockOut があれば workHours を再計算（丸め後の値で）
-    let patch: Parameters<typeof updateAttendance>[1] = { clockIn: newClockIn }
-    if (rec.clockOut) {
-      const workHours = calcWorkHours(newClockIn, rec.clockOut, rec.breakMinutes ?? 0)
-      patch = { ...patch, workHours }
+    if (!editRoundedIn) return // 開始時刻は必須
+    const newClockIn = editRoundedIn
+    const newClockOut = editRoundedOut // null = 勤務中（終了未確定）
+    const newBreak = Math.max(0, Math.round(editBreakValue) || 0)
+    // 終了確定済みなら勤務時間を再計算（日跨ぎ対応）、未確定なら 0。
+    const workHours = newClockOut
+      ? calcWorkHours(newClockIn, newClockOut, newBreak)
+      : 0
+    // 保存成功を確認してから監査ログを残す（失敗時に「消した/直した」嘘ログが
+    // 残らないように）。clockOut=null も updateAttendance→PATCH で永続化される。
+    try {
+      await updateAttendance(rec.id, {
+        clockIn: newClockIn,
+        clockOut: newClockOut,
+        breakMinutes: newBreak,
+        workHours,
+      })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      alert(`勤務時間の保存に失敗しました: ${msg}`)
+      return
     }
-    updateAttendance(rec.id, patch)
-    // PDF E: 監査ログに修正履歴を残す
-    addAttendanceEditLog({
-      id: Date.now(),
-      recordId: rec.id,
-      castId: editClockInCast.id,
-      castName: editClockInCast.name,
-      field: 'clockIn',
-      before: oldClockIn,
-      after: newClockIn,
-      editedAt: new Date().toISOString(),
-      editedBy: user?.displayName ?? 'スタッフ',
-    })
-    setEditClockInCast(null)
-    setEditClockInValue('')
+    // 変更があったフィールドだけ監査ログに残す。
+    const now = new Date().toISOString()
+    const by = user?.displayName ?? 'スタッフ'
+    const logField = (
+      field: 'clockIn' | 'clockOut' | 'breakMinutes',
+      before: string | null, after: string | null,
+    ) => {
+      if (before === after) return
+      addAttendanceEditLog({
+        id: Date.now() + Math.floor(Math.random() * 1000),
+        recordId: rec.id, castId: editClockInCast.id, castName: editClockInCast.name,
+        field, before, after, editedAt: now, editedBy: by,
+      })
+    }
+    logField('clockIn', rec.clockIn ?? null, newClockIn)
+    logField('clockOut', rec.clockOut ?? null, newClockOut)
+    logField('breakMinutes', String(rec.breakMinutes ?? 0), String(newBreak))
+    closeAttendanceEdit()
   }
 
   // 長押し (delay 200ms) で誤発火防止。タップでは drag が始まらず編集等が可能。
@@ -288,8 +333,12 @@ export default function WaitingCastPage() {
 
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="flex-1 overflow-y-auto p-3">
-          <div className="text-[11px] text-gray-500 mb-2 px-1">
-            キャストをタップで勤務時間 / 給与明細 / 日払い。出勤・退勤は左右のエリアにドラッグ。
+          <div className="text-[11px] text-gray-500 mb-2 px-1 leading-relaxed">
+            <span className="text-gray-400">この画面＝</span>今の在店・接客中・待機中の確認用。出勤/退勤は左右へドラッグ。
+            <br />
+            勤務時間（給与計算に使う確定値）は各カードの
+            <span className="text-gold/80">「勤務時間の編集」</span>
+            で開始・終了・休憩をまとめて確定できます。「現在枠(目安)」は確定時間ではありません。
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-5xl mx-auto">
             <DroppableColumn
@@ -338,10 +387,7 @@ export default function WaitingCastPage() {
                     location={busy ? castTableMap.get(c.name) ?? null : null}
                     workRange={realtimeRange}
                     canEditClockIn={!!todayRec}
-                    onEditClockIn={todayRec ? () => {
-                      setEditClockInCast(c)
-                      setEditClockInValue(todayRec.clockIn ?? '')
-                    } : undefined}
+                    onEditClockIn={todayRec ? () => openAttendanceEdit(c) : undefined}
                     onPayslip={() => setPayslipCast(c)}
                     /* PDF/Word 第2弾: 締め済み営業日は日払い操作不可 → ボタン自体を出さない */
                     onDailyPay={
@@ -529,35 +575,78 @@ export default function WaitingCastPage() {
         operator={user?.displayName ?? user?.username}
         staffType="cast"
         breakdown={dailyPayTarget?.breakdown}
+        workTimeConfirmed={
+          !!dailyPayTarget &&
+          !!todayAttendanceByCastId.get(dailyPayTarget.cast.id)?.clockOut
+        }
+        onEditWorkTime={dailyPayTarget ? () => {
+          // 日払い→勤務時間確定への動線: 日払いを閉じて勤務時間編集を開く。
+          const c = dailyPayTarget.cast
+          setDailyPayTarget(null)
+          openAttendanceEdit(c)
+        } : undefined}
         onSubmit={submitDailyPayFromDialog}
         onClose={() => setDailyPayTarget(null)}
       />
 
-      {/* PDF E: 出勤時刻 修正ポップアップ — 当日レコードのみ対象、数字選択 input */}
+      {/* 勤務時間の編集 — 当日レコード対象。開始/終了/休憩をまとめて確定し、
+          保存時に勤務時間を即再計算する（給与計算に使う確定値はここで作る）。 */}
       <Modal
         open={!!editClockInCast}
-        onClose={() => { setEditClockInCast(null); setEditClockInValue('') }}
-        title={editClockInCast ? `${editClockInCast.name} - 出勤時刻 修正` : ''}
+        onClose={closeAttendanceEdit}
+        title={editClockInCast ? `${editClockInCast.name} - 勤務時間の編集` : ''}
         size="sm"
         footer={
           <>
-            <GhostButton onClick={() => { setEditClockInCast(null); setEditClockInValue('') }} className="flex-1">キャンセル</GhostButton>
-            <GoldButton onClick={handleClockInEditSave} className="flex-1" disabled={!/^\d{2}:\d{2}$/.test(editClockInValue)}>
-              保存
+            <GhostButton onClick={closeAttendanceEdit} className="flex-1">キャンセル</GhostButton>
+            <GoldButton onClick={handleAttendanceEditSave} className="flex-1" disabled={!editRoundedIn}>
+              保存して確定
             </GoldButton>
           </>
         }
       >
-        <div className="space-y-2">
-          <Field label="出勤時刻 (HH:MM)">
-            {/* 15分丸めの業務制約に合わせて時/分 select の TimeInput を使う。 */}
+        <div className="space-y-3">
+          <Field label="開始（出勤）時刻 HH:MM">
+            {/* 15分丸めの業務制約に合わせて時/分 select の TimeInput を使う。開始は切り上げ。 */}
             <TimeInput
               value={editClockInValue}
               onChange={(v) => setEditClockInValue(v)}
               className="w-full"
             />
           </Field>
-          <p className="text-[10px] text-gray-500">※ 修正すると当日の勤務時間 (clockOut 既存時) が自動再計算されます。</p>
+          <Field label="終了（退勤）時刻 HH:MM">
+            <TimeInput
+              value={editClockOutValue}
+              onChange={(v) => setEditClockOutValue(v)}
+              className="w-full"
+            />
+            <button
+              type="button"
+              onClick={() => setEditClockOutValue('')}
+              className="mt-1 text-[10px] text-gray-400 underline"
+            >
+              終了時刻をクリア（勤務中に戻す）
+            </button>
+          </Field>
+          <Field label="休憩（分）">
+            <NumberInput value={editBreakValue} onChange={setEditBreakValue} min={0} step={5} />
+          </Field>
+          {/* 確定後の勤務時間プレビュー。深夜跨ぎ（例 20:00〜04:00）も正しく出す。 */}
+          <div className="bg-white/[0.03] border border-white/5 rounded p-2 text-xs">
+            {editPreviewHours !== null ? (
+              <span className="text-emerald-300 tabular-nums">
+                勤務時間 {editPreviewHours.toFixed(2)} h
+                <span className="text-gray-500">（{editRoundedIn}〜{editRoundedOut}・休憩{editBreakValue}分・日跨ぎ可）</span>
+              </span>
+            ) : (
+              <span className="text-amber-300">
+                終了時刻 未入力（勤務中）。終了を入れると勤務時間が確定します。
+              </span>
+            )}
+          </div>
+          <p className="text-[10px] text-gray-500">
+            ※ 開始=15分切り上げ / 終了=15分切り捨てに丸めて保存。給与計算に使う勤務時間はこの確定値です。
+          </p>
         </div>
       </Modal>
     </div>
@@ -690,9 +779,10 @@ function DraggableCastCard(props: CardProps) {
         </div>
         <div className="text-[10px] text-gray-400 tracking-wide">
           {statusLabel}
-          {/* PDF E: 15 分単位リアルタイム勤務枠（出勤レコードがある時のみ） */}
+          {/* リアルタイムの現在枠（15分目安）。確定した勤務時間ではないことが
+              分かるよう「現在枠」ラベルを付ける（終了時刻の誤読を防ぐ）。 */}
           {workRange && variant === 'on' && (
-            <span className="ml-2 text-gold tabular-nums">{workRange}</span>
+            <span className="ml-2 text-gold/80 tabular-nums">現在枠(目安) {workRange}</span>
           )}
         </div>
       </button>
