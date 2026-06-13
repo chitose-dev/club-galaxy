@@ -460,6 +460,35 @@ check(
   )
 }
 
+// ─── clockOut クリア（勤務中に戻す）: null を明示送信する ───
+{
+  const base: AttendanceRecord = {
+    id: 400, staffId: 4, staffName: 'b', staffType: 'cast',
+    date: '2026-06-04', clockIn: '20:00', clockOut: '04:00',
+    breakMinutes: 0, workHours: 8,
+  }
+  const body = toBackendPatch({ clockOut: null }, base)
+  check(
+    'toBackendPatch: clockOut=null → body.clockOut=null（終了クリア送信）',
+    'clockOut' in body && body.clockOut === null,
+    `got ${JSON.stringify(body)}`,
+  )
+}
+{
+  // clockOut 未指定（キー無し）なら body に clockOut を含めない（従来どおり）
+  const base: AttendanceRecord = {
+    id: 401, staffId: 4, staffName: 'b', staffType: 'cast',
+    date: '2026-06-04', clockIn: '20:00', clockOut: null,
+    breakMinutes: 0, workHours: 0,
+  }
+  const body = toBackendPatch({ breakMinutes: 30 }, base)
+  check(
+    'toBackendPatch: clockOut 未指定 → body に clockOut を含めない',
+    !('clockOut' in body) && body.breakMinutes === 30,
+    `got ${JSON.stringify(body)}`,
+  )
+}
+
 if (failures > 0) {
   console.error(`\n${failures} test(s) failed`)
 } else {

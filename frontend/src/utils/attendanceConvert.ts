@@ -190,7 +190,7 @@ export function toBackendCreate(front: AttendanceRecord): BackendCreateBody {
  *  全て省略すると backend は 400 を返す。 */
 export interface BackendPatchBody {
   clockIn?: string // ISO 8601
-  clockOut?: string // ISO 8601
+  clockOut?: string | null // ISO 8601、null = 終了クリア（勤務中に戻す）
   breakMinutes?: number
 }
 
@@ -214,7 +214,11 @@ export function toBackendPatch(
     body.clockIn = hhmmToIsoJst(baseRecord.date, patch.clockIn)
   }
 
-  if (patch.clockOut !== undefined && patch.clockOut !== null) {
+  if (patch.clockOut === null) {
+    // 終了クリア（勤務中に戻す）。backend に明示 null を送って clockOut を
+    // 消し workMinutes/paidMinutes を 0 に戻させる。
+    body.clockOut = null
+  } else if (patch.clockOut !== undefined) {
     // 同 patch に clockIn が含まれていれば「新 clockIn」を基準にする。
     // 含まれていなければ baseRecord.clockIn (= 旧 clockIn HH:MM) を基準。
     const effectiveClockInHhmm =

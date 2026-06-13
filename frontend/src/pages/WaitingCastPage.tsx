@@ -128,7 +128,7 @@ export default function WaitingCastPage() {
     ? calcWorkHours(editRoundedIn, editRoundedOut, editBreakValue)
     : null
 
-  const handleAttendanceEditSave = () => {
+  const handleAttendanceEditSave = async () => {
     if (!editClockInCast) return
     const rec = todayAttendanceByCastId.get(editClockInCast.id)
     if (!rec) return
@@ -142,12 +142,20 @@ export default function WaitingCastPage() {
     const workHours = newClockOut
       ? calcWorkHours(newClockIn, newClockOut, newBreak)
       : 0
-    updateAttendance(rec.id, {
-      clockIn: newClockIn,
-      clockOut: newClockOut,
-      breakMinutes: newBreak,
-      workHours,
-    })
+    // 保存成功を確認してから監査ログを残す（失敗時に「消した/直した」嘘ログが
+    // 残らないように）。clockOut=null も updateAttendance→PATCH で永続化される。
+    try {
+      await updateAttendance(rec.id, {
+        clockIn: newClockIn,
+        clockOut: newClockOut,
+        breakMinutes: newBreak,
+        workHours,
+      })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      alert(`勤務時間の保存に失敗しました: ${msg}`)
+      return
+    }
     // 変更があったフィールドだけ監査ログに残す。
     const now = new Date().toISOString()
     const by = user?.displayName ?? 'スタッフ'

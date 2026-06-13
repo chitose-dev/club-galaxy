@@ -343,6 +343,34 @@ expectThrow(
   '不正',
 )
 
+// ─── clockOut=null で「勤務中に戻す」: clockOut クリア + work/paid 0 ───
+{
+  // 終了確定済みレコードから clockOut=null を patch → 勤務中に戻る。
+  const finalized: AttendanceRecord = {
+    ...baseRecord,
+    clockOut: '2026-06-04T23:30:00+09:00',
+    workMinutes: 240, paidMinutes: 240,
+  }
+  const after = buildPatchedAttendance({ clockOut: null }, finalized)
+  check(
+    'clockOut=null patch → clockOut クリア + workMinutes/paidMinutes 0',
+    after.clockOut === null && after.workMinutes === 0 && after.paidMinutes === 0 &&
+      after.clockIn === finalized.clockIn,
+    `got ${JSON.stringify(after)}`,
+  )
+}
+{
+  // clockOut=null は「キー無し(=据置)」ではなく更新扱い。breakMinutes 単独 patch と
+  // 違い、clockOut=null 単独でも 400 にならない。
+  let threw = false
+  try {
+    buildPatchedAttendance({ clockOut: null }, baseRecord)
+  } catch {
+    threw = true
+  }
+  check('clockOut=null 単独 patch は 400 にならない（更新扱い）', !threw)
+}
+
 if (failures > 0) {
   console.error(`\n${failures} test(s) failed`)
   process.exit(1)

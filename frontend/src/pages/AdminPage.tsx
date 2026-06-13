@@ -1972,6 +1972,17 @@ function AttendanceManager({
                     onChange={(v) => handleClockOutEdit(r, v)}
                     title="終了(退勤)時刻を修正"
                   />
+                  {/* 終了クリア（勤務中に戻す）。TimeInput の空選択に頼らず明示ボタン。 */}
+                  {r.clockOut && (
+                    <button
+                      type="button"
+                      onClick={() => handleClockOutEdit(r, '')}
+                      className="text-[10px] text-gray-400 underline px-1"
+                      title="終了時刻をクリアして勤務中に戻す"
+                    >
+                      終了クリア
+                    </button>
+                  )}
                 </div>
               </div>
               {/* リアルタイムの現在枠（15分目安）。確定した勤務時間ではないと分かる
