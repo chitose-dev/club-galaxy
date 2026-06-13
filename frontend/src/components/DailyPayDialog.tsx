@@ -41,13 +41,19 @@ export interface DailyPayDialogProps {
    *  「本日全額」ボタンが有効になる。SalaryPage のような純手入力経路では
    *  未指定でよい (= 旧来挙動)。 */
   breakdown?: DailyPayBreakdown
+  /** 勤務時間（終了時刻）が確定済みか。false のとき「終了時刻未確定」案内を出す。
+   *  既定 true = 従来挙動（SalaryPage の手入力経路は確定済み前提）。 */
+  workTimeConfirmed?: boolean
+  /** 「勤務時間を確定する」導線。渡すと未確定案内にボタンが付き、押すと勤怠
+   *  編集へ遷移できる（待機画面から日払い→終了時刻入力への自然な動線）。 */
+  onEditWorkTime?: () => void
   onSubmit: (req: DailyPayRequest) => void
   onClose: () => void
 }
 
 export default function DailyPayDialog({
   open, cast, calculatedAmount, targetDate, operator, staffType = 'cast',
-  breakdown, onSubmit, onClose,
+  breakdown, workTimeConfirmed = true, onEditWorkTime, onSubmit, onClose,
 }: DailyPayDialogProps) {
   const [amountInput, setAmountInput] = useState<string>(String(calculatedAmount))
   const [reason, setReason] = useState<string>('')
@@ -121,6 +127,25 @@ export default function DailyPayDialog({
             <> / 自動計算額: ¥{calculatedAmount.toLocaleString()}</>
           )}
         </div>
+
+        {!workTimeConfirmed && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded p-3 space-y-2 text-xs">
+            <div className="text-amber-200 font-bold">⏱ 終了時刻が未確定です（勤務中）</div>
+            <div className="text-amber-100/80 leading-relaxed">
+              終了時刻を入れると、勤務時間と日払いの目安額が自動で計算されます。
+              いま表示の目安額は時給分が 0 のため低く見える場合があります。
+            </div>
+            {onEditWorkTime && (
+              <button
+                type="button"
+                onClick={onEditWorkTime}
+                className="w-full py-1.5 rounded border border-amber-400/50 text-amber-200 text-xs font-bold hover:bg-amber-500/15"
+              >
+                勤務時間を確定する（終了時刻を入力）
+              </button>
+            )}
+          </div>
+        )}
 
         {breakdown && (
           <div className="bg-white/[0.03] border border-white/5 rounded p-3 space-y-1.5 text-xs">
