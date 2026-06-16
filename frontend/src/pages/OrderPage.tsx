@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../store'
-import type { MenuItem, CastMenuItem, OrderItem } from '../data/mock'
+import type { MenuItem, CastMenuItem, OrderItem, Table } from '../data/mock'
 import { displayOrderName, chargeItems, isAllowedSubcategory } from '../data/mock'
 import { Minus, Plus, Trash2, CreditCard, Gift, UserMinus, Check } from 'lucide-react'
 import ContextualHeader from '../components/ContextualHeader'
@@ -240,7 +240,7 @@ export default function OrderPage() {
       if (charge.id === 'banai') {
         const targets = selectedCastNames.length > 0 ? selectedCastNames : selectedTable.assignedCasts
         const merged = Array.from(new Set([...resolveBanaiCastNames(selectedTable), ...targets]))
-        updateTable(selectedTableId, { banaiCastNames: merged, isBanaiShimei: merged.length > 0 })
+        applyBanaiCastNames(merged)
       } else if (charge.id === 'douhan') {
         updateTable(selectedTableId, { isDouhan: true })
       }
@@ -319,16 +319,31 @@ export default function OrderPage() {
     })
   }
 
+  // 場内指名キャストを更新する単一の書込口。isBanaiShimei を後方互換で同期し、
+  // 1セット目（延長前 = currentSetSequence 0）の変更は baseNominationSnapshot にも
+  // 反映する。延長後は base セットの場内料がスナップショットを参照するため、ここで
+  // 同期しないと「1セット目途中で場内 → 延長 → 1セット目の場内が消える」が起きる。
+  const applyBanaiCastNames = (names: string[]) => {
+    if (!selectedTable) return
+    const patch: Partial<Table> = { banaiCastNames: names, isBanaiShimei: names.length > 0 }
+    if (currentSetSequence === 0 && selectedTable.baseNominationSnapshot) {
+      patch.baseNominationSnapshot = {
+        ...selectedTable.baseNominationSnapshot,
+        banaiCastNames: names,
+      }
+    }
+    updateTable(selectedTable.id, patch)
+  }
+
   // 場内指名はキャスト単位（banaiCastNames）。押したキャストだけを場内指名に
   // add/remove する。本指名と同じく、その子だけ場内ランプ/場内料の対象になる。
-  // isBanaiShimei は後方互換のため length>0 で同期する。
   const toggleBanaiCast = (castName: string) => {
     if (!selectedTable) return
     const current = resolveBanaiCastNames(selectedTable)
     const next = current.includes(castName)
       ? current.filter((n) => n !== castName)
       : [...current, castName]
-    updateTable(selectedTable.id, { banaiCastNames: next, isBanaiShimei: next.length > 0 })
+    applyBanaiCastNames(next)
   }
 
   // 卓全体の一括トグル。在席キャスト全員を場内指名に付け外しする
@@ -337,7 +352,7 @@ export default function OrderPage() {
     if (!selectedTable) return
     const on = resolveBanaiCastNames(selectedTable).length > 0
     const next = on ? [] : [...selectedTable.assignedCasts]
-    updateTable(selectedTable.id, { banaiCastNames: next, isBanaiShimei: next.length > 0 })
+    applyBanaiCastNames(next)
   }
 
   // 「女の子を追加」モーダルでの選択トグル / 一括移動。

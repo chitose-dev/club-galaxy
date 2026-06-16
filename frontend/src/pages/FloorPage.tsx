@@ -958,7 +958,16 @@ export default function FloorPage() {
                     <button
                       onClick={() => {
                         const next = banaiOn ? [] : [...selected.assignedCasts]
-                        updateTable(selected.id, { banaiCastNames: next, isBanaiShimei: next.length > 0 })
+                        // 1セット目（延長前）の変更は base スナップショットにも同期し、
+                        // 延長後に 1セット目の場内料が消えないようにする。
+                        const inBaseSet = (selected.extensionHistory?.length ?? 0) === 0
+                        updateTable(selected.id, {
+                          banaiCastNames: next,
+                          isBanaiShimei: next.length > 0,
+                          ...(inBaseSet && selected.baseNominationSnapshot
+                            ? { baseNominationSnapshot: { ...selected.baseNominationSnapshot, banaiCastNames: next } }
+                            : {}),
+                        })
                       }}
                       className={`text-xs px-3 py-1 rounded-full border ${banaiOn ? 'bg-gold/20 border-gold text-gold' : 'bg-white/5 border-white/10 text-gray-500'}`}
                     >

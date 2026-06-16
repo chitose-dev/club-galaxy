@@ -237,6 +237,24 @@ function testAdapterBanaiLegacyFallback(): void {
   eq('Adapter-後方互換: 明示banaiCastNamesと同額', rE.sets[0].banaiFee, rL.sets[0].banaiFee)
 }
 
+// 回帰: 1セット目途中で場内を付けた場合、baseNominationSnapshot.banaiCastNames へ
+// 同期されていれば延長後も 1セット目の場内料が残る（OrderPage applyBanaiCastNames が
+// currentSetSequence 0 のときスナップショットを更新する前提）。同期漏れ=base 0 だと露見。
+function testAdapterBanaiBaseSnapshotAfterExtension(): void {
+  const table: VisitTableLike = {
+    guestCount: 4, setCount: 1, startTime: '22:30',
+    mainNominationCastNames: [], isDouhan: false,
+    banaiCastNames: ['まい'],
+    assignedCasts: ['まい', 'ゆい', 'あい', 'みく'],
+    baseNominationSnapshot: { mainNominationCastNames: [], banaiCastNames: ['まい'], douhanCount: 0 },
+    extensionHistory: [{ minutes: 60, nominatedCastNames: [], banaiCastNames: [] }],
+    orders: [],
+  }
+  const r = calcVisitBreakdown(buildVisitBreakdownInput(table, { ...RATES, baseSetUnit: 5000 }))
+  eq('Adapter-回帰: 延長後も1セット目場内=snapshot1名×500', r.sets[0].banaiFee, 500)
+  eq('Adapter-回帰: EX1の場内は継承なしで0', r.sets[1].banaiFee, 0)
+}
+
 // TAX のセット按分（利用明細 / 延長確認のセット別 TAX・合計表示）。
 function testAllocatePerSetTax(): void {
   // 2セット・小計按分。端数は最終セットが吸収し、Σ=visit TAX を保証する。
@@ -307,6 +325,7 @@ function main(): number {
   testAdapterBaseOnly()
   testAdapterBanaiPerCast()
   testAdapterBanaiLegacyFallback()
+  testAdapterBanaiBaseSnapshotAfterExtension()
   testAllocatePerSetTax()
   console.log(failures === 0 ? '\nAll calcVisitBreakdown tests passed.' : `\n${failures} test(s) FAILED.`)
   return failures
