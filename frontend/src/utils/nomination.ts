@@ -1,6 +1,36 @@
 import type { Table } from '../data/mock'
 
-type NominationFields = Pick<Table, 'mainNominationCastNames' | 'isDouhan' | 'isBanaiShimei'>
+type NominationFields = Pick<
+  Table,
+  'mainNominationCastNames' | 'isDouhan' | 'isBanaiShimei' | 'banaiCastNames' | 'assignedCasts'
+>
+
+type BanaiFields = Pick<Table, 'banaiCastNames' | 'isBanaiShimei' | 'assignedCasts'>
+
+/**
+ * 場内指名キャストの実体リストを解決する（単一の真実）。
+ *
+ * 場内指名はキャスト単位で保持する（`banaiCastNames`）。卓全体フラグだった
+ * 旧データには `banaiCastNames` が無いため、その場合のみ旧 `isBanaiShimei`
+ * から後方互換で導出する（フラグ卓は assignedCasts 全員が場内）。
+ *
+ * これにより請求・表示・延長継承のすべてが同じ基準を参照し、未設定の
+ * 既存データでも従来と同じ人数（=同じ請求額）になる。
+ */
+export function resolveBanaiCastNames(table: BanaiFields): string[] {
+  if (table.banaiCastNames) return table.banaiCastNames
+  return table.isBanaiShimei ? [...(table.assignedCasts ?? [])] : []
+}
+
+/** 場内指名キャストが 1 名以上いるか。 */
+export function hasBanaiNomination(table: BanaiFields): boolean {
+  return resolveBanaiCastNames(table).length > 0
+}
+
+/** 指定キャストが場内指名対象か。 */
+export function isCastBanai(table: BanaiFields, castName: string): boolean {
+  return resolveBanaiCastNames(table).includes(castName)
+}
 
 /**
  * 追補02 R1 / R9 + 追補03 R24 (本指名複数対応) 準拠の指名ラベル生成。
@@ -20,7 +50,7 @@ export function getNominationLabel(table: NominationFields): string {
   const names = table.mainNominationCastNames ?? []
   if (names.length > 0) {
     parts.push(`本指名 ${names.join(', ')}`)
-  } else if (table.isBanaiShimei) {
+  } else if (hasBanaiNomination(table)) {
     parts.push('場内指名')
   }
   if (table.isDouhan) parts.push('同伴')
@@ -34,10 +64,11 @@ export function getNominationLabel(table: NominationFields): string {
  */
 export function getNominationBadge(table: NominationFields): string {
   const hasMain = (table.mainNominationCastNames ?? []).length > 0
+  const hasBanai = hasBanaiNomination(table)
   if (hasMain && table.isDouhan) return '本指名+同伴'
   if (hasMain) return '本指名'
-  if (table.isBanaiShimei && table.isDouhan) return '場内+同伴'
-  if (table.isBanaiShimei) return '場内指名'
+  if (hasBanai && table.isDouhan) return '場内+同伴'
+  if (hasBanai) return '場内指名'
   if (table.isDouhan) return '同伴'
   return 'フリー'
 }

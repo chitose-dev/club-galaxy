@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../store'
-import type { MenuItem, CastMenuItem, OrderItem } from '../data/mock'
+import type { MenuItem, CastMenuItem, OrderItem, Table } from '../data/mock'
 import { displayOrderName, chargeItems, isAllowedSubcategory } from '../data/mock'
 import { Minus, Plus, Trash2, CreditCard, Gift, UserMinus, Check } from 'lucide-react'
 import ContextualHeader from '../components/ContextualHeader'
@@ -12,6 +12,7 @@ import { Input, Field as FormField } from '../components/Input'
 import { GoldButton, DangerButton, GhostButton } from '../components/Buttons'
 import { formatTimeRange, getCurrentSetRange, getSetLabel } from '../utils/setCountLabel'
 import { getTodayBusinessDay } from '../utils/businessDay'
+import { resolveBanaiCastNames } from '../utils/nomination'
 
 // ISSUE-009: 'bottle' カテゴリ廃止（ボトルキープ管理ページに集約）
 type CategoryKey =
@@ -205,8 +206,8 @@ export default function OrderPage() {
   const NOMINATION_IDS = new Set(['shimei', 'banai', 'douhan'])
   const isNominationAlreadyAppliedToTable = (chargeId: string): boolean => {
     if (!selectedTable) return false
-    // 本指名は複数対応のため「適用済みで打ち切り」にはしない（常に追加可）。
-    if (chargeId === 'banai') return !!selectedTable.isBanaiShimei
+    // 本指名・場内はキャスト単位で複数対応のため「適用済みで打ち切り」にしない
+    // （別のキャストに追加できる）。同伴のみ卓単位フラグなので打ち切る。
     if (chargeId === 'douhan') return !!selectedTable.isDouhan
     return false
   }
@@ -234,9 +235,12 @@ export default function OrderPage() {
         alert(`このセットには既に「${charge.label}」が設定されています`)
         return
       }
-      // 会計は assignedCasts.length × 単価 で算出（卓全員に適用）。
+      // 場内指名はキャスト単位。選択中のキャストに付ける（無選択なら在席全員）。
+      // 会計は banaiCastNames.length × 単価。
       if (charge.id === 'banai') {
-        updateTable(selectedTableId, { isBanaiShimei: true })
+        const targets = selectedCastNames.length > 0 ? selectedCastNames : selectedTable.assignedCasts
+        const merged = Array.from(new Set([...resolveBanaiCastNames(selectedTable), ...targets]))
+        applyBanaiCastNames(merged)
       } else if (charge.id === 'douhan') {
         updateTable(selectedTableId, { isDouhan: true })
       }
@@ -315,14 +319,40 @@ export default function OrderPage() {
     })
   }
 
-  // 場内指名も卓単位フラグ。メニュー側ボタン・名前横バッジ・このトグルが
-  // すべて isBanaiShimei を真の truth として参照するため、どこから操作しても
-  // 表示が連動する。同伴と同じく off 導線をここで担保する。
-  const toggleBanai = () => {
+  // 場内指名キャストを更新する単一の書込口。isBanaiShimei を後方互換で同期し、
+  // 1セット目（延長前 = currentSetSequence 0）の変更は baseNominationSnapshot にも
+  // 反映する。延長後は base セットの場内料がスナップショットを参照するため、ここで
+  // 同期しないと「1セット目途中で場内 → 延長 → 1セット目の場内が消える」が起きる。
+  const applyBanaiCastNames = (names: string[]) => {
     if (!selectedTable) return
-    updateTable(selectedTable.id, {
-      isBanaiShimei: selectedTable.isBanaiShimei ? false : true,
-    })
+    const patch: Partial<Table> = { banaiCastNames: names, isBanaiShimei: names.length > 0 }
+    if (currentSetSequence === 0 && selectedTable.baseNominationSnapshot) {
+      patch.baseNominationSnapshot = {
+        ...selectedTable.baseNominationSnapshot,
+        banaiCastNames: names,
+      }
+    }
+    updateTable(selectedTable.id, patch)
+  }
+
+  // 場内指名はキャスト単位（banaiCastNames）。押したキャストだけを場内指名に
+  // add/remove する。本指名と同じく、その子だけ場内ランプ/場内料の対象になる。
+  const toggleBanaiCast = (castName: string) => {
+    if (!selectedTable) return
+    const current = resolveBanaiCastNames(selectedTable)
+    const next = current.includes(castName)
+      ? current.filter((n) => n !== castName)
+      : [...current, castName]
+    applyBanaiCastNames(next)
+  }
+
+  // 卓全体の一括トグル。在席キャスト全員を場内指名に付け外しする
+  // （無選択時の従来「卓全員場内」挙動の置き換え）。個別調整は上の per-cast で。
+  const toggleBanaiAll = () => {
+    if (!selectedTable) return
+    const on = resolveBanaiCastNames(selectedTable).length > 0
+    const next = on ? [] : [...selectedTable.assignedCasts]
+    applyBanaiCastNames(next)
   }
 
   // 「女の子を追加」モーダルでの選択トグル / 一括移動。
@@ -578,19 +608,26 @@ export default function OrderPage() {
             {selectedTable.isDouhan ? '☑ 同伴あり' : '☐ 同伴なし'}
           </button>
 
-          {/* 場内指名フラグの卓単位トグル。メニュー側「場内指名」ボタンと同じ
-              isBanaiShimei を見て連動し、ここで OFF にも戻せる。 */}
-          <button
-            onClick={toggleBanai}
-            className={`mb-2 w-full text-[11px] py-1.5 rounded-md border transition-colors ${
-              selectedTable.isBanaiShimei
-                ? 'bg-blue-500/20 border-blue-400/50 text-blue-200 font-bold'
-                : 'bg-white/5 border-white/10 text-gray-400 hover:text-blue-200 hover:border-blue-400/30'
-            }`}
-            title="この卓の場内指名フラグを切り替え"
-          >
-            {selectedTable.isBanaiShimei ? '☑ 場内指名あり' : '☐ 場内指名なし'}
-          </button>
+          {/* 場内指名の卓全体トグル（在席全員を一括で付け外し）。個別キャストは
+              下のキャスト行「場内」ボタンで増減する。両方とも banaiCastNames を
+              真の値として参照するので表示は連動する。 */}
+          {(() => {
+            const banaiNames = resolveBanaiCastNames(selectedTable)
+            const banaiOn = banaiNames.length > 0
+            return (
+              <button
+                onClick={toggleBanaiAll}
+                className={`mb-2 w-full text-[11px] py-1.5 rounded-md border transition-colors ${
+                  banaiOn
+                    ? 'bg-blue-500/20 border-blue-400/50 text-blue-200 font-bold'
+                    : 'bg-white/5 border-white/10 text-gray-400 hover:text-blue-200 hover:border-blue-400/30'
+                }`}
+                title="在席キャスト全員の場内指名を一括で付け外し"
+              >
+                {banaiOn ? `☑ 場内指名 ${banaiNames.length}名` : '☐ 場内指名なし（全員に付ける）'}
+              </button>
+            )
+          })()}
 
           <div className="grid grid-cols-1 gap-1.5">
             <CastChip
@@ -603,7 +640,7 @@ export default function OrderPage() {
                 同伴は卓単位フラグなので上のトグルへ移動済み。 */}
             {selectedTable.assignedCasts.map((name: string) => {
               const isMain = selectedTable.mainNominationCastNames.includes(name)
-              const isBanai = !!selectedTable.isBanaiShimei && !isMain
+              const isBanai = resolveBanaiCastNames(selectedTable).includes(name)
               return (
                 <div key={name} className="flex items-stretch gap-1">
                   <CastChip
@@ -626,9 +663,18 @@ export default function OrderPage() {
                     >
                       {isMain ? '★本指名' : '☆本指名'}
                     </button>
-                    {isBanai && (
-                      <span className="text-[10px] leading-tight px-1.5 py-0.5 rounded bg-blue-500/30 text-blue-200 font-bold tracking-tight text-center">場内</span>
-                    )}
+                    {/* 場内指名はキャスト単位のトグル。押した子だけ場内ランプ/場内料。 */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggleBanaiCast(name) }}
+                      className={`text-[11px] leading-tight px-1 py-1.5 rounded font-bold tracking-tight transition-colors min-h-[34px] ${
+                        isBanai
+                          ? 'bg-blue-500/30 text-blue-200 hover:bg-blue-500/40'
+                          : 'bg-white/5 text-gray-400 hover:bg-blue-500/20 hover:text-blue-200'
+                      }`}
+                      title={isBanai ? '場内指名を解除' : '場内指名にする'}
+                    >
+                      {isBanai ? '☑場内' : '☐場内'}
+                    </button>
                     <span className="text-[10px] leading-tight px-1 py-0.5 rounded bg-gold/20 text-gold font-bold tracking-tight tabular-nums text-center">{selectedTable.number}卓</span>
                   </div>
                 </div>

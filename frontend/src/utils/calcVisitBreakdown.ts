@@ -50,6 +50,8 @@ export interface BreakdownSetInput {
   honShimeiCount: number
   /** このセットで有効な場内指名の人数。 */
   banaiCount: number
+  /** このセットで有効な場内指名キャスト名（「誰の場内か」表示用。料金は banaiCount×単価）。 */
+  banaiCastNames?: string[]
   /** このセットで有効な同伴の人数（通常 base のみ）。 */
   douhanCount: number
 }
@@ -213,6 +215,8 @@ export interface VisitTableLike {
   startTime: string | null
   mainNominationCastNames: string[]
   isBanaiShimei?: boolean
+  /** 場内指名キャスト（個別）。未設定なら isBanaiShimei へフォールバック。 */
+  banaiCastNames?: string[]
   isDouhan?: boolean
   assignedCasts: string[]
   setDiscountPerSet?: number
@@ -273,14 +277,20 @@ export function buildVisitBreakdownInput(t: VisitTableLike, rates: VisitBreakdow
   const n = ex.length
   const baseSetFee = Math.max(0, rates.baseSetUnit - (t.setDiscountPerSet ?? 0)) * guests * Math.max(1, t.setCount || 1)
 
-  // 現行 billing 準拠の現フラグ由来 count（0EX の base、および fallback に使う）。
+  // 現フラグ由来 count（0EX の base、および fallback に使う）。
+  // 場内はキャスト単位 banaiCastNames を解決（未設定の旧データは isBanaiShimei
+  // ? assignedCasts : [] へフォールバックするので従来の人数・請求額と一致）。
   const currentHon = t.mainNominationCastNames.length
-  const currentBanai = t.isBanaiShimei ? t.assignedCasts.length : 0
+  // 場内はキャスト単位。未設定の旧データのみ isBanaiShimei ? assignedCasts : []
+  // へフォールバック（resolveBanaiCastNames と同一規則。本モジュールは mock/React
+  // 非依存を保つためインライン）。名前も保持して「誰の場内か」を表示できるようにする。
+  const currentBanaiNames = t.banaiCastNames ?? (t.isBanaiShimei ? t.assignedCasts : [])
   const currentDouhan = t.isDouhan ? t.assignedCasts.length : 0
 
   const baseSnap = t.baseNominationSnapshot
   const baseHon = n === 0 ? currentHon : (baseSnap ? baseSnap.mainNominationCastNames.length : currentHon)
-  const baseBanai = n === 0 ? currentBanai : (baseSnap ? baseSnap.banaiCastNames.length : currentBanai)
+  // 0EX は現在の場内キャスト、≥1EX は 1Set目スナップショット（無ければ現在へ fallback）。
+  const baseBanaiNames = n === 0 ? currentBanaiNames : (baseSnap ? baseSnap.banaiCastNames : currentBanaiNames)
   const baseDouhan = n === 0 ? currentDouhan : (baseSnap ? baseSnap.douhanCount : currentDouhan)
 
   const sets: BreakdownSetInput[] = [{
@@ -289,19 +299,22 @@ export function buildVisitBreakdownInput(t: VisitTableLike, rates: VisitBreakdow
     minutes: 60,
     setFee: baseSetFee,
     honShimeiCount: baseHon,
-    banaiCount: baseBanai,
+    banaiCount: baseBanaiNames.length,
+    banaiCastNames: baseBanaiNames,
     douhanCount: baseDouhan,
   }]
 
   ex.forEach((e, i) => {
     const extUnit = e.minutes === 30 ? rates.extPrice30 : rates.extPrice60
+    const exBanaiNames = e.banaiCastNames ?? []
     sets.push({
       kind: 'extension',
       label: e.minutes === 30 ? `EX(${i + 1})半` : `EX(${i + 1})`,
       minutes: e.minutes,
       setFee: extUnit * guests,
       honShimeiCount: e.nominatedCastNames?.length ?? 0,
-      banaiCount: e.banaiCastNames?.length ?? 0,
+      banaiCount: exBanaiNames.length,
+      banaiCastNames: exBanaiNames,
       douhanCount: 0,
     })
   })

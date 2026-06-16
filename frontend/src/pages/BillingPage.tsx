@@ -4,7 +4,7 @@ import { useStore } from '../store'
 import { useAuth } from '../auth'
 import { getSetPriceForTime } from '../data/mock'
 import type { DiscountLog, BillingRecord, IssuedReceipt } from '../data/mock'
-import { getNominationLabel } from '../utils/nomination'
+import { getNominationLabel, resolveBanaiCastNames } from '../utils/nomination'
 import { Printer, CheckCircle, ArrowLeft, CreditCard, ChevronDown, ChevronUp, Lock } from 'lucide-react'
 import ContextualHeader from '../components/ContextualHeader'
 import VisitBreakdownView from '../components/VisitBreakdownView'
@@ -618,7 +618,7 @@ export default function BillingPage() {
   const calcNominationFees = (t: import('../data/mock').Table) => {
     const honShimei = (t.mainNominationCastNames?.length ?? 0) * honShimeiUnit
     const douhan = t.isDouhan ? (t.assignedCasts?.length ?? 0) * douhanUnit : 0
-    const banai = t.isBanaiShimei ? (t.assignedCasts?.length ?? 0) * banaiShimeiUnit : 0
+    const banai = resolveBanaiCastNames(t).length * banaiShimeiUnit
     return honShimei + douhan + banai
   }
   const drinkTotal = table.orders.reduce((sum, o) => sum + o.menuItem.price * o.quantity, 0)
@@ -696,7 +696,7 @@ export default function BillingPage() {
               <div className="flex justify-between text-xs text-gray-400 pl-3"><span>本指名料 x{s.honShimeiCount}</span><span className="tabular-nums">¥{s.honShimeiFee.toLocaleString()}</span></div>
             )}
             {s.banaiFee > 0 && (
-              <div className="flex justify-between text-xs text-gray-400 pl-3"><span>場内指名料 x{s.banaiCount}</span><span className="tabular-nums">¥{s.banaiFee.toLocaleString()}</span></div>
+              <div className="flex justify-between text-xs text-gray-400 pl-3"><span>場内指名料 {s.banaiCastNames && s.banaiCastNames.length > 0 ? s.banaiCastNames.join('・') : `x${s.banaiCount}`}</span><span className="tabular-nums">¥{s.banaiFee.toLocaleString()}</span></div>
             )}
             {s.douhanFee > 0 && (
               <div className="flex justify-between text-xs text-gray-400 pl-3"><span>同伴料 x{s.douhanCount}</span><span className="tabular-nums">¥{s.douhanFee.toLocaleString()}</span></div>

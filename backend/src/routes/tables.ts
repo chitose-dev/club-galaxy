@@ -149,6 +149,7 @@ tablesRouter.post('/:id/reset', async (req, res) => {
       mainNominationCastNames: [],
       isDouhan: false,
       isBanaiShimei: false,
+      banaiCastNames: [],
       setCount: 0,
       orders: [],
       checkTicketPrintedAt: null,

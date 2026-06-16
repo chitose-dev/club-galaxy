@@ -207,6 +207,60 @@ function testAdapterBaseOnly(): void {
   eq('Adapter-0EX: 場内=assignedCasts全員2×500(現行踏襲)', r.sets[0].banaiFee, 1000)
 }
 
+// 場内指名のキャスト単位化: 在席4名でも banaiCastNames に入れた1名だけ場内料。
+function testAdapterBanaiPerCast(): void {
+  const table: VisitTableLike = {
+    guestCount: 4, setCount: 1, startTime: '22:30',
+    mainNominationCastNames: [], isDouhan: false,
+    banaiCastNames: ['まい'],
+    assignedCasts: ['まい', 'ゆい', 'あい', 'みく'],
+    orders: [],
+  }
+  const r = calcVisitBreakdown(buildVisitBreakdownInput(table, { ...RATES, baseSetUnit: 5000 }))
+  eq('Adapter-場内キャスト単位: 4名中1名のみ場内→1×500', r.sets[0].banaiFee, 500)
+  check('Adapter-場内キャスト単位: 明細に場内キャスト名を保持',
+    JSON.stringify(r.sets[0].banaiCastNames) === JSON.stringify(['まい']),
+    `banaiCastNames=${JSON.stringify(r.sets[0].banaiCastNames)}`)
+}
+
+// 後方互換: banaiCastNames 未設定の旧データは isBanaiShimei ? assignedCasts : [] と同額。
+function testAdapterBanaiLegacyFallback(): void {
+  const legacy: VisitTableLike = {
+    guestCount: 3, setCount: 1, startTime: '22:30',
+    mainNominationCastNames: [], isBanaiShimei: true, isDouhan: false,
+    assignedCasts: ['あ', 'い', 'う'],
+    orders: [],
+  }
+  const explicit: VisitTableLike = {
+    ...legacy, isBanaiShimei: undefined, banaiCastNames: ['あ', 'い', 'う'],
+  }
+  const rL = calcVisitBreakdown(buildVisitBreakdownInput(legacy, { ...RATES, baseSetUnit: 5000 }))
+  const rE = calcVisitBreakdown(buildVisitBreakdownInput(explicit, { ...RATES, baseSetUnit: 5000 }))
+  eq('Adapter-後方互換: 旧フラグ卓は全員場内3×500', rL.sets[0].banaiFee, 1500)
+  eq('Adapter-後方互換: 明示banaiCastNamesと同額', rE.sets[0].banaiFee, rL.sets[0].banaiFee)
+}
+
+// 回帰: 1セット目途中で場内を付けた場合、baseNominationSnapshot.banaiCastNames へ
+// 同期されていれば延長後も 1セット目の場内料が残る（OrderPage applyBanaiCastNames が
+// currentSetSequence 0 のときスナップショットを更新する前提）。同期漏れ=base 0 だと露見。
+function testAdapterBanaiBaseSnapshotAfterExtension(): void {
+  const table: VisitTableLike = {
+    guestCount: 4, setCount: 1, startTime: '22:30',
+    mainNominationCastNames: [], isDouhan: false,
+    banaiCastNames: ['まい'],
+    assignedCasts: ['まい', 'ゆい', 'あい', 'みく'],
+    baseNominationSnapshot: { mainNominationCastNames: [], banaiCastNames: ['まい'], douhanCount: 0 },
+    extensionHistory: [{ minutes: 60, nominatedCastNames: [], banaiCastNames: [] }],
+    orders: [],
+  }
+  const r = calcVisitBreakdown(buildVisitBreakdownInput(table, { ...RATES, baseSetUnit: 5000 }))
+  eq('Adapter-回帰: 延長後も1セット目場内=snapshot1名×500', r.sets[0].banaiFee, 500)
+  eq('Adapter-回帰: EX1の場内は継承なしで0', r.sets[1].banaiFee, 0)
+  check('Adapter-回帰: base明細に1セット目場内キャスト名',
+    JSON.stringify(r.sets[0].banaiCastNames) === JSON.stringify(['まい']),
+    `banaiCastNames=${JSON.stringify(r.sets[0].banaiCastNames)}`)
+}
+
 // TAX のセット按分（利用明細 / 延長確認のセット別 TAX・合計表示）。
 function testAllocatePerSetTax(): void {
   // 2セット・小計按分。端数は最終セットが吸収し、Σ=visit TAX を保証する。
@@ -275,6 +329,9 @@ function main(): number {
   testAdapterUseExtendTablePath()
   testAdapterExtensionConfirmPath()
   testAdapterBaseOnly()
+  testAdapterBanaiPerCast()
+  testAdapterBanaiLegacyFallback()
+  testAdapterBanaiBaseSnapshotAfterExtension()
   testAllocatePerSetTax()
   console.log(failures === 0 ? '\nAll calcVisitBreakdown tests passed.' : `\n${failures} test(s) FAILED.`)
   return failures

@@ -488,6 +488,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               mainNominationCastNames: [],
               isDouhan: undefined,
               isBanaiShimei: undefined,
+              banaiCastNames: undefined,
               setCount: 0,
               orders: [],
               checkTicketPrintedAt: null,
