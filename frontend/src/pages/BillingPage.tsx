@@ -696,7 +696,7 @@ export default function BillingPage() {
               <div className="flex justify-between text-xs text-gray-400 pl-3"><span>本指名料 x{s.honShimeiCount}</span><span className="tabular-nums">¥{s.honShimeiFee.toLocaleString()}</span></div>
             )}
             {s.banaiFee > 0 && (
-              <div className="flex justify-between text-xs text-gray-400 pl-3"><span>場内指名料 x{s.banaiCount}</span><span className="tabular-nums">¥{s.banaiFee.toLocaleString()}</span></div>
+              <div className="flex justify-between text-xs text-gray-400 pl-3"><span>場内指名料 {s.banaiCastNames && s.banaiCastNames.length > 0 ? s.banaiCastNames.join('・') : `x${s.banaiCount}`}</span><span className="tabular-nums">¥{s.banaiFee.toLocaleString()}</span></div>
             )}
             {s.douhanFee > 0 && (
               <div className="flex justify-between text-xs text-gray-400 pl-3"><span>同伴料 x{s.douhanCount}</span><span className="tabular-nums">¥{s.douhanFee.toLocaleString()}</span></div>

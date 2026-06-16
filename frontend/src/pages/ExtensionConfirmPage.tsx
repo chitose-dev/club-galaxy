@@ -214,7 +214,9 @@ export default function ExtensionConfirmPage() {
                     )}
                     {set.banaiCount > 0 && (
                       <div className="flex justify-between">
-                        <span>場内指名料（{set.banaiCount}名）</span>
+                        <span>場内指名料（{set.banaiCastNames && set.banaiCastNames.length > 0
+                          ? set.banaiCastNames.join('・')
+                          : `${set.banaiCount}名`}）</span>
                         <span className="tabular-nums">¥{set.banaiFee.toLocaleString()}</span>
                       </div>
                     )}

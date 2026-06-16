@@ -218,6 +218,9 @@ function testAdapterBanaiPerCast(): void {
   }
   const r = calcVisitBreakdown(buildVisitBreakdownInput(table, { ...RATES, baseSetUnit: 5000 }))
   eq('Adapter-場内キャスト単位: 4名中1名のみ場内→1×500', r.sets[0].banaiFee, 500)
+  check('Adapter-場内キャスト単位: 明細に場内キャスト名を保持',
+    JSON.stringify(r.sets[0].banaiCastNames) === JSON.stringify(['まい']),
+    `banaiCastNames=${JSON.stringify(r.sets[0].banaiCastNames)}`)
 }
 
 // 後方互換: banaiCastNames 未設定の旧データは isBanaiShimei ? assignedCasts : [] と同額。
@@ -253,6 +256,9 @@ function testAdapterBanaiBaseSnapshotAfterExtension(): void {
   const r = calcVisitBreakdown(buildVisitBreakdownInput(table, { ...RATES, baseSetUnit: 5000 }))
   eq('Adapter-回帰: 延長後も1セット目場内=snapshot1名×500', r.sets[0].banaiFee, 500)
   eq('Adapter-回帰: EX1の場内は継承なしで0', r.sets[1].banaiFee, 0)
+  check('Adapter-回帰: base明細に1セット目場内キャスト名',
+    JSON.stringify(r.sets[0].banaiCastNames) === JSON.stringify(['まい']),
+    `banaiCastNames=${JSON.stringify(r.sets[0].banaiCastNames)}`)
 }
 
 // TAX のセット按分（利用明細 / 延長確認のセット別 TAX・合計表示）。

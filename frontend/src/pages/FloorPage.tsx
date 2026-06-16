@@ -855,7 +855,8 @@ export default function FloorPage() {
           const extCharge = pendingExtend.minutes === 60 ? fullSetCharge : Math.round(fullSetCharge / 2)
           // ビデオレビュー C13: 場内指名は基本継承
           const shimeiContinue = selected.mainNominationCastNames.length * 1500
-          const banaiContinue = 500 * resolveBanaiCastNames(selected).length
+          const banaiNames = resolveBanaiCastNames(selected)
+          const banaiContinue = 500 * banaiNames.length
           const subtotal = extCharge + shimeiContinue + banaiContinue
 
           // ビデオレビュー C14: 1 セット目確定金額の表示 (税サ込み)
@@ -895,7 +896,7 @@ export default function FloorPage() {
                 )}
                 {banaiContinue > 0 && (
                   <div className="flex justify-between text-xs">
-                    <span className="text-gray-500">場内指名料 (継承 / {selected.assignedCasts.length}名)</span>
+                    <span className="text-gray-500">場内指名料 (継承 / {banaiNames.join('・')})</span>
                     <span className="tabular-nums text-gray-300">¥{banaiContinue.toLocaleString()}</span>
                   </div>
                 )}
