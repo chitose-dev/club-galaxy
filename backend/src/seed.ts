@@ -122,6 +122,7 @@ const tables: Table[] = tableNumbers.map((t) => ({
   mainNominationCastNames: [],
   isDouhan: false,
   isBanaiShimei: false,
+  banaiCastNames: [],
   setCount: 0,
   orders: [],
   ...audit(),

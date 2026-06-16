@@ -183,7 +183,16 @@ export interface Table extends AuditFields {
    */
   mainNominationCastNames: string[]
   isDouhan?: boolean
+  /**
+   * 場内指名フラグ（後方互換）。場内指名はキャスト単位で保持する
+   * banaiCastNames が真の値で、これは旧データ・旧クライアント向けに残す。
+   */
   isBanaiShimei?: boolean
+  /**
+   * 場内指名キャスト（源氏名）。卓全体ではなく個別キャスト単位で保持する。
+   * 未設定の旧データは isBanaiShimei ? assignedCasts : [] へフォールバックする。
+   */
+  banaiCastNames?: string[]
   setCount: number
   orders: OrderEmbedded[]
   checkTicketPrintedAt?: string

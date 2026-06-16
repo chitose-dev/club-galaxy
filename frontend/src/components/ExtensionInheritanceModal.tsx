@@ -3,6 +3,7 @@ import Modal from './Modal'
 import { GhostButton, GoldButton } from './Buttons'
 import { useStore } from '../store'
 import type { Table } from '../data/mock'
+import { resolveBanaiCastNames } from '../utils/nomination'
 
 /**
  * spec.md §5.2: キャスト継承選択モーダル。
@@ -43,13 +44,12 @@ export default function ExtensionInheritanceModal({ open, table, onClose, onConf
     () => table?.mainNominationCastNames ?? [],
     [table],
   )
-  // 場内指名は assignedCasts のうち mainNominationCastNames に含まれない人とする運用。
-  // isBanaiShimei フラグ卓では assignedCasts 全員、それ以外は本指名以外を場内候補扱い。
+  // 場内指名キャスト（個別）。banaiCastNames を解決し、未設定の旧データのみ
+  // isBanaiShimei ? assignedCasts : [] へフォールバックする。
   const currentBanai = useMemo(() => {
     if (!table) return []
-    if (table.isBanaiShimei) return [...table.assignedCasts]
-    return table.assignedCasts.filter((n) => !currentShimei.includes(n))
-  }, [table, currentShimei])
+    return resolveBanaiCastNames(table)
+  }, [table])
 
   // 指名形態は EX 以降「基本リセット」。本指名・場内とも継承は明示オプトイン
   // （承継したいものだけユーザーがチェック ON）。spec: EX1以降は1セットごとに

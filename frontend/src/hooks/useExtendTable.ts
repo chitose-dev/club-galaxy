@@ -88,6 +88,8 @@ export function useExtendTable() {
         // リロード後に同伴/場内指名フラグが復活してしまう）。
         isDouhan: false,
         isBanaiShimei: false,
+        // 場内指名もキャスト単位で明示クリア（リロード後の復活防止）。
+        banaiCastNames: [],
       })
     },
     [updateTable, moveCast, chargeItems, setPrices],

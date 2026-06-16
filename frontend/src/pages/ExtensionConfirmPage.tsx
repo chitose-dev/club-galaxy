@@ -18,6 +18,7 @@ import {
   formatTimeRange,
 } from '../utils/setCountLabel'
 import { calcVisitBreakdown, buildVisitBreakdownInput } from '../utils/calcVisitBreakdown'
+import { resolveBanaiCastNames } from '../utils/nomination'
 
 /**
  * spec.md §5.3: 延長交渉画面（点票レイアウト）。
@@ -135,7 +136,7 @@ export default function ExtensionConfirmPage() {
 
   const handleConfirm = () => {
     // 1. 場内指名から外したキャストを待機に戻す（assignedCasts から除外）
-    const removedBanai = (table.isBanaiShimei ? table.assignedCasts : table.assignedCasts.filter((n) => !table.mainNominationCastNames.includes(n)))
+    const removedBanai = resolveBanaiCastNames(table)
       .filter((n) => !config.keptBanaiCastNames.includes(n))
     for (const name of removedBanai) {
       moveCast(name, null)
@@ -166,6 +167,8 @@ export default function ExtensionConfirmPage() {
       extensionHistory: [...(table.extensionHistory ?? []), entry],
       mainNominationCastNames: newShimei,
       assignedCasts: nextAssigned,
+      // 場内指名はキャスト単位で継承。延長で継続選択した子だけを場内指名にする。
+      banaiCastNames: [...config.keptBanaiCastNames],
       isBanaiShimei: config.keptBanaiCastNames.length > 0,
     })
     navigate(`/table/${table.id}`)

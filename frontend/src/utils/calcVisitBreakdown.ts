@@ -213,6 +213,8 @@ export interface VisitTableLike {
   startTime: string | null
   mainNominationCastNames: string[]
   isBanaiShimei?: boolean
+  /** 場内指名キャスト（個別）。未設定なら isBanaiShimei へフォールバック。 */
+  banaiCastNames?: string[]
   isDouhan?: boolean
   assignedCasts: string[]
   setDiscountPerSet?: number
@@ -273,9 +275,14 @@ export function buildVisitBreakdownInput(t: VisitTableLike, rates: VisitBreakdow
   const n = ex.length
   const baseSetFee = Math.max(0, rates.baseSetUnit - (t.setDiscountPerSet ?? 0)) * guests * Math.max(1, t.setCount || 1)
 
-  // 現行 billing 準拠の現フラグ由来 count（0EX の base、および fallback に使う）。
+  // 現フラグ由来 count（0EX の base、および fallback に使う）。
+  // 場内はキャスト単位 banaiCastNames を解決（未設定の旧データは isBanaiShimei
+  // ? assignedCasts : [] へフォールバックするので従来の人数・請求額と一致）。
   const currentHon = t.mainNominationCastNames.length
-  const currentBanai = t.isBanaiShimei ? t.assignedCasts.length : 0
+  // 場内はキャスト単位。未設定の旧データのみ isBanaiShimei ? assignedCasts : []
+  // へフォールバック（resolveBanaiCastNames と同一規則。本モジュールは mock/React
+  // 非依存を保つためインライン）。
+  const currentBanai = (t.banaiCastNames ?? (t.isBanaiShimei ? t.assignedCasts : [])).length
   const currentDouhan = t.isDouhan ? t.assignedCasts.length : 0
 
   const baseSnap = t.baseNominationSnapshot

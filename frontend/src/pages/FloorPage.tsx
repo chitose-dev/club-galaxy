@@ -10,7 +10,7 @@ import {
   SET_DURATION_MINUTES,
   chargeItems,
 } from '../data/mock'
-import { getNominationBadge } from '../utils/nomination'
+import { getNominationBadge, resolveBanaiCastNames } from '../utils/nomination'
 import { currentTimeMs } from '../utils/businessDay'
 import {
   addMinutesToHHMM,
@@ -253,6 +253,9 @@ export default function FloorPage() {
       mainNominationCastNames: ciMainNominations,
       isDouhan: ciIsDouhan || undefined,
       isBanaiShimei: ciIsBanaiShimei || undefined,
+      // 場内指名はキャスト単位で保持。入店時の場内フラグは在席キャスト全員に
+      // 適用（従来の卓全体挙動を踏襲）。以降は卓詳細/オーダーで個別に増減できる。
+      banaiCastNames: ciIsBanaiShimei ? [...assignedNames] : [],
       setCount: 1,
       orders: autoOrders,
       setDiscountPerSet: 0,
@@ -852,7 +855,7 @@ export default function FloorPage() {
           const extCharge = pendingExtend.minutes === 60 ? fullSetCharge : Math.round(fullSetCharge / 2)
           // ビデオレビュー C13: 場内指名は基本継承
           const shimeiContinue = selected.mainNominationCastNames.length * 1500
-          const banaiContinue = selected.isBanaiShimei ? 500 * selected.assignedCasts.length : 0
+          const banaiContinue = 500 * resolveBanaiCastNames(selected).length
           const subtotal = extCharge + shimeiContinue + banaiContinue
 
           // ビデオレビュー C14: 1 セット目確定金額の表示 (税サ込み)
@@ -942,18 +945,28 @@ export default function FloorPage() {
                 )}
               </div>
 
-              {/* C13: 場内指名は継承するが変更可。トグルで外せる */}
-              {selected.isBanaiShimei !== undefined && (
-                <div className="panel p-2.5 flex items-center justify-between">
-                  <span className="text-xs text-gray-400">場内指名 (継承)</span>
-                  <button
-                    onClick={() => updateTable(selected.id, { isBanaiShimei: !selected.isBanaiShimei })}
-                    className={`text-xs px-3 py-1 rounded-full border ${selected.isBanaiShimei ? 'bg-gold/20 border-gold text-gold' : 'bg-white/5 border-white/10 text-gray-500'}`}
-                  >
-                    {selected.isBanaiShimei ? '✓ 継続' : '解除'}
-                  </button>
-                </div>
-              )}
+              {/* C13: 場内指名は継承するが変更可。ここは卓全体の一括 ON/OFF。
+                  個別キャストの場内指名はオーダー画面のキャスト行で増減する。 */}
+              {(selected.isBanaiShimei !== undefined || selected.banaiCastNames !== undefined) && (() => {
+                const banaiNames = resolveBanaiCastNames(selected)
+                const banaiOn = banaiNames.length > 0
+                return (
+                  <div className="panel p-2.5 flex items-center justify-between">
+                    <span className="text-xs text-gray-400">
+                      場内指名 (継承){banaiOn ? ` ${banaiNames.join(', ')}` : ''}
+                    </span>
+                    <button
+                      onClick={() => {
+                        const next = banaiOn ? [] : [...selected.assignedCasts]
+                        updateTable(selected.id, { banaiCastNames: next, isBanaiShimei: next.length > 0 })
+                      }}
+                      className={`text-xs px-3 py-1 rounded-full border ${banaiOn ? 'bg-gold/20 border-gold text-gold' : 'bg-white/5 border-white/10 text-gray-500'}`}
+                    >
+                      {banaiOn ? '✓ 全員継続' : '全員解除'}
+                    </button>
+                  </div>
+                )
+              })()}
 
               <p className="text-sm text-gray-400">延長してよろしいですか?</p>
             </div>

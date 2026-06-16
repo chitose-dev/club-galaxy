@@ -22,8 +22,18 @@ export interface Table {
   mainNominationCastNames: string[]
   /** 同伴フラグ (追補02 R9: 本指名と共存可) */
   isDouhan?: boolean
-  /** 場内指名フラグ (追補02 R8-5: 延長で変更可) */
+  /**
+   * 場内指名フラグ (後方互換)。場内指名はキャスト単位の banaiCastNames が
+   * 真の値で、これは旧データ・旧クライアント向けに残す。
+   */
   isBanaiShimei?: boolean
+  /**
+   * 場内指名キャスト (源氏名)。卓全体ではなく個別キャスト単位で保持する。
+   * 例: 4名入店中まいだけ場内 → ['まい']。
+   * 未設定の旧データは isBanaiShimei ? assignedCasts : [] へフォールバック
+   * する (resolveBanaiCastNames)。
+   */
+  banaiCastNames?: string[]
   setCount: number
   orders: OrderItem[]
   /** 中間チェック票が自動印字されたタイムスタンプ (同一卓での二重印字防止) */
