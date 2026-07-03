@@ -1,7 +1,6 @@
 // バックエンドAPIへのfetchラッパー。JWTをlocalStorageから読んでAuthorizationヘッダーに付与。
 
-const API_BASE = (import.meta as unknown as { env: { VITE_API_BASE_URL?: string } }).env.VITE_API_BASE_URL
-  ?? 'https://club-galaxy-backend-733762302128.asia-northeast1.run.app'
+import { resolveApiBase } from './apiBase'
 
 function getToken(): string | null {
   return localStorage.getItem('authToken')
@@ -19,7 +18,7 @@ export class ApiError extends Error {
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken()
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${resolveApiBase()}${path}`, {
     ...init,
     headers: {
       'Content-Type': 'application/json',

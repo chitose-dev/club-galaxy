@@ -2,6 +2,21 @@
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
+## 環境変数（接続先バックエンド）
+
+`VITE_API_BASE_URL` で API 接続先を指定する（`.env.example` 参照。実値は
+gitignore 済みの `.env.local` に置く）。接続先解決は `src/api/apiBase.ts` に
+一本化されている。
+
+- **ローカル開発（`npm run dev`）**: 未設定でよい。未設定時は相対 URL
+  （`/api/...`）で動き、`vite.config.ts` の proxy（`/api` →
+  `http://localhost:3001`）経由でローカル backend に繋ぐ。
+  **本番 URL へは決してフォールバックしない**（ローカルから誤って本番へ
+  書き込む事故を防ぐため）。別ポートで動かす場合のみ明示設定する。
+- **本番ビルド（`npm run build`）**: `VITE_API_BASE_URL` は **必須**。
+  未設定だと API 呼び出し時にエラーになる（接続先不明のまま別環境へ
+  繋がらないようにするため。既定の本番フォールバックは廃止済み）。
+
 Currently, two official plugins are available:
 
 - [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
