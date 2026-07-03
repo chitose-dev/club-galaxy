@@ -14,8 +14,13 @@ gitignore 済みの `.env.local` に置く）。接続先解決は `src/api/apiB
   **本番 URL へは決してフォールバックしない**（ローカルから誤って本番へ
   書き込む事故を防ぐため）。別ポートで動かす場合のみ明示設定する。
 - **本番ビルド（`npm run build`）**: `VITE_API_BASE_URL` は **必須**。
-  未設定だと API 呼び出し時にエラーになる（接続先不明のまま別環境へ
-  繋がらないようにするため。既定の本番フォールバックは廃止済み）。
+  未設定だと `vite.config.ts` の build 時ガードでビルドが失敗する
+  （デプロイ後の実行時に API エラーになるより前に止める。既定の本番
+  フォールバックは廃止済み）。
+
+本リポジトリでは本番 Cloud Run 向けの接続先を `frontend/.env.production` に
+明示済みのため、`Dockerfile` / `deploy.yml` は追加の env 注入なしで本番
+ビルドが可能。
 
 Currently, two official plugins are available:
 
