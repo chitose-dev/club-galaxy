@@ -6,6 +6,7 @@
 // React Compiler は object 依存の変化追跡を保証できないと判定して警告を出す。
 // 動作上は問題ないためファイル全体で抑制する。
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
+import { useAuth } from './auth'
 import { tablesApi } from './api/tables'
 import { castsApi } from './api/casts'
 import { billingApi } from './api/billing'
@@ -211,6 +212,11 @@ function saveCache(patch: CacheShape) {
 }
 
 export function StoreProvider({ children }: { children: ReactNode }) {
+  // ログイン状態。初回データ取得を「ログイン成立時」に再実行するために使う。
+  // SPA 内ログイン（/login → ログイン）ではマウント時点で token が無いため、
+  // user の変化を依存にしないと初回 fetch が走らず、フロアに卓が出ない
+  // （フルリロード時のみ token 有りで取得されていた）バグを防ぐ。
+  const { user } = useAuth()
   const cache = loadCache()
   // 初期値: キャッシュがあれば使う、なければ空 / mock 初期値（モック初期値は menu 系のみ残置）
   const [tables, setTables] = useState<Table[]>(cache.tables ?? [])
@@ -326,8 +332,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     const token = localStorage.getItem('authToken')
-    if (!token) {
-      // 未ログインの場合は fetch 不要、loading も解除
+    if (!user || !token) {
+      // 未ログイン（user なし）または token なしなら fetch 不要、loading も解除。
+      // user を条件に含めることで、ログアウト後に token が残っていても
+      // 取得は走らない。
       setLoading(false)
       return
     }
@@ -374,7 +382,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
       setLoading(false)
     })
-  }, [])
+    // user を依存に含める（マウント時 token 無し → ログインで user 成立 → 再取得）。
+    // user は useState 値で、login/logout 以外では参照が変わらないため多重取得しない。
+  }, [user])
   /* eslint-enable react-hooks/set-state-in-effect */
 
   // Fix D (ふうや指摘): 旧実装は local state のみ更新で backend に保存して
