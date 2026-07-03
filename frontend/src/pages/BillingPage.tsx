@@ -1157,8 +1157,13 @@ export default function BillingPage() {
                       <div className="flex justify-between text-gray-500"><span>TAX ({(taxRate * 100).toFixed(0)}%)</span><span className="tabular-nums">¥{tax.toLocaleString()}</span></div>
                       <div className="flex justify-between text-xs text-gray-600"><span>※消費税内訳</span><span className="tabular-nums">¥{consumptionTax.toLocaleString()}</span></div>
                     </div>
-                    {/* 旧→新 差分（請求総額が動いた理由を可視化）。0EX なら 0。 */}
-                    {billingDelta !== 0 && (
+                    {/* 旧→新 差分（請求総額が動いた理由を可視化）。0EX なら 0。
+                        旧/新 税前小計・差分は移行検証用の内部表示で、店員向けの
+                        情報ではない（用語が分かりにくく現場を混乱させ得る）。
+                        本番ビルドでは非表示にし、開発時（import.meta.env.DEV）だけ
+                        出す。請求ロジック（新計算で延長を正しく計上する挙動）自体は
+                        この gate と無関係にそのまま動く。 */}
+                    {import.meta.env.DEV && billingDelta !== 0 && (
                       <div className="border-t border-amber-400/20 pt-2 mt-2 space-y-1 bg-amber-500/5 rounded p-2">
                         <div className="flex justify-between text-xs"><span className="text-gray-400">旧計算 税前小計</span><span className="tabular-nums text-gray-400">¥{oldSubtotalAll.toLocaleString()}</span></div>
                         <div className="flex justify-between text-xs"><span className="text-gray-300">新計算 税前小計</span><span className="tabular-nums">¥{subtotalAll.toLocaleString()}</span></div>
