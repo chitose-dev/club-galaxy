@@ -1,8 +1,6 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
 import type { UserAccount } from './data/mock'
-
-const API_BASE = (import.meta as unknown as { env: { VITE_API_BASE_URL?: string } }).env.VITE_API_BASE_URL
-  ?? 'https://club-galaxy-backend-733762302128.asia-northeast1.run.app'
+import { resolveApiBase } from './api/apiBase'
 
 const AUTH_TOKEN_KEY = 'authToken'
 const AUTH_USER_KEY = 'club-galaxy-auth'
@@ -37,7 +35,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (username: string, pin: string): Promise<boolean> => {
     try {
-      const res = await fetch(`${API_BASE}/api/auth/login`, {
+      const res = await fetch(`${resolveApiBase()}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, pin }),
